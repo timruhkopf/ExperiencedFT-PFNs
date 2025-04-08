@@ -33,9 +33,31 @@ def main():
     curve_func(x, 0)  # Evaluate the curve for the second configuration
 
 
-    # Instantiate the FT-PFN model and fwd with it -------------------------------------------------
+    #  MAIN PIPELINE STRUCTURE PROPOSAL ---------------------------------------
+    # TODO IFBO anytime performance should be done with neps pipeline but different optimizer in
+    # separate file
+
+    # TODO logging:
+    # Dataset fold, nll / calibration, reliability scores, repeated samples over budget
+    # allcoations for a fixed total budget -- then stratified over total budgets.
+
+    # (0) Seeding
+
+    # (1) instantiate pfn model
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = ifbo.surrogate.FTPFN(version="0.0.1", device=device)
+
+    # (2) instantiate meta-train meta-test dataset from benchmark (doing a round-robin?)
+
+    # (2.1) sample the configurations & budgets
+
+    # (3) reliability evaluation (at every step?)
+
+    # (4) Collect the experience into context
+
+    # (5) evaluate with the FT-PFN  -- collect for different dataset sizes
+
+
 
 
 
