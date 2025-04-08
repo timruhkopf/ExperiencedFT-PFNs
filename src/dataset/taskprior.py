@@ -10,17 +10,12 @@ from src.ifBO_main.ifbo import Batch
 
 
 class MetaTaskPrior:
-    def __init__(self, dim_hyperparameters, dim_features, n_fidelities=None, seq_len=1000,
+    def __init__(self, dim_hyperparameters, n_fidelities=None, seq_len=1000,
                  device='cpu'):
 
-        if dim_hyperparameters is not None and "hp_dim" in dim_hyperparameters:
-            self.dim_hyperparameters = dim_hyperparameters["hp_dim"]
-        else:
-            # sample the dimensionality (i.e. hp space dim)
-            self.dim_hyperparameters = np.random.randint(1, dim_features - 1)  # beware upper bound 
-            # is exclusive!
+        # sample the dimensionality (i.e. hp space dim)
+        self.dim_hyperparameters = np.random.randint(1, dim_hyperparameters - 1)
 
-        self.dim_features = dim_features
         self.n_fidelities = n_fidelities if n_fidelities is not None else \
             int(np.round(10 ** np.random.uniform(0, 3)))
         self.seq_len = seq_len
