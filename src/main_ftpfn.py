@@ -89,15 +89,15 @@ def main():
                     single_eval_pos=modified_sep
                 )
 
-                target_context, _ = detokenize(target_batch, context_size=modified_sep)
+                target_context, target_query = detokenize(target_batch, context_size=modified_sep)
 
-                yield target_idx, target_context, modified_sep
+                yield target_idx, target_context, target_query, modified_sep
 
     x, y, original_sep = batch.x, batch.y, batch.single_eval_pos
     batch_size = batch.x.size(1)
     original_sep = copy(original_sep)
     results = {}  # Dict[Tuple[target_idx, related, single_eval_pos], float]
-    for target_idx, target_context, sep in generate_round_robin_batches(batch, max_steps=5):
+    for target_idx, target_context, _, sep in generate_round_robin_batches(batch, max_steps=5):
 
         assert sep == sum(len(curve.t) for curve in target_context), \
             f"Expected sep {sep}, but got {sum(len(curve.t) for curve in target_context)}"

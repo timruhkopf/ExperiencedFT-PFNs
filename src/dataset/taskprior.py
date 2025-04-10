@@ -197,24 +197,14 @@ class MetaTaskPrior:
 
         self.relation_prior.new_dataset()
 
-        X = []
-        Y = []
-
+        X = []; Y = []
         for task, alpha, context_size in zip(range(n_tasks), alphas, single_eval_pos):
             self.sample_related_task()
-            # sample exactly seq_len hps, but some may become inactive
-            hps = self.sample_hyperparameters()
-            cutoff_per_curve, epochs_per_curve, ordering = self.sample_dirichlet(
+            x, y = self.sample_from_task(
                 alpha=alpha,
-                single_eval_pos=context_size,
+                context_size=context_size
             )
-            x, y = self._interpret_dirichlet_sample(
-                ordering=ordering,
-                epochs_per_curve=epochs_per_curve,
-                cutoff_per_curve=cutoff_per_curve,
-                hps=hps,
-                single_eval_pos=context_size
-            )
+
             X.append(x)
             Y.append(y)
 
@@ -222,6 +212,22 @@ class MetaTaskPrior:
         Y = torch.stack(Y, dim=1).to(self.device).float()
 
         return Batch(x=X, y=Y, target_y=Y.clone(), single_eval_pos=single_eval_pos)
+
+    def sample_from_task(self, alpha, context_size):
+        # sample exactly seq_len hps, but some may become inactive
+        hps = self.sample_hyperparameters()
+        cutoff_per_curve, epochs_per_curve, ordering = self.sample_dirichlet(
+            alpha=alpha,
+            single_eval_pos=context_size,
+        )
+        x, y = self._interpret_dirichlet_sample(
+            ordering=ordering,
+            epochs_per_curve=epochs_per_curve,
+            cutoff_per_curve=cutoff_per_curve,
+            hps=hps,
+            single_eval_pos=context_size
+        )
+        return x, y
 
 
 class MetaTaskPriorSameProblem(MetaTaskPrior):
@@ -363,15 +369,15 @@ def detokenize_batch(batch: Batch) -> List[List[Curve]]:
 
 if __name__ == '__main__':
     meta_task_prior = MetaTaskPriorSameProblem(
-        dim_hyperparameters={"hp_dim": 3},
-        dim_features=10,
+        dim_hyperparameters=3,
+
         n_fidelities=100,
         seq_len=1000,
         device='cpu'
     )
 
     # Sample a batch of related tasks
-    batch = meta_task_prior.sample_batch(n_tasks=5, alphas=1, single_eval_pos=500)
+    batch = meta_task_prior.sample_batch(n_tasks=5, alphas=0.1, single_eval_pos=500)
 
     # detokenize the batch
     # fixme: detokenize function splits based on an int context_size for all tasks equally
