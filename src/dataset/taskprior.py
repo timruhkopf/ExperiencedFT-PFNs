@@ -27,6 +27,9 @@ class MetaTaskPrior:
 
         self.device = device
 
+    def __hash__(self):
+        self.relation_prior.model.__hash__()
+
     def sample_dirichlet(self, alpha: float, eps=10 ** -9, single_eval_pos: int = 500) -> \
             (np.ndarray, np.ndarray, np.ndarray):
         """
