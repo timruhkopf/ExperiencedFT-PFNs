@@ -6,7 +6,7 @@ import torch
 from ifbo.priors.ftpfn_prior import DatasetPrior
 from ifbo.utils import detokenize, Curve
 
-from src.ifBO_main.ifbo import Batch
+from ifbo import Batch
 
 
 class MetaTaskPrior:
