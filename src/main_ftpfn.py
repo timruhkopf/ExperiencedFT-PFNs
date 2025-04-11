@@ -4,7 +4,7 @@ from typing import List
 import torch
 import numpy as np
 import ifbo
-from ifbo import Curve, PredictionResult
+from ifbo import Curve, PredictionResult, BarDistribution
 from ifbo.priors.ftpfn_prior import DatasetPrior
 
 import matplotlib.pyplot as plt
@@ -50,20 +50,23 @@ def main():
     pfn_backend: TransformerModel = model.model
 
     single_eval_pos = batch.single_eval_pos[0]
-    cx, qx, cy = batch.x[:single_eval_pos], batch.x[:single_eval_pos], batch.y[:single_eval_pos, :]
+    cx, qx, cy, qy = batch.x[:single_eval_pos], batch.x[:single_eval_pos], \
+        batch.y[:single_eval_pos, :], batch.y[:single_eval_pos, :]
 
     logits = pfn_backend.forward((torch.cat([cx, qx], dim=0), cy), single_eval_pos=cx.shape[0])
+    criterion: BarDistribution = pfn_backend.criterion
+
+    # quantile
+    q = 0.05
+    lower_bound = criterion.icdf(logits, q)
+
 
     # (3) reliability evaluation (at every step?)
-    # TODO: sanity check: how do i get a curve over context lengths (amount of data from the
-    #  target_task --> take the dirichlet ordering (which is causing the token ordering in the
-    #  context)
-    # nll = []
-    # for task in related_tasks:
-    #     predictions:List[PredictionResult] = model.predict(context=task, query=target_task)
-    #     nll_score = sum([sum(-prediction.likelihood(q.y).cpu())
-    #                for prediction, q in zip(predictions, target_task)])
-    #     nll.append(nll_score)
+    nll = -criterion(logits, qy)
+    # FIXME: each task will need a sepate fwd, because of
+    # single_eval_pos that may differ, which does not work with batch, but we can check for
+    # different levels of the target task at varying lengths of the context
+
 
     def generate_round_robin_batches(batch, max_steps: int, min_context=10, stepsize=10):
         """
