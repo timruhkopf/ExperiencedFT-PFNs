@@ -10,7 +10,8 @@ from ifbo.priors.ftpfn_prior import DatasetPrior
 import matplotlib.pyplot as plt
 import logging
 
-from ifbo.utils import detokenize
+from ifbo.transformer import TransformerModel
+from ifbo.utils import detokenize, tokenize
 
 from src.dataset.taskprior import MetaTaskPriorSameProblem, detokenize_batch
 from ifbo import Batch
@@ -40,13 +41,18 @@ def main():
     model = ifbo.surrogate.FTPFN(version="0.0.1", device=device)
 
     # (2) instantiate meta-train meta-test dataset from benchmark (doing a round-robin?)
-    # TODO refactor this into a replicable dataset class
-    prior = MetaTaskPriorSameProblem(dim_hyperparameters=3, n_fidelities=None, seq_len=1000)
-    batch = prior.sample_batch(n_tasks=3, single_eval_pos=500)
-    context = detokenize_batch(batch)
+    # batched evaluation -----------------------
+    from src.dataset.taskprior import MetaTaskPriorSameProblem
+    from ifbo.transformer import TransformerModel
 
-    target_task = context[0]
-    related_tasks = context[1:]
+    prior = MetaTaskPriorSameProblem(dim_hyperparameters=3, n_fidelities=None, seq_len=1000)
+    batch = prior.sample_batch(n_tasks=5, single_eval_pos=500)
+    pfn_backend: TransformerModel = model.model
+
+    single_eval_pos = batch.single_eval_pos[0]
+    cx, qx, cy = batch.x[:single_eval_pos], batch.x[:single_eval_pos], batch.y[:single_eval_pos, :]
+
+    logits = pfn_backend.forward((torch.cat([cx, qx], dim=0), cy), single_eval_pos=cx.shape[0])
 
     # (3) reliability evaluation (at every step?)
     # TODO: sanity check: how do i get a curve over context lengths (amount of data from the
