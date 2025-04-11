@@ -66,3 +66,24 @@ class BufferedFileLogger:
             s += f.read()
 
         return s
+
+    def plot_scalar_curve(self, metric, title=None):
+        """
+        Plot the scalar curve using matplotlib.
+        """
+        import matplotlib.pyplot as plt
+        import seaborn as sns
+        import pandas as pd
+
+        df = pd.read_csv(self.file_path / self.file_name, header=0)
+        df = df[df['metric'] == metric]
+
+
+        plt.figure(figsize=(10, 6))
+        sns.lineplot(data=df, x='global_step', y='value', )
+        if title:
+            plt.title(title)
+
+        plt.xlabel("Global Step")
+        plt.ylabel("Value")
+        plt.show()
