@@ -12,6 +12,14 @@ from ifbo import Batch
 class MetaTaskPrior:
     def __init__(self, dim_hyperparameters, n_fidelities=None, seq_len=1000,
                  device='cpu'):
+        """
+
+        :param dim_hyperparameters: maximal (!) dimensionality of the hyperparameter space
+         --> WILL BE SAMPLED!
+        :param n_fidelities:
+        :param seq_len:
+        :param device:
+        """
 
         # sample the dimensionality (i.e. hp space dim)
         self.dim_hyperparameters = np.random.randint(1, dim_hyperparameters - 1)
