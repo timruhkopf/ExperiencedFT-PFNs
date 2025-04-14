@@ -2,6 +2,8 @@ import csv
 from pathlib import Path
 from typing import Dict
 
+import pandas as pd
+
 
 class BufferedFileLogger:
     def __init__(
@@ -67,23 +69,81 @@ class BufferedFileLogger:
 
         return s
 
-    def plot_scalar_curve(self, metric, title=None):
-        """
-        Plot the scalar curve using matplotlib.
+    def plot_scalar_curve(self,  metric, title=None, plot=True, figsize=(12, 6), ax=None,
+                          label=None):
+        """Plot scalar metric curve from logged data.
+
+        Args:
+            metric: Key identifying metric to plot
+            title: Plot title (optional)
+            plot: If True displays plot immediately, if False returns axis object
+            figsize: Tuple specifying figure dimensions (width, height)
+
+        Returns:
+            matplotlib.axes.Axes if plot=False, otherwise None
         """
         import matplotlib.pyplot as plt
         import seaborn as sns
-        import pandas as pd
 
-        df = pd.read_csv(self.file_path / self.file_name, header=0)
-        df = df[df['metric'] == metric]
+        self._flush()  # Ensure latest data
+
+        # Read and filter data
+        df = pd.read_csv(self.file_path / self.file_name)
+        df = df.query('metric == @metric')
+
+        if df.empty:
+            raise ValueError(f"No data found for metric: {metric}")
+
+        # Create plot
+        if ax is None:
+            plt.figure(figsize=figsize)
+
+        if label is None:
+            label = metric
+
+        ax = sns.lineplot(
+            data=df,
+            x='global_step',
+            y='value',
+            errorbar=('ci', 95),  # Add confidence intervals
+            estimator='mean' , # Aggregate if multiple runs exist
+            ax=ax,
+            label=label,
+        )
+
+        # Formatting
+        ax.set(
+            xlabel='Global Step',
+            ylabel=metric.replace('_', ' ').title(),
+            title=title or f'{metric} Development'
+        )
+        plt.tight_layout()
+
+        return ax if not plot else plt.show()
+
+if __name__ == '__main__':
+    import matplotlib.pyplot as plt
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        # Create a BufferedFileLogger instance
+        logger = BufferedFileLogger(file_name='metrics.csv', file_path=temp_dir)
+
+        # Simulate adding data
+        for step in range(1, 101):
+            logger.add_scalar('loss', step * 0.1, step)
+            logger.add_scalar('accuracy', 0.5 + (step * 0.01), step)
+
+        # Flush remaining data and close the logger
+        logger.close()
 
 
-        plt.figure(figsize=(10, 6))
-        sns.lineplot(data=df, x='global_step', y='value', )
-        if title:
-            plt.title(title)
 
-        plt.xlabel("Global Step")
-        plt.ylabel("Value")
+        # Plot loss curve
+        logger.plot_scalar_curve(metric="loss", title="Training Loss Curve")
+
+        # Plot accuracy curve (example of returning axis object)
+        ax = logger.plot_scalar_curve(metric="accuracy", plot=False)
+        ax.set_title("Accuracy Curve (Returned Axes)")
         plt.show()
+

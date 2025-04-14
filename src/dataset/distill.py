@@ -1,6 +1,7 @@
 import warnings
 from copy import deepcopy
 from functools import partial
+from typing import Union
 
 import torch
 from ifbo import BarDistribution, FTPFN
@@ -10,52 +11,18 @@ from tqdm import tqdm
 
 from src.filelogger import BufferedFileLogger
 
+import logging
 
-class DTrain(torch.utils.data.Dataset):
-
-    def __init__(self, x, y, batch_size=100, sequence_length_max=500):
-        self.x = x
-        self.y = y
-        self.batch_size = batch_size
-        self.sequence_length_max = sequence_length_max
-
-    def __len__(self):
-        return self.batch_size
-
-    def get_shuffled_data(self):
-        shuffled_indices = torch.randperm(self.x.size(0))
-        return self.x[shuffled_indices], self.y[shuffled_indices]
-
-    def get_rnd_subset_initialization(self, size):
-        """
-        Get a random subset of the data for initialization.
-
-        Args:
-            size: The size of the subset to be returned.
-
-        Returns:
-            A random subset of the data.
-        """
-        x, y = self.get_shuffled_data()
-        return x[:size], y[:size]
-
-    def __getitem__(self, idx):
-        # shuffle x and y in sequence dimension
-        x_shuffled, y_shuffled = self.get_shuffled_data()
-
-        # FIXME: is stochastisity maybe an important part here?
-        # this does not work with the batching which requires equal size:
-        # so maybe instead use shuffling with rnd src_masks?
-        # size = torch.randint(10, self.sequence_length_max, (1,)).item()
+log = logging.getLogger(__name__)
+log.setLevel(logging.DEBUG)
 
 
-        x = x_shuffled[:SIZE]
-        y = y_shuffled[:SIZE]
+def constrain(x: torch.Tensor):
+    """
+    Constrain the input tensor to ensure that the first dimension is a differentiable integer
+    (via straight-through estimator) and the remaining dimensions are constrained to the interval [0, 1]
 
-        return x.squeeze(1), y.squeeze(1)
-
-
-def constrain(x:torch.Tensor):
+    """
     # (0) straight-through estimator for integer constraint on hp index dimension
     quantized_dim0 = x[:, :, 0].round()
     ste_dim0 = quantized_dim0 - x[:, :, 0].detach() + x[:, :, 0]
@@ -69,190 +36,222 @@ def constrain(x:torch.Tensor):
         constrained_dim1,
     ], dim=-1)
 
+    assert constrained_tensor[:, :, 1:].min() >= 0, "Constrained tensor has negative values"
+    assert constrained_tensor[:, :, 1:].max() <= 1, "Constrained tensor has values greater than 1"
+
     return constrained_tensor
 
-def distill(
-        dataloader,
-        model: FTPFN,
-        optimizer: partial,
-        criterion,
-        x_init: torch.Tensor,
-        y_init: torch.Tensor,
-        logger: BufferedFileLogger,
-        n_steps=1e4,
-        val_log_frequency=10
-):
-    """
-    Ma et al 2024 In Context Data Distillation with TabPFN:
 
-    Given a new dataset D_train and a query point x to classify, its class probability is
-    computed as p θ(y|x, D_train), where D_train can be understood as the “prompt”. In-Context
-    Distillation (ICD) – similarly to prompt-tuning (Lester et al., 2021)
-    – optimizes the likelihood of the real data given the distilled one:
-    L(D_train --> D_dist) = - E_{(x,y)~D_train)} [log p(y|x, D_dist)]
-    Then, given a new point x to classify,  we use D_dist as the context and predict the label
-    arg max y p θ(y|x, D_dist)
+class DistillContextTrainer:
+    def __init__(self,
+                 model: FTPFN,
+                 optimizer: partial,
+                 criterion: BarDistribution,
+                 logger: BufferedFileLogger,
+                 device: Union[str, torch.device] = "cuda" if torch.cuda.is_available() else "cpu",
+                 ):
+        """
 
-    Args:
-        dataloader: DataLoader containing the training data.
-        model: The model to be distilled.
-        n_steps: Number of distillation steps.
-    """
-    # map the fidelity and hp [0,1] to the logit space (which we optimize)
-    x = deepcopy(x_init)
-    y = deepcopy(y_init)
+         Args:
+        :param dataloader: DataLoader containing the training data.
+        :param model: The model to be distilled.
+        :param criterion:
+        :param logger:
+        """
+        self.pfn = model
+        self.model: TransformerModel = self.pfn.model
+        self.device = device
+        self.freeze_model(self.model, device)
 
-    p = x_init[:, :, 1:]
-    x_init[:, :, 1:] = torch.log(p / (1 - p + 1e-6))
+        self.optimizer_partial = optimizer
+        self.optimizer = None
+        self.criterion = criterion
 
+        self.logger = logger
+        self.pbar = None
 
+    @staticmethod
+    def freeze_model(model, device):
+        model.to(device)
+        model.eval()
 
-    distilled_points = nn.Parameter(x_init)
-    distilled_labels = nn.Parameter(y_init)
+        for param in model.parameters():
+            param.requires_grad = False
 
-    distilled_points = distilled_points.to(device)
-    distilled_labels = distilled_labels.to(device)
+    def evaluate_same_task(self, step, dataloader, distilled_points, distilled_labels):
+        # Log the loss every 100 steps
 
-    optimizer = optimizer([distilled_points, distilled_labels])
+        # FIXME: this could be fully replaced by test_on_new_task
+        x_query, y_query = dataloader.dataset.get_shuffled_data()
+        logits = self.pfn(x_train=constrain(distilled_points).squeeze(1),
+                          y_train=distilled_labels.view(-1), x_test=x_query.squeeze(1))
 
-    pfn = model
-    model: TransformerModel = model.model
-    model.to(device)
-    model.eval()
+        # TODO for batch evaluation across more tasks
+        # x_query = x_query.permute(1, 0, 2).to(self.device)  # T x B x dim
+        # y_query = y_query.permute(1, 0).to(self.device)  # T x B
+        # do it in batched version
+        # logits = self.model(
+        # ([x_train, x_query], ytrain)
+        # torch.cat([constrain(distilled_points).expand(-1, x_query.shape[0], -1), x_query]),
+        # distilled_labels.expand(-1, x_query.shape[0])
+        # )
 
-    for param in model.parameters():
-        param.requires_grad = False
+        loss = self.criterion(logits, y_query.view(-1))
+        loss = loss.view(-1, logits.shape[1])  # sometimes the seq length can be one off
+        # that is because bar dist appends the mean
+        loss = loss.mean()
+        self.logger.add_scalar("val_loss", loss.item(), step)
+        self.pbar.set_postfix(val_loss=loss.item())
 
-    trajectory = []
-    trajectory.append(distilled_points.detach().cpu().numpy())
-    pbar = tqdm(range(int(n_steps)), desc="Distillation Progress", unit="step")
-    for step in pbar:
-        losses = []
-        for x_query, y_query in dataloader:
-            # collate is messed up, batch dim is 1
-            x_query = x_query.permute(1, 0, 2).to(device)  # T x B x dim
-            y_query = y_query.permute(1, 0).to(device)  # T x B
+    def test_on_new_task(self, context_x, context_y, task_x, task_y, task_name, by=10):
+        """
+        Evaluate the distilled context on a new task.
+        I.e. on the new task predict prepending the distilled context and then consecutively
+        adding task context, evaluating at every step from 0 to len(task_y) - 1 by "by" steps.
+        :param context_x: distilled context points (T x B x dim), T = number of tokens, B = batch size ==1, dim
+         being (hp_index, fidelity, hyperparameter vector)
+        :param context_y:
+        :param task_x:
+        :param task_y:
+        :param task_name:
+        :param by:
+        :return:
+        """
+        context_x, context_y = context_x.to(self.device), context_y.to(self.device)
+        task_x, task_y = task_x.to(self.device), task_y.to(self.device)
 
-            T, B, dim = x_query.shape
-
-            # ENFORCE PARAMAMETER CONSTRAINTS ----------------------------------
-            # The transformermodel places certain constraints on the fwd.
-            constrained_tensor = constrain(distilled_points)
-
-            # Get model predictions using distilled context
-            logits = model(
-                # ([x_train, x_query], ytrain)
-                ( # notice, that x_query comes from the dataset and thus is constrained
-                    torch.cat([constrained_tensor.expand(-1, B, -1), x_query], dim=0),
-                    distilled_labels.expand(-1, B)
+        for context_size in range(0, len(task_y), by):  # note how the final y is omitted here
+            logits = self.model(
+                (  # distilled context + observed x part of task, query for that task
+                    torch.cat([context_x, task_x[:context_size], task_x[context_size:]],
+                              dim=0),
+                    # distilled labels + observed y part of task,
+                    torch.cat([context_y, task_y[:context_size], ], dim=0)
                 ),
-                single_eval_pos=constrained_tensor.shape[0]
+                single_eval_pos=context_x.shape[0] + context_size
             )
+            # y's associated with query for that task
+            target = task_y[context_size:]
 
-            # Compute the BarDistribution NLL loss
-            loss = criterion(logits, y_query)
-            # Found in PFNs4HPO.pfns4hpo.train.py: sometimes the seq length can be one off
-            # that is because bar dist appends the mean
-            loss = loss.view(-1, logits.shape[1])
-            loss = loss.mean()
-
-            losses.append(loss)
-
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-
-
-
-            # print(distilled_points[0, 0].detach().sigmoid_())
-
-            if True:
-                trajectory.append(deepcopy(distilled_points.detach().cpu().numpy()))
-
-        logger.add_scalar("train_loss", torch.mean(torch.stack(losses)).item(), step)
-
-        if step % val_log_frequency == 0:
-            # Log the loss every 100 steps
-            x_query, y_query = dataloader.dataset.get_shuffled_data()
-            logits = pfn(x_train=constrain(distilled_points).squeeze(1),
-                           y_train=distilled_labels.view(-1), x_test=x_query.squeeze(1))
-            loss = criterion(logits, y_query.view(-1))
+            loss = self.criterion(logits, target)
             loss = loss.view(-1, logits.shape[1])  # sometimes the seq length can be one off
-            # that is because bar dist appends the mean
             loss = loss.mean()
-            logger.add_scalar("val_loss", loss.item(), step)
-            pbar.set_postfix(val_loss=loss.item())
 
+            self.logger.add_scalar(f"{task_name}", loss.item(), context_size)
 
-    trajectory = torch.tensor(trajectory)
-    trajectory[:, :, :, 1:] = trajectory[:, :, :, 1:].sigmoid_()
-    # since the original points are not enforced to live on the scale
+    def train(
+            self,
+            dataloader,
+            x_init: torch.Tensor,
+            y_init: torch.Tensor,
 
-    distilled_points = distilled_points.detach().cpu()
-    distilled_points[:, :, 1:] = torch.sigmoid(distilled_points[:, :, 1:]).detach().cpu()
+            n_steps=1e4,
+            val_log_frequency=10
+    ):
 
-    logger.trajectory = trajectory
+        """
+        Ma et al 2024 In Context Data Distillation with TabPFN:
+    
+        Given a new dataset D_train and a query point x to classify, its class probability is
+        computed as p θ(y|x, D_train), where D_train can be understood as the “prompt”. In-Context
+        Distillation (ICD) – similarly to prompt-tuning (Lester et al., 2021)
+        – optimizes the likelihood of the real data given the distilled one:
+        L(D_train --> D_dist) = - E_{(x,y)~D_train)} [log p(y|x, D_dist)]
+        Then, given a new point x to classify,  we use D_dist as the context and predict the label
+        arg max y p θ(y|x, D_dist)
+    
+        Args:
 
-    if torch.allclose(x, distilled_points):
-        warnings.warn("Distillation did not change the points. Check your optimizer and learning rate.")
-    return distilled_points, distilled_labels
+            n_steps: Number of distillation steps.
+        """
+        # map the fidelity and hp [0,1] to the logit space (which we optimize)
 
+        x = deepcopy(x_init)
+        y = deepcopy(y_init)
 
-def plot_optimization_trajectory(trajectory):
-    """
-    Plots the optimization trajectory of the distilled points in 2D.
+        p = x_init[:, :, 1:]
+        # to enforce the [0,1] constraint, we first map the values that actually
+        # live in the [0,1] space to the logit space (because during the loop we will apply sigmoid)
+        x_init[:, :, 1:] = torch.log(p / (1 - p + 1e-6))
 
-    Args:
-        trajectory: A list or numpy array containing the positions of distilled points at each step.
-                    Shape: (n_steps, n_points, dimensions)
-                    Only first two dimensions are plotted.
-    """
-    import matplotlib.pyplot as plt
-    plt.figure(figsize=(8, 8))
+        distilled_points = nn.Parameter(x_init)
+        distilled_labels = nn.Parameter(y_init)
 
-    trajectory = trajectory.squeeze(2)
+        distilled_points = distilled_points.to(self.device)
+        distilled_labels = distilled_labels.to(self.device)
 
-    n_steps = len(trajectory)
+        self.optimizer = self.optimizer_partial([distilled_points, distilled_labels])
 
-    # Plot all trajectories
-    for point_idx in range(trajectory.shape[1]):
-        plt.plot(
-            trajectory[:, point_idx, 1],
-            trajectory[:, point_idx, 2],
-            label=f"Point {point_idx}"
+        self.pbar = tqdm(range(int(n_steps)), desc="Distillation Progress", unit="step")
+        for step in self.pbar:
+            losses = []
+            for x_query, y_query in dataloader:
+                loss = self.train_step(x_query, y_query, distilled_points, distilled_labels)
+                losses.append(loss)
+
+                log.debug(
+                    f"Step {step}: Loss: {loss.item()}, Distilled Points: {distilled_points.detach().sigmoid_()}")
+
+            self.logger.add_scalar("train_loss", torch.mean(torch.stack(losses)).item(), step)
+
+            if step % val_log_frequency == 0:
+                self.evaluate_same_task(step, dataloader, distilled_points, distilled_labels)
+
+        distilled_points = distilled_points.detach().cpu()
+        distilled_points[:, :, 1:] = torch.sigmoid(distilled_points[:, :, 1:]).detach().cpu()
+
+        # logger.trajectory = trajectory
+
+        if torch.allclose(x, distilled_points) or torch.allclose(y, distilled_labels):
+            warnings.warn(
+                "Distillation did not change the points. Check your optimizer and learning rate."
+            )
+        return distilled_points, distilled_labels
+
+    def train_step(self, x_query, y_query, distilled_points, distilled_labels):
+        # collate is messed up, batch dim is 1
+        x_query = x_query.permute(1, 0, 2).to(self.device)  # T x B x dim
+        y_query = y_query.permute(1, 0).to(self.device)  # T x B
+
+        T, B, dim = x_query.shape
+
+        # ENFORCE PARAMAMETER CONSTRAINTS ----------------------------------
+        # The transformermodel places certain constraints on the fwd.
+        constrained_tensor = constrain(distilled_points)
+
+        # to ensure numerical stability:
+        with torch.no_grad():
+            constrained_tensor = torch.sigmoid(constrained_tensor).clamp(1e-3, 1 - 1e-3)
+
+        # Get model predictions using distilled context
+        logits = self.model(
+            # ([x_train, x_query], ytrain)
+            (  # notice, that x_query comes from the dataset and thus is constrained
+                torch.cat([constrained_tensor.expand(-1, B, -1), x_query], dim=0),
+                distilled_labels.expand(-1, B)
+            ),
+            single_eval_pos=constrained_tensor.shape[0]
         )
 
-    plt.scatter(
-        trajectory[0, :, 1],
-        trajectory[0, :, 2],
-        c='red',
-        label='Start',
-        marker='o'
-    )
+        # Compute the BarDistribution NLL loss
+        loss = self.criterion(logits, y_query)
+        # Found in PFNs4HPO.pfns4hpo.train.py: sometimes the seq length can be one off
+        # that is because bar dist appends the mean
+        loss = loss.view(-1, logits.shape[1])
+        loss = loss.mean()
 
-    plt.scatter(
-        trajectory[-1, :, 1],
-        trajectory[-1, :, 2],
-        c='green',
-        label='End',
-        marker='x'
-    )
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
 
-    plt.title("Optimization Trajectory of Distilled Points")
-    plt.xlabel("Dimension 1")
-    plt.ylabel("Dimension 2")
-    plt.legend()
-    plt.grid(True)
-
-    plt.show()
-
-
+        return loss
 
 
 if __name__ == '__main__':
     import ifbo
-
+    from src.dataset.dataloading import DTrain
     from src.dataset.taskprior import MetaTaskPriorSameProblem, detokenize_batch
+    from src.dataset.dataloading import collate
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     ftpfn = ifbo.surrogate.FTPFN(version="0.0.1", device=device)
@@ -261,39 +260,106 @@ if __name__ == '__main__':
     # (2) instantiate meta-train meta-test dataset from benchmark (doing a round-robin?)
     # TODO refactor this into a replicable dataset class
     prior = MetaTaskPriorSameProblem(dim_hyperparameters=3, n_fidelities=None, seq_len=1000)
-    batch = prior.sample_batch(n_tasks=1, single_eval_pos=500)
+    batch = prior.sample_batch(n_tasks=2, single_eval_pos=500)
 
     sep = batch.single_eval_pos[0]
     x, y = batch.x[:sep], batch.y[:sep]
+
+    # 0 task is the one we want to predict on
+    target_task_x = x[:, 0:1]
+    target_task_y = y[:, 0:1]
+
+    x = x[:, 1:]
+    y = y[:, 1:]
     print(x.shape, y.shape)
 
     # get random subsets of the dataset to be distilled for grad descent
     BATCH_SIZE = 100
-    SIZE = 50 # FIXME: we should randomly sample this in the collate of the dataloader and
+
     # communicate it to the dataset.
-    dtrain = DTrain(x, y, batch_size=BATCH_SIZE, sequence_length_max=500)
+    dtrain = DTrain(x, y, length=BATCH_SIZE, sequence_length_max=500)
     x_query, y_query = dtrain[0]
 
     # TODO initialize distilled points with subset of x with appropriate size
-    DISTILL_SIZE = 10
+    DISTILL_SIZE = 100  # FIXME: important hyperparameter
     x_init, y_init = dtrain.get_rnd_subset_initialization(DISTILL_SIZE)
 
     optimizer = partial(torch.optim.AdamW, lr=1e-3, weight_decay=0)
-    dataloader = torch.utils.data.DataLoader(dtrain, batch_size=BATCH_SIZE, shuffle=True)
+
+    collate_fn = partial(collate, min_length=10, max_length=500)
+    dataloader = torch.utils.data.DataLoader(
+        dtrain,
+        collate_fn=collate_fn,
+        batch_size=BATCH_SIZE,
+        shuffle=True
+    )
     logger = BufferedFileLogger(file_name="distill.csv", file_path=".", buffer_size=1000,
                                 header=("metric", "value", "global_step"))
 
-    distilled_x, distilled_y = distill(
-        dataloader,
-        ftpfn,
+    trainer = DistillContextTrainer(
+        model=ftpfn,
         optimizer=optimizer,
         criterion=pfn_backend.criterion,
         logger=logger,
+        device=device
+    )
+
+    distilled_x, distilled_y = trainer.train(
+        dataloader=dataloader,
         x_init=x_init,
         y_init=y_init,
-        n_steps=100
+        n_steps=400
     )
-    logger._flush()
-    logger.plot_scalar_curve(metric="val_loss", title="val_loss", )
-    plot_optimization_trajectory(logger.trajectory)
 
+    logger.plot_scalar_curve(metric="val_loss", title="val_loss", )
+
+    trainer.test_on_new_task(
+        distilled_x, distilled_y,
+        target_task_x, target_task_y,
+        task_name='incl. distilled context from task 0',
+        by=10
+    )
+
+    x_shape = distilled_x.shape
+    baseline_x = torch.tensor([], device=device).view(0, x_shape[1], x_shape[2])
+    baseline_y = torch.tensor([], device=device).view(0, x_shape[1])
+    trainer.test_on_new_task(
+        baseline_x, baseline_y,
+        target_task_x, target_task_y,
+        task_name='baseline (no distillation)',
+        by=10
+    )
+
+    trainer.test_on_new_task(
+        x, y,
+        target_task_x, target_task_y,
+        task_name='baseline (complete context task 0)',
+        by=10
+    )
+
+    half_x = x.shape[0] // 2
+    trainer.test_on_new_task(
+        x[:half_x], y[:half_x],
+        target_task_x, target_task_y,
+        task_name='baseline (half context task 0)',
+        by=10
+    )
+
+    import matplotlib.pyplot as plt
+    ax = None
+    for metric in ['incl. distilled context from task 0',
+                   'baseline (no distillation)',
+                   'baseline (complete context task 0)',
+                   'baseline (half context task 0)']:
+        ax = logger.plot_scalar_curve(
+            metric=metric,
+            plot=False,
+            ax=ax,
+        )
+
+
+    ax.set_xlabel("Task's Context size")
+    ax.set_ylabel("NLL Loss")
+    ax.set_title("Distilled Context + increments of the new Task (nll)", )
+    ax.legend()
+    plt.show()
