@@ -78,32 +78,8 @@ class DistillContextTrainer:
         for param in model.parameters():
             param.requires_grad = False
 
-    def evaluate_same_task(self, step, dataloader, distilled_points, distilled_labels):
-        # Log the loss every 100 steps
-
-        # FIXME: this could be fully replaced by test_on_new_task
-        x_query, y_query = dataloader.dataset.get_shuffled_data()
-        logits = self.pfn(x_train=constrain(distilled_points).squeeze(1),
-                          y_train=distilled_labels.view(-1), x_test=x_query.squeeze(1))
-
-        # TODO for batch evaluation across more tasks
-        # x_query = x_query.permute(1, 0, 2).to(self.device)  # T x B x dim
-        # y_query = y_query.permute(1, 0).to(self.device)  # T x B
-        # do it in batched version
-        # logits = self.model(
-        # ([x_train, x_query], ytrain)
-        # torch.cat([constrain(distilled_points).expand(-1, x_query.shape[0], -1), x_query]),
-        # distilled_labels.expand(-1, x_query.shape[0])
-        # )
-
-        loss = self.criterion(logits, y_query.view(-1))
-        loss = loss.view(-1, logits.shape[1])  # sometimes the seq length can be one off
-        # that is because bar dist appends the mean
-        loss = loss.mean()
-        self.logger.add_scalar("val_loss", loss.item(), step)
-        self.pbar.set_postfix(val_loss=loss.item())
-
-    def test_on_new_task(self, context_x, context_y, task_x, task_y, task_name, by=10):
+    def test_on_new_task(self, context_x, context_y, task_x, task_y, context_sizes,
+                         task_name, step=None, ):
         """
         Evaluate the distilled context on a new task.
         I.e. on the new task predict prepending the distilled context and then consecutively
@@ -120,7 +96,9 @@ class DistillContextTrainer:
         context_x, context_y = context_x.to(self.device), context_y.to(self.device)
         task_x, task_y = task_x.to(self.device), task_y.to(self.device)
 
-        for context_size in range(0, len(task_y), by):  # note how the final y is omitted here
+        losses = []
+
+        for context_size in context_sizes:  # note how the final y is omitted here
             logits = self.model(
                 (  # distilled context + observed x part of task, query for that task
                     torch.cat([context_x, task_x[:context_size], task_x[context_size:]],
@@ -137,7 +115,13 @@ class DistillContextTrainer:
             loss = loss.view(-1, logits.shape[1])  # sometimes the seq length can be one off
             loss = loss.mean()
 
-            self.logger.add_scalar(f"{task_name}", loss.item(), context_size)
+            self.logger.add_scalar(
+                task_name,
+                loss.item(),
+                context_size, step
+            )
+
+        return losses
 
     def train(
             self,
@@ -192,15 +176,31 @@ class DistillContextTrainer:
                 log.debug(
                     f"Step {step}: Loss: {loss.item()}, Distilled Points: {distilled_points.detach().sigmoid_()}")
 
-            self.logger.add_scalar("train_loss", torch.mean(torch.stack(losses)).item(), step)
+            self.logger.add_scalar("train_loss", torch.mean(torch.stack(losses)).item(),
+                                   distilled_points.shape[0], step)
 
             if step % val_log_frequency == 0:
-                self.evaluate_same_task(step, dataloader, distilled_points, distilled_labels)
+                # testing on the same task, how well we predict the GT data given the distillation
+                x_query, y_query = dataloader.dataset.get_shuffled_data()
+                context_size = [x_query.shape[0]]
+                reconstrucion_loss = self.test_on_new_task(
+                    context_x=constrain(distilled_points).squeeze(1),
+                    context_y=distilled_labels.view(-1),
+                    task_x=x_query.squeeze(1),
+                    task_y=y_query.view(-1),
+                    context_sizes=context_size,
+                    step=step,
+                    task_name="nll_distilled_reconstruction"
+                )
+
+                self.pbar.set_postfix(
+                    val_loss=reconstrucion_loss[0],
+                    train_loss=torch.mean(torch.stack(losses)).item()
+                )
+
 
         distilled_points = distilled_points.detach().cpu()
         distilled_points[:, :, 1:] = torch.sigmoid(distilled_points[:, :, 1:]).detach().cpu()
-
-        # logger.trajectory = trajectory
 
         if torch.allclose(x, distilled_points) or torch.allclose(y, distilled_labels):
             warnings.warn(
@@ -293,8 +293,11 @@ if __name__ == '__main__':
         batch_size=BATCH_SIZE,
         shuffle=True
     )
-    logger = BufferedFileLogger(file_name="distill.csv", file_path=".", buffer_size=1000,
-                                header=("metric", "value", "global_step"))
+    logger = BufferedFileLogger(
+        file_name="distill.csv",
+        file_path=".",
+        buffer_size=1000,
+        header=("metric", "value", "context_size", "global_step"))
 
     trainer = DistillContextTrainer(
         model=ftpfn,
@@ -304,20 +307,38 @@ if __name__ == '__main__':
         device=device
     )
 
+    N_STEPS = 12
     distilled_x, distilled_y = trainer.train(
         dataloader=dataloader,
         x_init=x_init,
         y_init=y_init,
-        n_steps=400
+        n_steps=N_STEPS
     )
 
-    logger.plot_scalar_curve(metric="val_loss", title="val_loss", )
+    # Plot distilled reconstruction loss. --------------------------------
+    import matplotlib.pyplot as plt
+    ax = logger.plot_scalar_curve(
+        metric="nll_distilled_reconstruction",
+        title="Distilled Reconstruction Loss",
+        plot=False
+    )
+    ax = logger.plot_scalar_curve(
+        metric="train_loss",
+        title="Distilled Training Loss",
+        plot=False,
+        ax=ax
+    )
+    ax.set_xlabel("Context size")
+    ax.ylabel("NLL Loss")
+    ax.set_title("Distilled Reconstruction Loss")
+    plt.show()
 
-    trainer.test_on_new_task(
+    # Plot downstream task performance with distilled context. ---------------
+    CONTEXT_SIZES = range(10, target_task_x.shape[0], 20)
+    losses = trainer.test_on_new_task(
         distilled_x, distilled_y,
         target_task_x, target_task_y,
-        task_name='incl. distilled context from task 0',
-        by=10
+        context_sizes=CONTEXT_SIZES
     )
 
     x_shape = distilled_x.shape
@@ -327,14 +348,14 @@ if __name__ == '__main__':
         baseline_x, baseline_y,
         target_task_x, target_task_y,
         task_name='baseline (no distillation)',
-        by=10
+        context_sizes=CONTEXT_SIZES
     )
 
     trainer.test_on_new_task(
         x, y,
         target_task_x, target_task_y,
         task_name='baseline (complete context task 0)',
-        by=10
+        context_sizes=CONTEXT_SIZES
     )
 
     half_x = x.shape[0] // 2
@@ -342,10 +363,9 @@ if __name__ == '__main__':
         x[:half_x], y[:half_x],
         target_task_x, target_task_y,
         task_name='baseline (half context task 0)',
-        by=10
+        context_sizes=CONTEXT_SIZES
     )
 
-    import matplotlib.pyplot as plt
     ax = None
     for metric in ['incl. distilled context from task 0',
                    'baseline (no distillation)',
@@ -356,7 +376,6 @@ if __name__ == '__main__':
             plot=False,
             ax=ax,
         )
-
 
     ax.set_xlabel("Task's Context size")
     ax.set_ylabel("NLL Loss")
