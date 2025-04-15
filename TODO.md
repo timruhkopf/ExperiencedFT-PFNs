@@ -1,8 +1,4 @@
-# TOODs: 
-
-- [ ] Find out why the distillation on same task does not work yet.
-
-### References to (re-)read:
+# References to (re-)read:
 
 - [x] [Statistical foundations of PFNs](https://arxiv.org/abs/2305.11097)
 - [ ] [PFN4HPO](https://arxiv.org/pdf/2305.17535)
