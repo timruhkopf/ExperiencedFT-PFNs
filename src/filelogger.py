@@ -44,7 +44,7 @@ class BufferedFileLogger:
         if len(self.buffer) >= self.buffer_size:
             self._flush()
 
-    def add_dict(self, data:Dict[str, float], global_step:int):
+    def add_dict(self, data: Dict[str, float], global_step: int):
         """
         Add a dictionary of data to the buffer.
         """
@@ -69,8 +69,16 @@ class BufferedFileLogger:
 
         return s
 
-    def plot_scalar_curve(self,  metric, title=None, plot=True, figsize=(12, 6), ax=None,
-                          label=None):
+    def plot_scalar_curve(
+            self, metric,
+            x='global_step',
+            y='value',
+            title=None,
+            plot=True,
+            figsize=(12, 6),
+            ax=None,
+            label=None
+    ):
         """Plot scalar metric curve from logged data.
 
         Args:
@@ -103,10 +111,10 @@ class BufferedFileLogger:
 
         ax = sns.lineplot(
             data=df,
-            x='global_step',
-            y='value',
+            x=x,
+            y=y,
             errorbar=('ci', 95),  # Add confidence intervals
-            estimator='mean' , # Aggregate if multiple runs exist
+            estimator='mean',  # Aggregate if multiple runs exist
             ax=ax,
             label=label,
         )
@@ -120,6 +128,7 @@ class BufferedFileLogger:
         plt.tight_layout()
 
         return ax if not plot else plt.show()
+
 
 if __name__ == '__main__':
     import matplotlib.pyplot as plt
@@ -137,8 +146,6 @@ if __name__ == '__main__':
         # Flush remaining data and close the logger
         logger.close()
 
-
-
         # Plot loss curve
         logger.plot_scalar_curve(metric="loss", title="Training Loss Curve")
 
@@ -146,4 +153,3 @@ if __name__ == '__main__':
         ax = logger.plot_scalar_curve(metric="accuracy", plot=False)
         ax.set_title("Accuracy Curve (Returned Axes)")
         plt.show()
-

@@ -24,7 +24,7 @@ requirements = parse_requirements(here / 'requirements.txt')
 
 setup(
     name="ExperiencedFTPFN",
-    version="0.1.0",
+    version="0.1.1",
     description="In-Context Distillation for warm starting FTPFN",
     long_description=long_description,
     long_description_content_type="text/markdown",

@@ -62,7 +62,9 @@ def collate(batch, min_length=10, max_length=500):
     x = torch.stack([item[0][:size] for item in batch])
     y = torch.stack([item[1][:size] for item in batch])
 
-    return x, y
+
+    # (Sequence length, Batch size, hparameter dimension), (Sequence length, Batch size)
+    return x.permute(1, 0, 2), y.permute(1, 0)
 
 if __name__ == '__main__':
     from functools import partial
