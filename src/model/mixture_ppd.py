@@ -242,6 +242,14 @@ class PFNPPDMixture:
         weights = torch.cat([torch.tensor([1.0]).to(self.device), weights])
         weights = weights / weights.sum()  # normalizing with the current task
 
+        for i, score in enumerate(weights):
+            self.logger.add_scalar(
+                "weights",
+                score.item(),
+                i,  # task index
+                context_size
+            )
+
         logits = (logits * weights.view(1, 2, 1)).sum(dim=1)
 
         # Weighted combination using broadcasting
@@ -253,6 +261,7 @@ class PFNPPDMixture:
 
 if __name__ == '__main__':
     from src.filelogger import BufferedFileLogger
+    import matplotlib.pyplot as plt
 
     # FIXME: factor this into a set of fixtures
     import ifbo
@@ -295,12 +304,24 @@ if __name__ == '__main__':
     y_val = y[sep:sep + max_query_size, 0:1]  # fixme: max_query_size
     # print(x.shape, y.shape)
 
+    target_task_context = {
+        'x': target_task_context_x,
+        'y': target_task_context_y
+    }
+
+    target_task_query = {
+        'x': target_task_query_x,
+        'y': target_task_query_y
+    }
+
     related_task_data = [{
         'x': x_task_context,
         'y': y_task_context
     }]
+
+
     with tempfile.TemporaryDirectory() as tmpdirname:
-        logger = BufferedFileLogger(
+        trainlogger = BufferedFileLogger(
             file_name="distill.csv",
             file_path=tmpdirname,
             buffer_size=1000,
@@ -309,7 +330,7 @@ if __name__ == '__main__':
         pfnmixture = PFNPPDMixture(
             pfn_backend,
             pfn_backend.criterion,
-            logger,
+            trainlogger,
             device,
             related_task_data,
             min_context_size=10,
@@ -332,22 +353,25 @@ if __name__ == '__main__':
 
     # Plot ---------------
     with (tempfile.TemporaryDirectory() as tmpdirname):
+        pfnmixture.logger.reset()  # to check the nll reliability scores
+
         logger = BufferedFileLogger(
             file_name="distill.csv",
             file_path=tmpdirname,
             buffer_size=1000,
-            header=("metric", "value","context_size", 'global_step'))
+            header=("metric", "value", "context_size", 'global_step'))
 
         CONTEXT_SIZES = range(10, target_task_context_x.shape[0], 20)
-
 
         evaluator = TestOnNewTaskNLL(
             criterion=pfn_backend.criterion,
             logger=logger, device=device
         )
+
+        # PFN Mixture distillation ----------
         evaluator.test_on_new_task(
             model=pfnmixture,
-            prefix_x=torch.tensor([]), # TODO make this default?
+            prefix_x=torch.tensor([]),  # TODO make this default?
             prefix_y=torch.tensor([]),
             context_task_x=target_task_context_x,
             context_task_y=target_task_context_y,
@@ -360,12 +384,20 @@ if __name__ == '__main__':
             temperature=1.0
         )
 
-
+        # plot the reliability scores for each of the related tasks:
+        # TODO for multiple tasks first collect the dataframe then plot
+        ax = trainlogger.plot_scalar_curve(
+            'reliability_score',
+            plot=False,
+            x='context_size',
+            y='value',
+            title='NLL Reliability over context_sizes',
+        )
+        ax.set_xlabel("Task's Context size")
+        ax.set_ylabel("NLL Loss")
+        plt.show()
 
         # No distillation: Should be what the ifbo paper reports
-
-        # baseline_x = torch.tensor([], device=device)
-        # baseline_y = torch.tensor([], device=device)
 
         evaluator.test_on_new_task(
             model=pfn_backend,
@@ -407,8 +439,6 @@ if __name__ == '__main__':
             query_task_y=target_task_query_y,
             context_sizes=CONTEXT_SIZES  # [:10]
         )
-
-        import matplotlib.pyplot as plt
 
         ax = None
         plots = [

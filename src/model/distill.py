@@ -345,6 +345,7 @@ if __name__ == '__main__':
         plt.show()
 
         # Plot downstream task performance with distilled context. ---------------
+        #FIXME: move this into a separate evaluation function based of the evaluator class
         CONTEXT_SIZES = range(10, target_task_context_x.shape[0], 20)
         losses = trainer.test_on_new_task(
             model=pfn_backend,
@@ -372,15 +373,9 @@ if __name__ == '__main__':
         )
 
         # No distillation: Should be what the ifbo paper reports
-        x_shape = distilled_x.shape
-        baseline_x = torch.tensor([], device=device).view(0, x_shape[1], x_shape[2])
-        baseline_y = torch.tensor([], device=device).view(0, x_shape[1])
-
         trainer.test_on_new_task(
             model=pfn_backend,
             task_name='baseline (no distillation)',
-            prefix_x=baseline_x,
-            prefix_y=baseline_y,
             context_task_x=target_task_context_x,
             context_task_y=target_task_context_y,
             query_task_x=target_task_query_x,
