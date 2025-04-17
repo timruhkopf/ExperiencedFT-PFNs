@@ -86,7 +86,7 @@ class DistillContextTrainer:
         self.logger = logger
         self.pbar = None
 
-        self.evaluator = TestOnNewTaskNLL(self.model, self.criterion, self.logger, self.device)
+        self.evaluator = TestOnNewTaskNLL(self.criterion, self.logger, self.device)
         self.test_on_new_task = self.evaluator.test_on_new_task
 
         if temperature_annealing is None:
@@ -180,9 +180,10 @@ class DistillContextTrainer:
                 x_query, y_query = dataloader.dataset.get_shuffled_data()
 
                 reconstrucion_loss = self.test_on_new_task(
+                    model=self.model,
                     # fixme: temp
-                    context_x=constrain(distilled_x_latent.detach(), temp=1),
-                    context_y=distilled_y,
+                    prefix_x=constrain(distilled_x_latent.detach(), temp=1),
+                    prefix_y=distilled_y,
                     context_task_x=x_query,
                     context_task_y=y_query,
                     # fixme: will this be available during inference? -- no
@@ -346,6 +347,7 @@ if __name__ == '__main__':
         # Plot downstream task performance with distilled context. ---------------
         CONTEXT_SIZES = range(10, target_task_context_x.shape[0], 20)
         losses = trainer.test_on_new_task(
+            model=pfn_backend,
             task_name='incl. distilled context from task 0',
             prefix_x=distilled_x,
             prefix_y=distilled_y,
@@ -358,6 +360,7 @@ if __name__ == '__main__':
 
         # Sanity check: the initial points of optimization added as context
         trainer.test_on_new_task(
+            model=pfn_backend,
             task_name='x_init context (no-distillation)',
             prefix_x=x_init,
             prefix_y=y_init,
@@ -374,6 +377,7 @@ if __name__ == '__main__':
         baseline_y = torch.tensor([], device=device).view(0, x_shape[1])
 
         trainer.test_on_new_task(
+            model=pfn_backend,
             task_name='baseline (no distillation)',
             prefix_x=baseline_x,
             prefix_y=baseline_y,
@@ -387,6 +391,7 @@ if __name__ == '__main__':
         # adding in half of the related dataset in
         half_x = x_to_distill.shape[0] // 2
         trainer.test_on_new_task(
+            model=pfn_backend,
             task_name='baseline (half context task 0)',
             prefix_x=x_to_distill[:half_x],
             prefix_y=y_to_distill[:half_x],
@@ -401,6 +406,7 @@ if __name__ == '__main__':
         # we can't fit the entire one, since we need space in the sequence
         # to do a batched evaluation over the query points
         trainer.test_on_new_task(
+            model=pfn_backend,
             task_name='baseline (approx. complete context task 0)',
             prefix_x=x_to_distill,
             prefix_y=y_to_distill,

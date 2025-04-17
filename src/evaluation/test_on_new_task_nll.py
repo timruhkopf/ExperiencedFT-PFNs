@@ -4,8 +4,7 @@ import torch
 
 
 class TestOnNewTaskNLL:
-    def __init__(self, model, criterion, logger, device):
-        self.model = model
+    def __init__(self, criterion, logger, device):
         self.criterion = criterion
         self.logger = logger
         self.device = device
@@ -13,13 +12,14 @@ class TestOnNewTaskNLL:
     @torch.no_grad()
     def test_on_new_task(
             self,
+            model,
             task_name,
-            prefix_x,
-            prefix_y,
             context_task_x,
             context_task_y,
             query_task_x,
             query_task_y,
+            prefix_x=torch.tensor([]),
+            prefix_y=torch.tensor([]),
             context_sizes=None,
             step=None,
             **kwargs
@@ -72,7 +72,7 @@ class TestOnNewTaskNLL:
             query_size = 1000 - prefix_x.shape[0] - context_size
             batch_losses = []
             for i in range(0, query_task_x.shape[0], query_size):
-                logits = self.model(
+                logits = model(
                     (  # distilled context + observed x part of task, query for that task
                         torch.cat([prefix_x, context_task_x[:context_size],
                                    query_task_x[i:i + query_size]], dim=0),

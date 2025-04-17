@@ -331,7 +331,7 @@ if __name__ == '__main__':
         ).mean()
 
     # Plot ---------------
-    with tempfile.TemporaryDirectory() as tmpdirname:
+    with (tempfile.TemporaryDirectory() as tmpdirname):
         logger = BufferedFileLogger(
             file_name="distill.csv",
             file_path=tmpdirname,
@@ -341,10 +341,12 @@ if __name__ == '__main__':
         CONTEXT_SIZES = range(10, target_task_context_x.shape[0], 20)
 
 
-        pfn_mixtureevaluation = TestOnNewTaskNLL(
-            model=pfnmixture, criterion=pfn_backend.criterion,
+        evaluator = TestOnNewTaskNLL(
+            criterion=pfn_backend.criterion,
             logger=logger, device=device
-        ).test_on_new_task(
+        )
+        evaluator.test_on_new_task(
+            model=pfnmixture,
             prefix_x=torch.tensor([]), # TODO make this default?
             prefix_y=torch.tensor([]),
             context_task_x=target_task_context_x,
@@ -358,21 +360,18 @@ if __name__ == '__main__':
             temperature=1.0
         )
 
-        #
-        baseline_evaluation = TestOnNewTaskNLL(
-            model=pfn_backend, criterion=pfn_backend.criterion,
-            logger=logger, device=device
-        )
+
 
         # No distillation: Should be what the ifbo paper reports
 
-        baseline_x = torch.tensor([], device=device)
-        baseline_y = torch.tensor([], device=device)
+        # baseline_x = torch.tensor([], device=device)
+        # baseline_y = torch.tensor([], device=device)
 
-        baseline_evaluation.test_on_new_task(
+        evaluator.test_on_new_task(
+            model=pfn_backend,
             task_name='baseline (no distillation)',
-            prefix_x=baseline_x,
-            prefix_y=baseline_y,
+            # prefix_x=baseline_x,
+            # prefix_y=baseline_y,
             context_task_x=target_task_context_x,
             context_task_y=target_task_context_y,
             query_task_x=target_task_query_x,
@@ -382,7 +381,8 @@ if __name__ == '__main__':
 
         # adding in half of the related dataset in
         half_x = x_task_context.shape[0] // 2
-        baseline_evaluation.test_on_new_task(
+        evaluator.test_on_new_task(
+            model=pfn_backend,
             task_name='baseline (half context task 0)',
             prefix_x=x_task_context[:half_x],
             prefix_y=y_task_context[:half_x],
@@ -396,7 +396,8 @@ if __name__ == '__main__':
         # Adding in (almost) the entire context of the related task
         # we can't fit the entire one, since we need space in the sequence
         # to do a batched evaluation over the query points
-        baseline_evaluation.test_on_new_task(
+        evaluator.test_on_new_task(
+            model=pfn_backend,
             task_name='baseline (approx. complete context task 0)',
             prefix_x=x_task_context,
             prefix_y=y_task_context,
