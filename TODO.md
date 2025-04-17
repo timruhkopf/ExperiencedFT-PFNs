@@ -1,5 +1,10 @@
+A very intriguing perspective: 
+Using distilled datasets as context for PFNs implies, that given these datapoints we already learned a model (in-context) that we compressed. 
+Now given some additional data, we will fine-tune our in-context model bit by bit.
+
 # References to (re-)read:
 
+- [ ] [Towards Adversarially Robust Dataset Distillation by Curvature Regularization](https://arxiv.org/html/2403.10045v3) We may get more query "robust" distillations with this. 
 - [x] [Statistical foundations of PFNs](https://arxiv.org/abs/2305.11097)
 - [ ] [PFN4HPO](https://arxiv.org/pdf/2305.17535)
 - [ ] TabPFN
