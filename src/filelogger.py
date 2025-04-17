@@ -69,6 +69,11 @@ class BufferedFileLogger:
 
         return s
 
+    @property
+    def dataframe(self):
+        self._flush()  # Ensure latest data
+        return pd.read_csv(self.file_path / self.file_name)
+
     def plot_scalar_curve(
             self, metric,
             x='global_step',
@@ -96,8 +101,7 @@ class BufferedFileLogger:
         self._flush()  # Ensure latest data
 
         # Read and filter data
-        df = pd.read_csv(self.file_path / self.file_name)
-        df = df.query('metric == @metric')
+        df = self.dataframe.query('metric == @metric')
 
         if df.empty:
             raise ValueError(f"No data found for metric: {metric}")
