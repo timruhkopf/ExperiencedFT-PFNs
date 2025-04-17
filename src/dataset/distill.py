@@ -347,8 +347,8 @@ if __name__ == '__main__':
         CONTEXT_SIZES = range(10, target_task_context_x.shape[0], 20)
         losses = trainer.test_on_new_task(
             task_name='incl. distilled context from task 0',
-            context_x=distilled_x,
-            context_y=distilled_y,
+            prefix_x=distilled_x,
+            prefix_y=distilled_y,
             context_task_x=target_task_context_x,
             context_task_y=target_task_context_y,
             query_task_x=target_task_query_x,
@@ -359,8 +359,8 @@ if __name__ == '__main__':
         # Sanity check: the initial points of optimization added as context
         trainer.test_on_new_task(
             task_name='x_init context (no-distillation)',
-            context_x=x_init,
-            context_y=y_init,
+            prefix_x=x_init,
+            prefix_y=y_init,
             context_task_x=target_task_context_x,
             context_task_y=target_task_context_y,
             query_task_x=target_task_query_x,
@@ -375,8 +375,8 @@ if __name__ == '__main__':
 
         trainer.test_on_new_task(
             task_name='baseline (no distillation)',
-            context_x=baseline_x,
-            context_y=baseline_y,
+            prefix_x=baseline_x,
+            prefix_y=baseline_y,
             context_task_x=target_task_context_x,
             context_task_y=target_task_context_y,
             query_task_x=target_task_query_x,
@@ -388,8 +388,8 @@ if __name__ == '__main__':
         half_x = x_to_distill.shape[0] // 2
         trainer.test_on_new_task(
             task_name='baseline (half context task 0)',
-            context_x=x_to_distill[:half_x],
-            context_y=y_to_distill[:half_x],
+            prefix_x=x_to_distill[:half_x],
+            prefix_y=y_to_distill[:half_x],
             context_task_x=target_task_context_x,
             context_task_y=target_task_context_y,
             query_task_x=target_task_query_x,
@@ -402,8 +402,8 @@ if __name__ == '__main__':
         # to do a batched evaluation over the query points
         trainer.test_on_new_task(
             task_name='baseline (approx. complete context task 0)',
-            context_x=x_to_distill,
-            context_y=y_to_distill,
+            prefix_x=x_to_distill,
+            prefix_y=y_to_distill,
             context_task_x=target_task_context_x[:-25],
             context_task_y=target_task_context_y[:-25],
             query_task_x=target_task_query_x,
