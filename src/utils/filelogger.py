@@ -11,14 +11,17 @@ class BufferedFileLogger:
             file_name,
             file_path='.',
             buffer_size=1000,
-            header=("metric", "value", "global_step"),
-            mode='a'
+            header=["metric", "value", "global_step"],
+            mode='a',
+            postfix=None,
     ):
         self.file_path = Path(file_path)
         self.file_path.mkdir(parents=True, exist_ok=True)
         self.file_name = file_name
         self.buffer_size = buffer_size
         self.buffer = []
+
+        self.postfix = postfix if postfix is not None else []
 
         # check if file exists
         if not (self.file_path / self.file_name).exists():
@@ -40,7 +43,8 @@ class BufferedFileLogger:
             self.writer.writerow(header)
 
     def add_scalar(self, *args):
-        self.buffer.append(args)
+        args = args if isinstance(args, list) else list(args)
+        self.buffer.append(args + self.postfix )
         if len(self.buffer) >= self.buffer_size:
             self._flush()
 
@@ -61,6 +65,14 @@ class BufferedFileLogger:
     def close(self):
         self._flush()
         self.file.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.close()
+        if exc_type is not None:
+            print(f"Exception occurred: {exc_value}")
 
     def __repr__(self):
         s = f"BufferedFileLogger(file_path={self.file_path.absolute()}, file_name={self.file_name})\n"

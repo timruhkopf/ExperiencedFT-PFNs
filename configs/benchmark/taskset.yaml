@@ -1,0 +1,7 @@
+# @package benchmark
+
+meta:
+  name: 'taskset'
+
+cls:
+  _target_: src.dataset.

@@ -10,7 +10,8 @@ from torch import nn
 from tqdm import tqdm
 
 from src.evaluation.test_on_new_task_nll import TestOnNewTaskNLL
-from src.filelogger import BufferedFileLogger
+from src.model.abstractmodel import AbstractModel
+from src.utils.filelogger import BufferedFileLogger
 
 import logging
 
@@ -57,12 +58,12 @@ def constrain(x: torch.Tensor, temp):
     return constrained_tensor
 
 
-class DistillContextTrainer:
+class DistillContext(AbstractModel):
     def __init__(self,
-                 model: FTPFN,
+                 model: Union[FTPFN,TransformerModel],
                  optimizer: partial,
-                 criterion: BarDistribution,
                  logger: BufferedFileLogger,
+                 criterion: BarDistribution = None,
                  device: Union[str, torch.device] = "cuda" if torch.cuda.is_available() else "cpu",
                  temperature_annealing: AdaptiveTemperature = None
                  ):
@@ -74,14 +75,15 @@ class DistillContextTrainer:
         :param criterion:
         :param logger:
         """
-        self.pfn = model
-        self.model: TransformerModel = self.pfn.model
+
+        self.model: TransformerModel = model if isinstance(model, TransformerModel) else model.model
+
         self.device = device
         self.freeze_model(self.model, device)
 
         self.optimizer_partial = optimizer
         self.optimizer = None
-        self.criterion = criterion
+        self.criterion = criterion if criterion is not None else model.criterion
 
         self.logger = logger
         self.pbar = None

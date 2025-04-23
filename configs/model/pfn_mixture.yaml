@@ -1,0 +1,18 @@
+# @package model
+
+meta:
+  name: 'pfn_mixture'
+
+cls:
+  _target_: src.model.mixture_ppd.PFNPPDMixture
+
+  model:
+    _target_:  ifbo.surrogate.FTPFN
+    version: "0.0.1"
+    device: ${device}
+  criterion: Null
+  min_context_size: 10
+  # related_task_data
+
+inference_kwargs:
+  temperature: 1.0

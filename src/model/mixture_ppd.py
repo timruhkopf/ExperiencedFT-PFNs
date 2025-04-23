@@ -1,10 +1,11 @@
-from typing import List, Dict
+from typing import List, Dict, Union
 
 import torch
 from ifbo.transformer import TransformerModel
 
 from src.evaluation.test_on_new_task_nll import TestOnNewTaskNLL
-from src.ifBO_main.ifbo import BarDistribution
+from src.ifBO_main.ifbo import BarDistribution, FTPFN
+from src.model.abstractmodel import AbstractModel
 
 
 def _calc_reliability(
@@ -48,20 +49,22 @@ def _calc_reliability(
     return torch.tensor(reliability_scores).to(context_x.device)
 
 
-class PFNPPDMixture:
+class PFNPPDMixture(AbstractModel):
     def __init__(
             self,
-            model: TransformerModel,
-            criterion,
+            model: Union[FTPFN, TransformerModel],
             logger,
             device,
             related_task_data: List[Dict[str, torch.Tensor]],
+            criterion=None,
             decayfactor=lambda x: 1.0,
             min_context_size: int = 10
     ) -> None:
         self.min_context_size = min_context_size
-        self.model: TransformerModel = model
-        self.criterion = criterion
+
+        self.model: TransformerModel = model if isinstance(model, TransformerModel) else model.model
+        self.model = self.model.to(device)
+        self.criterion = criterion if criterion is not None else model.criterion
         self.logger = logger
         self.device = device
 
@@ -233,7 +236,9 @@ class PFNPPDMixture:
         if reliability_scores.shape[0] > 1:
             weights = torch.softmax(-reliability_scores / temperature)
         else:
-            weights = torch.tensor([1.0]).to(self.device)
+            weights = torch.tensor([1.0])
+
+        weights = weights.to(self.device)
 
         if context_size > self.min_context_size:
             # devalue the current task
@@ -242,7 +247,7 @@ class PFNPPDMixture:
         weights = torch.cat([torch.tensor([1.0]).to(self.device), weights])
         weights = weights / weights.sum()  # normalizing with the current task
 
-        for i, score in enumerate(weights):
+        for i, score in enumerate(weights.to('cpu')):
             self.logger.add_scalar(
                 "weights",
                 score.item(),
@@ -260,7 +265,7 @@ class PFNPPDMixture:
 
 
 if __name__ == '__main__':
-    from src.filelogger import BufferedFileLogger
+    from src.utils.filelogger import BufferedFileLogger
     import matplotlib.pyplot as plt
 
     # FIXME: factor this into a set of fixtures
@@ -329,10 +334,10 @@ if __name__ == '__main__':
 
         pfnmixture = PFNPPDMixture(
             pfn_backend,
-            pfn_backend.criterion,
             trainlogger,
             device,
             related_task_data,
+            criterion=pfn_backend.criterion,
             min_context_size=10,
             # exponential decay factor 1 for size of 10, 0 for 200
             # decayfactor=lambda size: 1 - (size - 10) / (200 - 10)

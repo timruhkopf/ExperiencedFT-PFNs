@@ -1,0 +1,17 @@
+# @package benchmark
+
+meta:
+  name: 'sanity_same'
+
+cls:
+  _target_: src.dataset.taskprior.MetaTaskPriorSameProblem
+  dim_hyperparameters: 3
+  n_fidelities: 100
+  seq_len: 1000
+
+sample_config:
+  single_eval_pos: 500
+  alphas:
+    - 0.5
+    - 0.5
+  n_tasks: 2

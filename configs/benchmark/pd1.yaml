@@ -1,0 +1,7 @@
+# @package benchmark
+
+meta:
+  name: 'pd1'
+
+cls:
+  _target_: src.dataset.

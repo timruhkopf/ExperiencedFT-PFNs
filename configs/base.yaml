@@ -1,0 +1,26 @@
+# @package _global_
+defaults:
+  - model: pfn_mixture
+  - benchmark: sanity_same
+  - _self_
+
+
+seed: 42
+benchmark_seed: 42
+device: 'cpu'
+
+repo_root: ${resolve_path:''}
+experiment_name: 'base'
+commit_hash: ${git_commit:''}
+slurm_id: 999
+
+context_sizes: [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0] # percentages of data
+
+target_idx: 0 # the target task from the batch of tasks
+
+
+hydra:
+  run:
+    dir: output/${experiment_name}/${slurm_id}_${git_commit:''}_${model.meta.name}_${benchmark.meta.name}_seed_${seed}
+  sweep:
+    dir: multirun/${experiment_name}/${slurm_id}_${git_commit:''}_${model.meta.name}_${benchmark.meta.name}_seed_${fidelity_seed}

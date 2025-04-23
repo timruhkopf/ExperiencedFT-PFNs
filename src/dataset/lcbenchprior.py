@@ -18,6 +18,8 @@ class LCBenchPrior:
                    'kr-vs-kp', 'mfeat-factors', 'MiniBooNE', 'nomao', 'numerai28.6', 'phoneme',
                    'segment', 'shuttle', 'sylvine', 'vehicle', 'volkert']
 
+    n_tasks=35
+
     def __init__(self, task_id, data_path, seq_len=2000, n_fidelities=None, device="cpu"):
         benchmark = mfpbench.get(
             name="lcbench_tabular", task_id=task_id, datadir=data_path,
@@ -68,7 +70,7 @@ class LCBenchPrior:
         weights = np.random.gamma(alpha, alpha, self.seq_len) + eps
         p = weights / np.sum(weights)
 
-        # identify, which token belongs to which curve
+        # identify which token belongs to which curve
         ids = np.arange(self.seq_len)
         all_levels = np.repeat(ids, self.n_fidelities)
         # since each curve has self.n_fidelities (fidelities) we

@@ -1,0 +1,7 @@
+# @package model
+
+meta:
+  name: 'distill'
+
+cls:
+  _target_: src.model.distill.DistillContext
