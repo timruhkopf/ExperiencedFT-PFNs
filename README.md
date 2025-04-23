@@ -22,14 +22,38 @@ and try to predict  $$p\left(y | \{(\lambda_j, t_j, .)\}_j ,  \{(\lambda_i', t_i
 ```bash
 conda create -n ft-pfn python=3.10
 cd ExperiencedFT-PFNs
+
+root=$(pwd)
 pip install -e .
 
 
 # FIXME: move this install directly to setup.py
 cd src
 git clone git@github.com:automl/ifBO.git
+git checkout icml-2024
+mv ifBO ifBO_icml24
+pip install -U ifBO_icml24
 
-pip install -U ifBO
+git clone git@github.com:automl/ifBO.git
+git checkout main
+mv ifBO ifBO_main
+#pip install -U ifBO
+pip install -e ifBO_main
+
+
+# LCBench benchmark data: 
+#ExperiencedFT-PFNs/src/ifBO_icml2024$ python -m mfpbench download --benchmark lcbench-tabular
+cd src/ifBO_icml24
+pip install -r core_requirements.txt
+
+
+
+python -m mfpbench download --benchmark lcbench-tabular  --data-dir $root/ExperiencedFT-PFNs/data/
+python -m mfpbench download --benchmark pd1-tabular  --data-dir $root/ExperiencedFT-PFNs/data/
+python -m mfpbench download --benchmark taskset  --data-dir $root/ExperiencedFT-PFNs/data/
+
+
+
 ```
 
 
