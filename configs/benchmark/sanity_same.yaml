@@ -10,8 +10,12 @@ cls:
   seq_len: 1000
 
 sample_config:
-  single_eval_pos: 500
+  single_eval_pos:
+    - 500
+    - 300
+    - 200
   alphas:
     - 0.5
     - 0.5
-  n_tasks: 2
+    - 0.5
+  n_tasks: 3 # incl. target task

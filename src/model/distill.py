@@ -9,6 +9,7 @@ from ifbo.transformer import TransformerModel
 from torch import nn
 from tqdm import tqdm
 
+from src.dataset.dataloading import DTrain, collate
 from src.evaluation.test_on_new_task_nll import TestOnNewTaskNLL
 from src.model.abstractmodel import AbstractModel
 from src.utils.filelogger import BufferedFileLogger
@@ -60,12 +61,14 @@ def constrain(x: torch.Tensor, temp):
 
 class DistillContext(AbstractModel):
     def __init__(self,
-                 model: Union[FTPFN,TransformerModel],
+                 model: Union[FTPFN, TransformerModel],
                  optimizer: partial,
                  logger: BufferedFileLogger,
+                 related_task_data,
                  criterion: BarDistribution = None,
                  device: Union[str, torch.device] = "cuda" if torch.cuda.is_available() else "cpu",
-                 temperature_annealing: AdaptiveTemperature = None
+                 temperature_annealing: AdaptiveTemperature = None,
+                 distillsize=100
                  ):
         """
 
@@ -81,9 +84,12 @@ class DistillContext(AbstractModel):
         self.device = device
         self.freeze_model(self.model, device)
 
+        self.distillsize = distillsize
+
         self.optimizer_partial = optimizer
         self.optimizer = None
         self.criterion = criterion if criterion is not None else model.criterion
+        self.related_task_data = related_task_data
 
         self.logger = logger
         self.pbar = None
@@ -96,6 +102,9 @@ class DistillContext(AbstractModel):
         else:
             self.temperature = 1
 
+        # dummy initializaiton
+        self.distilled_x, distilled_y = torch.tensor([]), torch.tensor([])
+
     @staticmethod
     def freeze_model(model, device):
         model.to(device)
@@ -104,17 +113,49 @@ class DistillContext(AbstractModel):
         for param in model.parameters():
             param.requires_grad = False
 
+    def sample_initial_distillation(
+            self, x: torch.Tensor, y: torch.Tensor, padding_mask=None,
+            size: int = 100
+    ):
+        """
+        Sample a random subset of the data for initialization of the distillation.
+        :param x: Input data tensor.
+        :param y: Labels tensor.
+        :param size: Size of the subset to sample.
+        :return: Tuple of sampled input data and labels.
+        """
+        T, B, D = x.shape
+
+        if padding_mask is None:
+            padding_mask = torch.zeros((T, B), dtype=torch.bool)
+
+        # Store the sampled indices for each batch element
+        sampled_indices = []
+        for b in range(B):
+            valid_positions = torch.where(torch.logical_not(padding_mask[b, :]))[0]
+            if len(valid_positions) < size:
+                raise ValueError(
+                    f"Not enough valid positions in batch {b} to sample {size} times.")
+            chosen = valid_positions[torch.randperm(len(valid_positions))[:size]]
+            sampled_indices.append(chosen)
+
+        returned_x = torch.stack([x[chosen, b, :] for b, chosen in enumerate(sampled_indices)],
+                                 dim=1)
+        returned_y = torch.stack([y[chosen, b] for b, chosen in enumerate(sampled_indices)], dim=1)
+
+        # Ensure the returned tensors have the same shape as the input
+        assert returned_x.shape == (size, B,
+                                    D), f"Expected shape {(size, B, D)}, got {returned_x.shape}"
+        assert returned_y.shape == (size, B), f"Expected shape {(size, B)}, got {returned_y.shape}"
+
+        return returned_x, returned_y
+
     def train(
             self,
-            dataloader,
-            x_init: torch.Tensor,
-            y_init: torch.Tensor,
-
-            x_val: torch.Tensor,
-            y_val: torch.Tensor,
-
             n_steps=1e4,
-            val_log_frequency=10
+            val_log_frequency=10,
+            batch_size=64,
+            temperature=1
     ) -> Tuple[torch.Tensor, torch.Tensor]:
 
         """
@@ -137,21 +178,41 @@ class DistillContext(AbstractModel):
         """
         # map the fidelity and hp [0,1] to the logit space (which we optimize)
 
-        x = deepcopy(x_init)
-        y = deepcopy(y_init)
+        x, y, padding_mask = self.related_task_data.x, self.related_task_data.y, self.related_task_data.padding_mask
 
-        p = x_init[:, :, 1:]
-        # to enforce the [0,1] constraint, we first map the values that actually
-        # live in the [0,1] space to the logit space (because during the loop we will apply sigmoid)
-        x_init[:, :, 1:] = torch.log(p / (1 - p + 1e-6))
+        # (0) Get the initial distillation points
+        self.distilled_x, self.distilled_y = self.sample_initial_distillation(
+            x, y,
+            padding_mask=padding_mask,
+            size=self.distillsize
+        )
 
-        distilled_x_latent = nn.Parameter(x_init)
-        distilled_y = nn.Parameter(y_init)
+        self.distilled_x = self.distilled_x.to(self.device)
+        self.distilled_y = self.distilled_y.to(self.device)
+
+        # p = x_init[:, :, 1:]
+        # # to enforce the [0,1] constraint, we first map the values that actually
+        # # live in the [0,1] space to the logit space (because during the loop we will apply sigmoid)
+        # x_init[:, :, 1:] = torch.log(p / (1 - p + 1e-6))
+
+        distilled_x_latent = nn.Parameter(self.distilled_x.clone())
+        distilled_y = nn.Parameter(self.distilled_y.clone())
 
         distilled_x_latent = distilled_x_latent.to(self.device)
         distilled_y = distilled_y.to(self.device)
 
         self.optimizer = self.optimizer_partial([distilled_x_latent, distilled_y])
+
+        # (1) set up the dataloader
+        dataset = DTrain(
+            x, y, padding_mask,
+            sequence_length_max=self.related_task_data.single_eval_pos,
+        )
+        dataloader = torch.utils.data.DataLoader(
+            dataset,
+            batch_size=batch_size,
+            collate_fn=partial(collate, min_length=10, max_length=500),
+        )
 
         self.pbar = tqdm(range(int(n_steps)), desc="Distillation Progress", unit="step")
         for step in self.pbar:
@@ -160,11 +221,11 @@ class DistillContext(AbstractModel):
                 x_query = x_query.to(self.device)  # T x B x dim
                 y_query = y_query.to(self.device)  # T x B
 
-                # fixme: should we optimize for hold out data instead?
                 loss = self.train_step(
                     x_query, y_query,
-                    distilled_points=constrain(distilled_x_latent, temp=1),
-                    distilled_labels=distilled_y
+                    # constrain the learnable parameters:
+                    distilled_x=constrain(distilled_x_latent, temp=temperature),
+                    distilled_y=distilled_y
                 )
                 losses.append(loss)
 
@@ -184,7 +245,7 @@ class DistillContext(AbstractModel):
                 reconstrucion_loss = self.test_on_new_task(
                     model=self.model,
                     # fixme: temp
-                    prefix_x=constrain(distilled_x_latent.detach(), temp=1),
+                    prefix_x=constrain(distilled_x_latent.detach(), temp=temperature),
                     prefix_y=distilled_y,
                     context_task_x=x_query,
                     context_task_y=y_query,
@@ -210,8 +271,10 @@ class DistillContext(AbstractModel):
             )
         return distilled_x, distilled_y
 
-    def train_step(self, x_query, y_query, distilled_points, distilled_labels):
+    def train_step(self, x_query, y_query, distilled_x, distilled_y):
         T, B, dim = x_query.shape
+        n_tasks = self.distilled_x.shape[1]
+        batch_size = int(B / n_tasks)
 
         # ENFORCE PARAMAMETER CONSTRAINTS ----------------------------------
         # The transformermodel places certain constraints on the fwd.
@@ -221,17 +284,25 @@ class DistillContext(AbstractModel):
         #     constrained_tensor = torch.sigmoid(constrained_tensor).clamp(1e-3, 1 - 1e-3)
 
         # Get model predictions using distilled context
+
+        # for maximum throughput and parallel distillation for each task, we can tile;
+        # i.e. make it look like we had more batches, but of the same nn.Parameter
+        distilled_x_tiled = distilled_x.unsqueeze(0).repeat(batch_size*n_tasks, 1, 1, 1)
+        distilled_x_tiled= distilled_x_tiled.reshape(-1, T, dim).permute(1, 0, 2)
+        distilled_y_tiled = distilled_y.unsqueeze(0).repeat(batch_size*n_tasks, 1, 1).reshape(-1, T)
+        distilled_y_tiled = distilled_y_tiled.permute(1, 0)
+
         logits = self.model(
             # ([x_train, x_query], ytrain)
             (  # notice, that x_query comes from the dataset and thus is constrained
-                torch.cat([distilled_points.expand(-1, B, -1), x_query], dim=0),
-                distilled_labels.expand(-1, B)
+                torch.cat([distilled_x_tiled, x_query], dim=0),
+                distilled_y_tiled
             ),
-            single_eval_pos=distilled_points.shape[0]
+            single_eval_pos=distilled_x_tiled.shape[0]
         )
 
         # Compute the BarDistribution NLL loss
-        loss = self.criterion(logits, y_query)
+        loss = self.criterion(logits, y_query) # y_query is already tiled
         # Found in PFNs4HPO.pfns4hpo.train.py: sometimes the seq length can be one off
         # that is because bar dist appends the mean
         loss = loss.view(-1, logits.shape[1])
@@ -243,10 +314,40 @@ class DistillContext(AbstractModel):
 
         return loss
 
+    def forward(self, x_query, y_query, distilled_points, distilled_labels):
+        """
+        Performs the forward pass of the model, taking query points, query labels, distilled
+        points, and distilled labels as inputs. The method processes the input data by
+        concatenating distilled points and query points, alongside expanding and formatting
+        the corresponding labels. The combined data is then forwarded through the model
+        to produce logits. The logits provide the necessary output for further computations
+        such as loss calculation or evaluation.
+
+        :param x_query: Query points for the forward pass. The tensor is expected to have
+            dimensions (T, B, dim), where T is the sequence length, B is the batch size,
+            and dim is the feature dimension.
+        :param y_query: Labels corresponding to the query points. Used in the context for
+            further computations involving the model output.
+        :param distilled_points: Pre-distilled points created during training or refinement
+            stages. These are used as part of the input to the model.
+        :param distilled_labels: Labels corresponding to the distilled points. These are
+            expanded during the forward pass to match the batch size.
+        :return: The computed logits after passing the processed inputs through the model.
+        """
+        T, B, dim = x_query.shape
+        logits = self.model(
+            # ([x_train, x_query], ytrain)
+            (  # notice, that x_query comes from the dataset and thus is constrained
+                torch.cat([distilled_points.expand(-1, B, -1), x_query], dim=0),
+                distilled_labels.expand(-1, B)
+            ),
+            single_eval_pos=distilled_points.shape[0]
+        )
+
 
 if __name__ == '__main__':
     import ifbo
-    from src.dataset.dataloading import DTrain
+
     from src.dataset.taskprior import MetaTaskPriorSameProblem, detokenize_batch
     from src.dataset.dataloading import collate
     import tempfile
@@ -307,7 +408,7 @@ if __name__ == '__main__':
             buffer_size=1000,
             header=("metric", "value", "context_size", "global_step"))
 
-        trainer = DistillContextTrainer(
+        trainer = DistillContext(
             model=ftpfn,
             optimizer=partial(torch.optim.AdamW, lr=1e-3, weight_decay=1e-4),
             criterion=pfn_backend.criterion,
@@ -347,7 +448,7 @@ if __name__ == '__main__':
         plt.show()
 
         # Plot downstream task performance with distilled context. ---------------
-        #FIXME: move this into a separate evaluation function based of the evaluator class
+        # FIXME: move this into a separate evaluation function based of the evaluator class
         CONTEXT_SIZES = range(10, target_task_context_x.shape[0], 20)
         losses = trainer.test_on_new_task(
             model=pfn_backend,

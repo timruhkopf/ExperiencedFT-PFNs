@@ -23,6 +23,7 @@ from src.dataset.taskprior import MetaTaskPriorSameProblem, detokenize_batch
 
 
 from src.evaluation.test_on_new_task_nll import TestOnNewTaskNLL
+from src.model.batch_padded_pfn import parse_batch_for_padded_train_data
 from src.utils.filelogger import BufferedFileLogger
 from src.utils.parse_batch import parse_batch
 from src.utils.seeding import SeededRandomContext
@@ -51,7 +52,7 @@ def main(cfg: DictConfig):
     pfn_backend: TransformerModel = ftpfn.model
     criterion = pfn_backend.criterion.to(device)
 
-    with SeededRandomContext(cfg.benchmark_seed) as ctx:
+    with (SeededRandomContext(cfg.benchmark_seed) as ctx):
 
         # TODO iterate over the batch samples from the benchmark
         benchmark = hydra.utils.instantiate(cfg.benchmark.cls, device=device)
@@ -61,23 +62,33 @@ def main(cfg: DictConfig):
             n_prefix_tokens = cfg.model.meta["n_prefix_tokens"]
         else:
             n_prefix_tokens = 0
-        data = parse_batch(batch, cfg.target_idx, n_prefix_tokens=n_prefix_tokens)
+        # data = parse_batch(batch, cfg.target_idx, n_prefix_tokens=n_prefix_tokens)
 
-        target_task_context_x = data['target_task_context']['x']
-        target_task_context_y = data['target_task_context']['y']
-        target_task_query_x = data['target_task_query']['x']
-        target_task_query_y = data['target_task_query']['y']
+        padded_batch = parse_batch_for_padded_train_data(batch, target_idx=cfg.target_idx)
+
+        related_task_data = padded_batch.related_tasks
+        task_data = padded_batch.target_task
+
+
+        target_task_context_x = task_data.x
+        target_task_context_y = task_data.y
+        target_task_query_x = task_data.query_x
+        target_task_query_y = task_data.query_y
+        padding_mask = task_data.padding_mask
 
     with SeededRandomContext(cfg.seed) as ctx:
         model = hydra.utils.instantiate(
             cfg.model.cls,
+            model=pfn_backend,
             device=device,
             criterion=criterion,
             logger=file_logger,
-            related_task_data=data['related_task_data'],
+            related_task_data=related_task_data,
         )
-
-        prefix = model.train(benchmark)
+        if 'train_call' in cfg.model.keys():
+            prefix = model.train(**cfg.model.train_call)
+        else:
+            prefix = model.train()
 
         evaluator = TestOnNewTaskNLL(
             criterion=pfn_backend.criterion,
@@ -86,6 +97,9 @@ def main(cfg: DictConfig):
 
         context_sizes = cfg.context_sizes
         context_sizes = [math.floor(i * target_task_context_x.shape[0]) for i in context_sizes]
+
+        kwargs = cfg.model.inference_kwargs
+        kwargs["padding_mask"] = padding_mask
 
         evaluator.test_on_new_task(
             model=model,
@@ -99,7 +113,7 @@ def main(cfg: DictConfig):
             step=0,
             context_sizes=context_sizes,
             # fwd kwargs
-            **cfg.model.inference_kwargs
+            **kwargs
         )
 
         # Quick Baselines --------------------

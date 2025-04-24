@@ -190,6 +190,7 @@ class PFNPPDMixture(AbstractModel):
         else:
             all_tasks = self.related_task_data
 
+        # FIXME: make this a single padded batch fwd
         for b, task_data in enumerate(all_tasks):
             task_context_x = task_data['x']
             task_context_y = task_data['y']

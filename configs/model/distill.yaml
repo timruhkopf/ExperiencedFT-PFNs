@@ -5,3 +5,15 @@ meta:
 
 cls:
   _target_: src.model.distill.DistillContext
+  optimizer:
+    _partial_: true
+    _target_: torch.optim.AdamW
+    lr: 1e-3
+    weight_decay: 1e-4
+
+  distillsize: 100
+
+train_call:
+  n_steps: 10000
+  val_log_frequency: 10
+  batch_size: 32

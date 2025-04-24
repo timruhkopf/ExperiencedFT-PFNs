@@ -6,7 +6,7 @@ import torch
 from ifbo.priors.ftpfn_prior import DatasetPrior
 from ifbo.utils import detokenize, Curve
 
-from src.ifBO_main.ifbo import Batch
+from ifbo import Batch
 
 
 class MetaTaskPrior:
@@ -164,13 +164,14 @@ class MetaTaskPrior:
     def sample_related_task(self):
         raise NotImplementedError("This method should be implemented in a subclass")
 
-    def sample_batch(self, n_tasks, alphas: Union[List[int], int] = None,
+    def sample_batch(self, n_tasks, alphas: Union[List[float], float] = None,
                      single_eval_pos: Union[List[
                          int], int] = None) -> Batch:
         """
         Sample a batch of related tasks.
         :param n_tasks: the number of related tasks to sample
-        :param alphas: List or int of the concentration parameter of the Dirichlet distribution for each task.
+        :param alphas: List or float of the concentration parameter of the Dirichlet distribution
+        for each task.
          if it is an int, it will be used for all tasks.
         :param single_eval_pos: the context size for each task. If it is an int, it will be used for all tasks.
 
@@ -187,7 +188,7 @@ class MetaTaskPrior:
 
         if alphas is None:
             alphas = [10 ** np.random.uniform(-4, -1) for _ in range(n_tasks)]
-        if isinstance(alphas, int):
+        if isinstance(alphas, float):
             alphas = [alphas] * n_tasks
         assert len(alphas) == n_tasks, "alphas must be a list of the same length as n_tasks"
 
