@@ -1,18 +1,20 @@
-from typing import List, Dict, Union
+from typing import List, Dict, Union, Callable
 
+import numpy as np
 import torch
 from ifbo.transformer import TransformerModel
 
 from src.evaluation.test_on_new_task_nll import TestOnNewTaskNLL
 from src.ifBO_main.ifbo import BarDistribution, FTPFN
 from src.model.abstractmodel import AbstractModel
+from src.model.batch_padded_pfn import MyBatch
 
 
 def _calc_reliability(
         model: TransformerModel,
         context_x: torch.Tensor,
         context_y: torch.Tensor,
-        related_task_data: List[Dict[str, torch.Tensor]],  # type: ignore
+        related_task_data: MyBatch,  # type: ignore
         criterion: BarDistribution
 ) -> torch.Tensor:
     """
@@ -28,25 +30,47 @@ def _calc_reliability(
         :param criterion: The criterion to use for the calculation.
 
     """
-    reliability_scores = []
-    for task_data in related_task_data:
-        task_context_x = task_data['x']
-        task_context_y = task_data['y']
 
-        logits = model(
-            (
-                torch.cat([task_context_x, context_x], dim=0),
-                task_context_y
-            ),
-            single_eval_pos=task_context_x.shape[0]
-        )
-        # y's associated with query for that task
-        target = context_y
-        loss = criterion(logits, target)
-        loss = loss.view(-1, logits.shape[1])  # bar distribution issue
-        reliability_scores.append(loss.mean().item())
+    # for task_data in related_task_data:
+    task_context_x = related_task_data.x
+    task_context_y = related_task_data.y
+    padding_mask = related_task_data.padding_mask
 
-    return torch.tensor(reliability_scores).to(context_x.device)
+    logits = model(
+        (
+            torch.cat([task_context_x, context_x], dim=0),
+            task_context_y
+        ),
+        single_eval_pos=task_context_x.shape[0],
+        src_key_padding_mask=padding_mask
+    )
+    # y's associated with query for that task
+    target = context_y
+    loss = criterion(logits, target)
+    loss = loss.view(-1, logits.shape[1])  # bar distribution issue
+    loss = loss.mean(dim=0)  # mean over the batch
+
+    return loss  # reliability scores
+
+def compute_alpha(n_target, lambda_=0.01):
+    return 1 - torch.exp(-lambda_ * torch.tensor(n_target, dtype=torch.float32))
+
+def weighted_average(target_logits, related_logits, reliability_scores, alpha=0.5):
+    weights = 1 / (reliability_scores + 1e-8)  # Inverse with numerical stability
+    weights /= weights.sum()  # Normalize to probability distribution
+
+    weighted_related = (related_logits * weights.reshape(1, -1, 1)).sum(axis=1, keepdims=True)
+    mixture_logits = alpha * target_logits + (1 - alpha) * weighted_related
+
+    return mixture_logits
+
+def softmax_mixture(target_logits, related_logits, reliability_scores, temperature=1.0, alpha=0.5):
+    softmax_weights = torch.softmax(-reliability_scores / temperature, dim=0)
+    weighted_related = (related_logits * softmax_weights.reshape(1, -1, 1)).sum(axis=1, keepdims=True)
+
+    mixture_logits = alpha * target_logits + (1 - alpha) * weighted_related
+    return mixture_logits
+
 
 
 class PFNPPDMixture(AbstractModel):
@@ -55,12 +79,12 @@ class PFNPPDMixture(AbstractModel):
             model: Union[FTPFN, TransformerModel],
             logger,
             device,
-            related_task_data: List[Dict[str, torch.Tensor]],
+            related_task_data: MyBatch,
             criterion=None,
-            decayfactor=lambda x: 1.0,
-            min_context_size: int = 10
+            decayfactor=compute_alpha,
+            min_context_size: int = 10,
+            mixture_fn: Callable = weighted_average
     ) -> None:
-        self.min_context_size = min_context_size
 
         self.model: TransformerModel = model if isinstance(model, TransformerModel) else model.model
         self.model = self.model.to(device)
@@ -69,7 +93,10 @@ class PFNPPDMixture(AbstractModel):
         self.device = device
 
         self.related_task_data = related_task_data
+
         self.decay_factor = decayfactor
+        self.min_context_size = min_context_size
+        self.mixture_fn = mixture_fn
 
     def query_batch_fwd(self, context_x, context_y, query_x):
         assert context_x.shape[0] + query_x.shape[0] <= 1000, \
@@ -115,7 +142,7 @@ class PFNPPDMixture(AbstractModel):
         return self._forward(**kwargs)
 
     @torch.no_grad()
-    def _forward(self, context_x, context_y, query_x, temperature=1) -> (
+    def _forward(self, context_x, context_y, query_x, *args, **kwargs) -> (
             torch.Tensor):
         """
         Posterior Predictive Mixture based on the reliability of the related tasks
@@ -131,9 +158,6 @@ class PFNPPDMixture(AbstractModel):
             :param context_x: The context points of the current task.
             :param context_y: The context values of the current task.
             :param query_x: The query points for the current task.
-            :param temperature: The temperature for the softmax calculation.
-            Smaller values will give more weight to higher reliability scores,
-            i.e. we will rely less on unreliable experiences.
             :return: The mixed logits for the query points weighting the prior derived
             from the related tasks with the logits based of the observed part of the current task.
         """
@@ -168,8 +192,9 @@ class PFNPPDMixture(AbstractModel):
             self.logger.add_scalar(
                 "reliability_score",
                 score.item(),
+                -1,  # step
+                context_x.shape[0],
                 i,  # task index
-                context_x.shape[0]
             )
 
         # (3) TODO Localize the query_points; i.e. first find the most relevant context points
@@ -181,91 +206,127 @@ class PFNPPDMixture(AbstractModel):
         # Consider: knn localization --> ablate over whether we need additional context other
         #  than knn samples
 
-        # (2) Collect the PPD logits
-        logits = torch.zeros(T, 1 + n_related_tasks, num_bars)
+        # (2) Collect the PPD logits on the target task's query
 
-        if context_size >= self.min_context_size:
-            task = {'x': context_x, 'y': context_y}
-            all_tasks = [task, *self.related_task_data]
-        else:
-            all_tasks = self.related_task_data
+        # related ppd for current query points
+        task_context_x = self.related_task_data.x
+        task_context_y = self.related_task_data.y
+        padding_mask = self.related_task_data.padding_mask
 
-        # FIXME: make this a single padded batch fwd
-        for b, task_data in enumerate(all_tasks):
-            task_context_x = task_data['x']
-            task_context_y = task_data['y']
-            logits[:, b:b + 1, :] = self.query_batch_fwd(
-                task_context_x,
-                task_context_y,
-                query_x
-            )
-
-        if context_size >= self.min_context_size:
-            # add uniform logits for the current task
-            logits[:, 0:1, :] = torch.zeros((T, 1, num_bars)).to(self.device)
-
-        # get the mixture distribution
-        mixed = self.calc_logits_mixture(
-            logits,
-            reliability_scores,
-            context_size,
-            temperature
+        related_logits = self.model(
+            (
+                torch.cat([task_context_x, query_x], dim=0),
+                task_context_y
+            ),
+            single_eval_pos=task_context_x.shape[0],
+            src_key_padding_mask=padding_mask
         )
 
-        return mixed
 
-    def calc_logits_mixture(
-            self,
-            logits: torch.Tensor,
+        target_logits = self.model(
+            (
+                torch.cat([context_x, query_x], dim=0),
+                context_y
+            ),
+            single_eval_pos=context_x.shape[0],
+            src_key_padding_mask=None
+        )
+
+        #   # (4) Calculate the mixture of the logits based on the reliability scores
+
+        mixture_logits = self.mixture_fn(
+            target_logits,
+            related_logits,
             reliability_scores,
-            context_size: int,
-            temperature=1.
-    ) -> torch.Tensor:
-        """
-        Calculate the mixture of the logits based on the reliability scores.
+            # temperature=temperature,
+            alpha=self.decay_factor(context_size)
+        )
 
-        :param logits: T, B+1, C, with B+1 being the number of tasks (including the current task,
-        located at index 0)
-        :param reliability_scores: nll scores for each task
-        :param context_size: size of the context for the current task
-        :param temperature: temperature for the softmax calculation over the reliability scores.
-        # FIxME: temperature is an important hyperparameter, as lower values will
-        #  give more weight to higher reliability scores (fewer tasks will be
-        #  considered)
-        :return: logits tensor T, 1, C, which defines the mixture of the logits
-        """
-        if reliability_scores.shape[0] > 1:
-            weights = torch.softmax(-reliability_scores / temperature)
-        else:
-            weights = torch.tensor([1.0])
 
-        weights = weights.to(self.device)
-
-        if context_size > self.min_context_size:
-            # devalue the current task
-            weights[0] *= self.decay_factor(context_size)
-
-        weights = torch.cat([torch.tensor([1.0]).to(self.device), weights])
-        weights = weights / weights.sum()  # normalizing with the current task
-
-        for i, score in enumerate(weights.to('cpu')):
-            self.logger.add_scalar(
-                "weights",
-                score.item(),
-                i,  # task index
-                context_size
-            )
-
-        logits = (logits * weights.view(1, 2, 1)).sum(dim=1)
-
-        # Weighted combination using broadcasting
-        return logits.unsqueeze(1)  # [B, 1, C]
+        return mixture_logits
 
     def __call__(self, *args, **kwargs):
         return self.forward(*args, **kwargs)
 
 
+# def calc_logits_mixture(
+#         self,
+#         target_logits: torch.Tensor,
+#         logits: torch.Tensor,
+#         reliability_scores,
+#         context_size: int,
+#         temperature=1.
+# ) -> torch.Tensor:
+#     """
+#     Calculate the mixture of the logits based on the reliability scores.
+#
+#     :param logits: T, B+1, C, with B+1 being the number of tasks (including the current task,
+#     located at index 0)
+#     :param reliability_scores: nll scores for each task
+#     :param context_size: size of the context for the current task
+#     :param temperature: temperature for the softmax calculation over the reliability scores.
+#     # FIxME: temperature is an important hyperparameter, as lower values will
+#     #  give more weight to higher reliability scores (fewer tasks will be
+#     #  considered)
+#     :return: logits tensor T, 1, C, which defines the mixture of the logits
+#     """
+#     if reliability_scores.shape[0] > 1:
+#         weights = torch.softmax(-reliability_scores / temperature)
+#     else:
+#         weights = torch.tensor([1.0])
+#
+#     weights = weights.to(self.device)
+#
+#     if context_size > self.min_context_size:
+#         # devalue the current task
+#         weights[0] *= self.decay_factor(context_size)
+#
+#     weights = torch.cat([torch.tensor([1.0]).to(self.device), weights])
+#     weights = weights / weights.sum()  # normalizing with the current task
+#
+#     for i, score in enumerate(weights.to('cpu')):
+#         self.logger.add_scalar(
+#             "weights",
+#             score.item(),
+#             i,  # task index
+#             context_size
+#         )
+#
+#     logits = (logits * weights.view(1, 2, 1)).sum(dim=1)
+#
+#     # Weighted combination using broadcasting
+#     return logits.unsqueeze(1)  # [B, 1, C]
+
+def __call__(self, *args, **kwargs):
+    return self.forward(*args, **kwargs)
+
+
 if __name__ == '__main__':
+
+    # To inspect the alpha values
+    import numpy as np
+    import matplotlib.pyplot as plt
+
+    def compute_alpha(n_target, lambda_):
+        return 1 - np.exp(-lambda_ * n_target)
+
+    n_targets = np.arange(0, 201, 1)  # From 0 to 200 data points
+    lambdas = [0.005, 0.01, 0.02, 0.05, 0.1]
+
+    plt.figure(figsize=(8, 5))
+    for lambda_ in lambdas:
+        alphas = compute_alpha(n_targets, lambda_)
+        plt.plot(n_targets, alphas, label=f'lambda={lambda_}')
+
+    plt.title('Alpha Decay vs. Number of Target Samples')
+    plt.xlabel('Number of Target Samples (n_target)')
+    plt.ylabel('Alpha')
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+    plt.show()
+
+
     from src.utils.filelogger import BufferedFileLogger
     import matplotlib.pyplot as plt
 
@@ -324,7 +385,6 @@ if __name__ == '__main__':
         'x': x_task_context,
         'y': y_task_context
     }]
-
 
     with tempfile.TemporaryDirectory() as tmpdirname:
         trainlogger = BufferedFileLogger(

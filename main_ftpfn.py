@@ -113,7 +113,7 @@ def main(cfg: DictConfig):
 
         n_related = related_task_data.x.shape[1]
         evaluator.test_on_new_task(
-            model=pfn_backend,
+            model=model,
             prefix_x=prefix[0],
             prefix_y=prefix[1],
             context_task_x=target_task_context_x.repeat(1, n_related, 1),
@@ -155,6 +155,9 @@ def main(cfg: DictConfig):
 
         # A quick fix approximation of what the gt related_task context as prefix
         # would look like
+        # FIXME: make padding work for the GT context prediction and take all of the context from
+        #  the respective related task available for predicting the target_task query under
+        #  context_size constraints
         from src.dataset.dataloading import DTrain
         dataset = DTrain(
             related_task_data.x, related_task_data.y, padding_mask,
