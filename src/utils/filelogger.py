@@ -42,6 +42,12 @@ class BufferedFileLogger:
             # Write the header of the CSV file
             self.writer.writerow(header)
 
+        # infer the header from file
+        with open(self.file_path / self.file_name, 'r') as f:
+            reader = csv.reader(f)
+            self.header = next(reader)
+            self.header = [h.strip() for h in self.header]
+
     def add_scalar(self, *args):
         args = args if isinstance(args, list) else list(args)
         self.buffer.append(args + self.postfix)
