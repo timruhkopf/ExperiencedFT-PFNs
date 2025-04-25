@@ -82,18 +82,10 @@ def collate(batch, min_length=10, max_length=500):
 
     size = torch.randint(min_length, max_length, (1,)).item()
 
-    # fixme: we get a 4 dim tensor: (dataloader.batch, n_tasks, n_samples, dim)
     x = torch.stack([item[0][:size] for item in batch])
     y = torch.stack([item[1][:size] for item in batch])
-
-    n_tasks, T, dim = x.shape[1:]
-    # (Sequence length, Batch size, hparameter dimension), (Sequence length, Batch size)
-    # return x.permute(1, 0, 2), y.permute(1, 0)
-    x = x.reshape(-1, T, dim)
-    y = y.reshape(-1, T)
-
-
-    return x.permute(1,0,2), y.permute(1,0)
+    # permute to get x: (batch, n_samples, n_tasks, dim), y: (batch, n_samples, n_tasks)
+    return x.permute(0,2,1,3), y.permute(0,2,1)
 
 if __name__ == '__main__':
     from functools import partial

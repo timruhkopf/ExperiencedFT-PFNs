@@ -20,6 +20,7 @@ class TestOnNewTaskNLL:
             query_task_y,
             prefix_x=torch.tensor([]),
             prefix_y=torch.tensor([]),
+            src_key_padding_mask=None,
             context_sizes=None,
             step=None,
             **kwargs
@@ -81,7 +82,7 @@ class TestOnNewTaskNLL:
                     ),
                     single_eval_pos=prefix_x.shape[0] + \
                                     min(context_size, context_task_x.shape[0]),
-
+                    src_key_padding_mask=src_key_padding_mask,
                     **kwargs
                 )
                 # y's associated with query for that task
@@ -91,13 +92,19 @@ class TestOnNewTaskNLL:
                 loss = loss.view(-1, logits.shape[1])  # sometimes the seq length can be one off
                 batch_losses.append(loss)
 
-            loss = torch.mean(torch.cat(batch_losses))
-            losses.append(loss.item())
+            loss = torch.mean(torch.cat(batch_losses, dim=0), dim=0)  # related task wise losses
+            losses.append(loss)
 
-            self.logger.add_scalar(
-                task_name,
-                loss.item(),
-                context_size, step
-            )
+            for related_task_id in range(loss.shape[0]):
+                # mean over the batch dimension
+
+                self.logger.add_scalar(
+                    task_name,
+                    loss[related_task_id].item(),
+                    step,
+                    context_size,
+                    related_task_id
+
+                )
 
         return losses

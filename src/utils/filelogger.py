@@ -44,7 +44,7 @@ class BufferedFileLogger:
 
     def add_scalar(self, *args):
         args = args if isinstance(args, list) else list(args)
-        self.buffer.append(args + self.postfix )
+        self.buffer.append(args + self.postfix)
         if len(self.buffer) >= self.buffer_size:
             self._flush()
 
