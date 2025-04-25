@@ -276,6 +276,9 @@ class DistillContext(AbstractModel):
             warnings.warn(
                 "Distillation did not change the points. Check your optimizer and learning rate."
             )
+
+        self.distilled_x = distilled_x
+        self.distilled_y = distilled_y
         return distilled_x, distilled_y
 
     def validation_step(self, query_task_x, query_task_y, distilled_x_latent, distilled_y,
@@ -354,7 +357,7 @@ class DistillContext(AbstractModel):
 
         return loss #task_losses
 
-    def forward(self, x_query, y_query, distilled_points, distilled_labels):
+    def forward(self, x_query, x_context=None, y_context=None):
         """
         Performs the forward pass of the model, taking query points, query labels, distilled
         points, and distilled labels as inputs. The method processes the input data by
@@ -375,14 +378,20 @@ class DistillContext(AbstractModel):
         :return: The computed logits after passing the processed inputs through the model.
         """
         T, B, dim = x_query.shape
+        if x_context is None:
+            x_context = torch.zeros([], device=x_query.device)
+            y_context = torch.zeros([], device=x_query.device)
+
         logits = self.model(
             # ([x_train, x_query], ytrain)
             (  # notice, that x_query comes from the dataset and thus is constrained
-                torch.cat([distilled_points.expand(-1, B, -1), x_query], dim=0),
-                distilled_labels.expand(-1, B)
+                torch.cat([self.distilled_x.expand(-1, B, -1), x_context, x_query], dim=0),
+                torch.cat([self.distilled_y.expand(-1, B), y_context], dim=0)
             ),
-            single_eval_pos=distilled_points.shape[0]
+            single_eval_pos=self.distilled_x.shape[0] + x_context.shape[0]
         )
+
+        return logits
 
     def __call__(self, *args, **kwargs):
         return self.forward(*args, **kwargs)
