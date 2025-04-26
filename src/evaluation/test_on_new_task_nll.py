@@ -1,6 +1,7 @@
 import warnings
 
 import torch
+from torch import dtype
 
 
 class TestOnNewTaskNLL:
@@ -68,11 +69,25 @@ class TestOnNewTaskNLL:
             self.device)
 
         losses = []
+
+        if src_key_padding_mask is not None:
+            n_tasks = prefix_x.shape[1]
+            padding = torch.cat([
+                src_key_padding_mask,
+                torch.zeros((n_tasks, 1000), dtype=torch.bool)
+            ], dim=1)
+
+        else:
+            padding = None
+
         for context_size in context_sizes:  # note how the final y is omitted here
             # batching of query points in case we exceed the context size
             query_size = 1000 - prefix_x.shape[0] - context_size
             batch_losses = []
             for i in range(0, query_task_x.shape[0], query_size):
+                single_eval_pos = prefix_x.shape[0] + \
+                                  min(context_size, context_task_x.shape[0])
+
                 logits = model(
                     (  # distilled context + observed x part of task, query for that task
                         torch.cat([prefix_x, context_task_x[:context_size],
@@ -80,9 +95,9 @@ class TestOnNewTaskNLL:
                         # distilled labels + observed y part of task,
                         torch.cat([prefix_y, context_task_y[:context_size]], dim=0)
                     ),
-                    single_eval_pos=prefix_x.shape[0] + \
-                                    min(context_size, context_task_x.shape[0]),
-                    src_key_padding_mask=src_key_padding_mask,
+                    single_eval_pos=single_eval_pos,
+                    src_key_padding_mask=padding[:, :single_eval_pos] \
+                        if padding is not None else None,
                     **kwargs
                 )
                 # y's associated with query for that task

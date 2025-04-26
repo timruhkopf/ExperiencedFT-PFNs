@@ -27,10 +27,14 @@ class MyBatch:
                 f"{self.query_x.shape if isinstance(self.query_x, torch.Tensor) else self.query_x}," \
                 f"query_y="
                 f"{self.query_y.shape if isinstance(self.query_y, torch.Tensor) else self.query_y}, single_eval_pos={self.single_eval_pos}, " \
-                f" padding_mask={self.padding_mask.shape})")
+                f" padding_mask={self.observed}")
 
     def __len__(self):
         return self.x.shape[1]
+
+    @property
+    def observed(self):
+        return (~self.padding_mask).sum(dim=1)
 
 
 class PaddedBatch:

@@ -70,11 +70,14 @@ def main(cfg: DictConfig):
         related_task_data = padded_batch.related_tasks
         task_data = padded_batch.target_task
 
+        logger.info(f'Amount of related task data: {related_task_data.observed}')
+
         target_task_context_x = task_data.x
         target_task_context_y = task_data.y
         target_task_query_x = task_data.query_x
         target_task_query_y = task_data.query_y
         padding_mask = related_task_data.padding_mask
+        n_related_tasks = related_task_data.x.shape[1]
 
     with SeededRandomContext(cfg.seed) as ctx:
         model = hydra.utils.instantiate(
@@ -128,6 +131,34 @@ def main(cfg: DictConfig):
         )
 
         # Quick Baselines --------------------
+        # sanity check: what if we put in the current task as context.
+        evaluator.test_on_new_task(
+            model=pfn_backend,
+            task_name=f'Baseline: complete target_task_x as context',
+
+            context_task_x=target_task_context_x,
+            context_task_y=target_task_context_y,
+            query_task_x=target_task_query_x,
+            query_task_y=target_task_query_y,
+
+
+        )
+
+        # Sanity check: what if we took the complete context from the related task and attempted
+        # to predict the current task
+        evaluator.test_on_new_task(
+            model=pfn_backend,
+            task_name=f'Baseline: approx. conditioning on complete related',
+            prefix_x=related_task_data.x[:-25],
+            prefix_y=related_task_data.y[:-25],
+            context_task_x=target_task_context_x.repeat(1, n_related_tasks, 1),
+            context_task_y=target_task_context_y.repeat(1, n_related_tasks),
+            query_task_x=target_task_query_x.repeat(1, n_related_tasks, 1),
+            query_task_y=target_task_query_y.repeat(1, n_related_tasks),
+            context_sizes=context_sizes,
+            src_key_padding_mask=padding_mask
+        )
+
         evaluator.test_on_new_task(
             model=pfn_backend,
             task_name='Baseline: naked pfn',
@@ -138,7 +169,7 @@ def main(cfg: DictConfig):
             context_sizes=context_sizes
         )
 
-        n_related_tasks = related_task_data.x.shape[1]
+
         if cfg.model.meta.name == 'distill':
             # Sanity check: the initial points of optimization added as context
             evaluator.test_on_new_task(
@@ -153,29 +184,8 @@ def main(cfg: DictConfig):
                 context_sizes=context_sizes
             )
 
-        # A quick fix approximation of what the gt related_task context as prefix
-        # would look like
-        # FIXME: make padding work for the GT context prediction and take all of the context from
-        #  the respective related task available for predicting the target_task query under
-        #  context_size constraints
-        from src.dataset.dataloading import DTrain
-        dataset = DTrain(
-            related_task_data.x, related_task_data.y, padding_mask,
-            sequence_length_max=related_task_data.single_eval_pos,
-        )
-        prefix = dataset[0]
-        # Sanity check: the initial points of optimization added as context
-        evaluator.test_on_new_task(
-            model=pfn_backend,
-            task_name=f'Baseline: approx. gt context of size {prefix[0].shape[1]}',
-            prefix_x=prefix[0].permute(1, 0, 2).to(device),
-            prefix_y=prefix[1].permute(1, 0).to(device),
-            context_task_x=target_task_context_x.repeat(1, n_related_tasks, 1),
-            context_task_y=target_task_context_y.repeat(1, n_related_tasks),
-            query_task_x=target_task_query_x.repeat(1, n_related_tasks, 1),
-            query_task_y=target_task_query_y.repeat(1, n_related_tasks),
-            context_sizes=context_sizes
-        )
+
+
 
         # Intensely checking sanity baselines: for each task
         # for task in data['related_task_data']:
