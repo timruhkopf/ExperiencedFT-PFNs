@@ -310,7 +310,7 @@ class MetaTaskPriorResampleLayers(MetaTaskPrior):
         details)
         """
         bnn = self.relation_prior.model
-        layers = bnn.linears[:-self.n_layers]
+        layers = bnn.linears[-self.n_layers:]
 
         init_std = init_std if init_std is not None else bnn.init_std
         sparseness = sparseness if sparseness is not None else bnn.sparseness
