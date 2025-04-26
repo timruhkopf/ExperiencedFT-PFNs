@@ -12,8 +12,8 @@ cls:
 sample_config:
   single_eval_pos:
     - 500
-    - 300
-    - 200
+    - 500
+    - 400
   alphas:
     - 0.5
     - 0.5

@@ -10,6 +10,16 @@ cls:
     _target_:  ifbo.surrogate.FTPFN
     version: "0.0.1"
     device: ${device}
+    decay_factor:
+      _partial_: True
+      _target_: src.model.mixture_ppd.compute_alpha
+      lambda_: 0.1
+      constant: 0
+
+    mixture_fn:
+      _partial_: True
+      _target_:  src.model.mixture_ppd.weighted_average
+
   criterion: Null
   min_context_size: 10
   # related_task_data

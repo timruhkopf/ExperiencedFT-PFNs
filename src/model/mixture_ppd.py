@@ -52,10 +52,14 @@ def _calc_reliability(
 
     return loss  # reliability scores
 
-def compute_alpha(n_target, lambda_=0.01):
-    return 1 - torch.exp(-lambda_ * torch.tensor(n_target, dtype=torch.float32))
 
-def weighted_average(target_logits, related_logits, reliability_scores, alpha=0.5):
+def compute_alpha(n_target, lambda_=0.001, constant=0):
+    effective_n = torch.maximum(torch.tensor(n_target - constant, dtype=torch.float32),
+                                torch.tensor(0.0))
+    return 1 - torch.exp(-lambda_ * effective_n)
+
+
+def weighted_average(target_logits, related_logits, reliability_scores, alpha=1):
     weights = 1 / (reliability_scores + 1e-8)  # Inverse with numerical stability
     weights /= weights.sum()  # Normalize to probability distribution
 
@@ -64,13 +68,14 @@ def weighted_average(target_logits, related_logits, reliability_scores, alpha=0.
 
     return mixture_logits
 
-def softmax_mixture(target_logits, related_logits, reliability_scores, temperature=1.0, alpha=0.5):
+
+def softmax_mixture(target_logits, related_logits, reliability_scores, temperature=1.0, alpha=1):
     softmax_weights = torch.softmax(-reliability_scores / temperature, dim=0)
-    weighted_related = (related_logits * softmax_weights.reshape(1, -1, 1)).sum(axis=1, keepdims=True)
+    weighted_related = (related_logits * softmax_weights.reshape(1, -1, 1)).sum(axis=1,
+                                                                                keepdims=True)
 
     mixture_logits = alpha * target_logits + (1 - alpha) * weighted_related
     return mixture_logits
-
 
 
 class PFNPPDMixture(AbstractModel):
@@ -81,7 +86,7 @@ class PFNPPDMixture(AbstractModel):
             device,
             related_task_data: MyBatch,
             criterion=None,
-            decayfactor=compute_alpha,
+            decayfactor: Callable = compute_alpha,
             min_context_size: int = 10,
             mixture_fn: Callable = weighted_average
     ) -> None:
@@ -222,7 +227,6 @@ class PFNPPDMixture(AbstractModel):
             src_key_padding_mask=padding_mask
         )
 
-
         target_logits = self.model(
             (
                 torch.cat([context_x, query_x], dim=0),
@@ -241,7 +245,6 @@ class PFNPPDMixture(AbstractModel):
             # temperature=temperature,
             alpha=self.decay_factor(context_size)
         )
-
 
         return mixture_logits
 
@@ -302,30 +305,6 @@ def __call__(self, *args, **kwargs):
 
 
 if __name__ == '__main__':
-
-    # To inspect the alpha values
-    import numpy as np
-    import matplotlib.pyplot as plt
-
-    def compute_alpha(n_target, lambda_):
-        return 1 - np.exp(-lambda_ * n_target)
-
-    n_targets = np.arange(0, 201, 1)  # From 0 to 200 data points
-    lambdas = [0.005, 0.01, 0.02, 0.05, 0.1]
-
-    plt.figure(figsize=(8, 5))
-    for lambda_ in lambdas:
-        alphas = compute_alpha(n_targets, lambda_)
-        plt.plot(n_targets, alphas, label=f'lambda={lambda_}')
-
-    plt.title('Alpha Decay vs. Number of Target Samples')
-    plt.xlabel('Number of Target Samples (n_target)')
-    plt.ylabel('Alpha')
-    plt.legend()
-    plt.grid(True)
-    plt.tight_layout()
-    plt.show()
-
 
     from src.utils.filelogger import BufferedFileLogger
     import matplotlib.pyplot as plt
