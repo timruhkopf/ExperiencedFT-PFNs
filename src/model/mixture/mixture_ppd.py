@@ -8,6 +8,7 @@ from src.evaluation.test_on_new_task_nll import TestOnNewTaskNLL
 from src.ifBO_main.ifbo import BarDistribution, FTPFN
 from src.model.abstractmodel import AbstractModel
 from src.model.batch_padded_pfn import MyBatch
+from src.utils.filelogger import BufferedFileLogger
 
 
 def _calc_reliability(
@@ -53,43 +54,60 @@ def _calc_reliability(
     return loss  # reliability scores
 
 
-def compute_alpha(n_target, lambda_=0.001, constant=0):
-    effective_n = torch.maximum(torch.tensor(n_target - constant, dtype=torch.float32),
-                                torch.tensor(0.0))
-    return 1 - torch.exp(-lambda_ * effective_n)
-
-
-def weighted_average(target_logits, related_logits, reliability_scores, alpha=1):
-    weights = 1 / (reliability_scores + 1e-8)  # Inverse with numerical stability
-    weights /= weights.sum()  # Normalize to probability distribution
-
-    weighted_related = (related_logits * weights.reshape(1, -1, 1)).sum(axis=1, keepdims=True)
-    mixture_logits = alpha * target_logits + (1 - alpha) * weighted_related
-
-    return mixture_logits
-
-
-def softmax_mixture(target_logits, related_logits, reliability_scores, temperature=1.0, alpha=1):
-    softmax_weights = torch.softmax(-reliability_scores / temperature, dim=0)
-    weighted_related = (related_logits * softmax_weights.reshape(1, -1, 1)).sum(axis=1,
-                                                                                keepdims=True)
-
-    mixture_logits = alpha * target_logits + (1 - alpha) * weighted_related
-    return mixture_logits
-
-
 class PFNPPDMixture(AbstractModel):
     def __init__(
             self,
             model: Union[FTPFN, TransformerModel],
-            logger,
+            logger:BufferedFileLogger,
             device,
             related_task_data: MyBatch,
+            decay_fn: Callable,
+            mixture_fn: Callable,
+            reliability_fn: Callable=_calc_reliability,
             criterion=None,
-            decayfactor: Callable = compute_alpha,
             min_context_size: int = 10,
-            mixture_fn: Callable = weighted_average
+
     ) -> None:
+        """
+        FT-PFN with Posterior Predictive Distribution Mixture.
+
+        The idea is, that prior tasks are likely related. A FT-PFN, that is applied
+        to the little data from the current task will initially have bad predictive performance.
+
+        To leverage knowledge about the algorithms learning behaviour, we can improve the
+        FT-surrogate, by considering the prior. In the case of the FT-PFN, we can build a
+        Posterior Predictive mixture by:
+
+        1. Computing the logits for the query points on the current task based on the current
+        task's little data. These logits represent the in-context inferred posterior predictive
+        distribution over the binned y distribution on the query. p_task(y^{task} | x^{task},
+        D^{task - observed so far})
+        2. For every related dataset at our disposal, we use that dataset's tokens to predict the
+        same query points. Each will return logits, representing the respective belief over the
+        posterior predictive distribution p_i(y^{task} | x^{task}, D^{related_task_i})
+        3. We can now compute the mixture by weighing the contributions by their reliability;
+        i.e. how likely the dataset is under the current data:
+         p(y^{task} | x^{task}, \mathcal{D}) =
+        \int_{D \in \mathcal{D}}p(y^{task} | x^{task}, D) p(D | D^{task - observed so far})
+
+        Provided, that we know that some related tasks are in fact relevant, we may want to
+        reduce variance and not trust the FT-PFN with too little data. That is why we he have a
+        decayfactor function. It controls the relative mixture of the target logits with those of the related
+        tasks over time; i.e. how much weight we give the prior given the current amount of
+        target data.
+
+        mixture_logits = alpha * target_logits + (1 - alpha) * related_logits
+
+        :param model: pretrained FT-PFN Transformer
+        :param logger:
+        :param device:
+        :param related_task_data:
+        :param decayfactor: A parametrized function that will produce the current alpha
+        :param mixture_fn: Callable, that will accept target_logits, related_logits,
+        reliability_scores, alpha
+        :param criterion: Bar distribution, that will allow us to interpret
+        :param min_context_size:
+        """
 
         self.model: TransformerModel = model if isinstance(model, TransformerModel) else model.model
         self.model = self.model.to(device)
@@ -99,7 +117,8 @@ class PFNPPDMixture(AbstractModel):
 
         self.related_task_data = related_task_data
 
-        self.decay_factor = decayfactor
+        self.reliability_fn = reliability_fn
+        self.decay_fn = decay_fn
         self.min_context_size = min_context_size
         self.mixture_fn = mixture_fn
 
@@ -180,7 +199,7 @@ class PFNPPDMixture(AbstractModel):
 
         if context_size >= self.min_context_size:
             # calculate the reliability scores for the related tasks
-            reliability_scores = _calc_reliability(
+            reliability_scores = self.reliability_fn(
                 self.model,
                 context_x,
                 context_y,
@@ -243,7 +262,7 @@ class PFNPPDMixture(AbstractModel):
             related_logits,
             reliability_scores,
             # temperature=temperature,
-            alpha=self.decay_factor(context_size)
+            alpha=self.decay_fn(context_size)
         )
 
         return mixture_logits

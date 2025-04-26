@@ -4,21 +4,21 @@ meta:
   name: 'pfn_mixture'
 
 cls:
-  _target_: src.model.mixture_ppd.PFNPPDMixture
+  _target_: src.model.mixture.mixture_ppd.PFNPPDMixture
 
   model:
     _target_:  ifbo.surrogate.FTPFN
     version: "0.0.1"
     device: ${device}
-    decay_factor:
-      _partial_: True
-      _target_: src.model.mixture_ppd.compute_alpha
-      lambda_: 0.1
-      constant: 0
+  decay_fn:
+    _partial_: True
+    _target_: src.model.mixture.decay.constant_exponential
+    lambda_: 0.01
+    constant: 200
 
-    mixture_fn:
-      _partial_: True
-      _target_:  src.model.mixture_ppd.weighted_average
+  mixture_fn:
+    _partial_: True
+    _target_:  src.model.mixture.mixing.argmin
 
   criterion: Null
   min_context_size: 10
