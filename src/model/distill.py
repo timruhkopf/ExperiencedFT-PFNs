@@ -222,6 +222,7 @@ class DistillContext(AbstractModel):
                 # tile the query points
                 batch, T, n_tasks, dim = x_query.shape
                 tiled_batch = batch * n_tasks
+                # x_query = torch.cat([torch.zeros(4, 10, 1, 3), torch.ones(4,10,1, 3)], dim=2)
                 x_query = x_query.reshape(T, tiled_batch, dim)
                 y_query = y_query.reshape(T, tiled_batch)
 
@@ -229,7 +230,9 @@ class DistillContext(AbstractModel):
                 y_query = y_query.to(self.device)  # T x B
 
                 # for maximum throughput and parallel distillation for each task, we can tile;
-                # i.e. make it look like we had more batches, but of the same nn.Parameter
+                # i.e. make it look like we had more batches, but of the same    nn.Parameter
+                # distilled_x = torch.cat([torch.zeros(6, 2, 3), torch.ones(6, 2, 3)])
+                # FIXME: this tiling repeat is probably not aligned!
                 distilled_x_latent_tiled = distilled_x_latent.repeat(1, batch, 1)
                 distilled_y_tiled = distilled_y.repeat(1, batch)
 
