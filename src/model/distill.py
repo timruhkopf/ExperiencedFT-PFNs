@@ -207,7 +207,7 @@ class DistillContext(AbstractModel):
         # (1) set up the dataloader
         dataset = DTrain(
             x, y, padding_mask,
-            sequence_length_max=self.related_task_data.single_eval_pos,
+            # sequence_length_max=self.related_task_data.single_eval_pos,
         )
         dataloader = torch.utils.data.DataLoader(
             dataset,
@@ -218,7 +218,7 @@ class DistillContext(AbstractModel):
         self.pbar = tqdm(range(int(n_steps)), desc="Distillation Progress", unit="step")
         for step in self.pbar:
             losses = []
-            for x_query, y_query in dataloader:
+            for x_query, y_query, padding_mask in dataloader:
                 # tile the query points
                 batch, T, n_tasks, dim = x_query.shape
                 tiled_batch = batch * n_tasks
@@ -233,8 +233,10 @@ class DistillContext(AbstractModel):
                 distilled_x_latent_tiled = distilled_x_latent.repeat(1, batch, 1)
                 distilled_y_tiled = distilled_y.repeat(1, batch)
 
+                # FIXME: check with perplexity, if the distillation tiling is actually correct here!
+
                 loss = self.train_step(
-                    x_query, y_query,
+                    x_query, y_query, padding_mask,
                     # constrain the learnable parameters:
                     distilled_x=constrain(distilled_x_latent_tiled, temp=temperature),
                     distilled_y=distilled_y_tiled
@@ -325,7 +327,7 @@ class DistillContext(AbstractModel):
 
         return reconstruction_loss, predictive_loss
 
-    def train_step(self, x_query, y_query, distilled_x, distilled_y):
+    def train_step(self, x_query, y_query, padding_mask, distilled_x, distilled_y):
 
         # to ensure numerical stability:
         # with torch.no_grad():
@@ -338,7 +340,8 @@ class DistillContext(AbstractModel):
                 torch.cat([distilled_x, x_query], dim=0),
                 distilled_y
             ),
-            single_eval_pos=distilled_x.shape[0]
+            single_eval_pos=distilled_x.shape[0],
+            src_key_padding_mask = padding_mask
         )
 
         # Compute the BarDistribution NLL loss

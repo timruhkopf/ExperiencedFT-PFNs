@@ -1,9 +1,11 @@
+from typing import List
+
 import torch
 
 
 class DTrain(torch.utils.data.Dataset):
 
-    def __init__(self, x, y, padding_mask=None, length=100, sequence_length_max=500):
+    def __init__(self, x, y, padding_mask=None, length=100):
         """
 
         Just a shallow dataset class, that is supposed to shuffle the datapoints in the sequence dimension
@@ -11,18 +13,25 @@ class DTrain(torch.utils.data.Dataset):
         :param x:
         :param y:
         :param length:
-        :param sequence_length_max:
+
         """
         self.x = x
         self.y = y
         self.length = length
-        self.sequence_length_max = sequence_length_max
 
         if padding_mask is None:
-            self.padding_mask = torch.ones(x.size(1), x.size(0), dtype=torch.bool).to(x.device)
+            self.padding_mask = torch.zeros(x.size(1), x.size(0), dtype=torch.bool).to(x.device)
 
         else:
             self.padding_mask = padding_mask
+
+        B, T = padding_mask.shape
+
+        samplable = []
+        for b in range(B):
+            samplable.append(torch.where(torch.logical_not(padding_mask[b, :]))[0])
+
+        self.samplable_indices = samplable
 
         self.valid_mask = ~self.padding_mask
         self.num_valid = self.valid_mask.sum(dim=1)
@@ -33,41 +42,19 @@ class DTrain(torch.utils.data.Dataset):
 
 
     def __getitem__(self, idx):
-        # sample at most to the fixed size of the smallest dataset. (collate will subset this)
-        size=min(self.num_valid).item()
+        T, B, D = self.x.shape
 
-        # sample a fixed number of valid tokens from the sequence
-        valid_mask = self.valid_mask
-        batch, seq_len = valid_mask.shape
-        device = valid_mask.device
-        sampled_indices = torch.full((batch, size), -1, dtype=torch.long, device=device)
-        for i in range(batch):
-            valid_indices = torch.nonzero(valid_mask[i], as_tuple=False).flatten()
-            num_valid = valid_indices.size(0)
-            if num_valid >= size:
-                chosen = torch.randperm(num_valid, device=device)[:size]
-                sampled_indices[i] = valid_indices[chosen]
-            elif num_valid > 0:
-                # If not enough, sample with replacement
-                chosen = torch.randint(0, num_valid, (size,), device=device)
-                sampled_indices[i] = valid_indices[chosen]
-            # else: leave as -1 (no valid tokens)
+        # Store the sampled indices for each batch element
+        x = torch.zeros((T, B, D), device=self.x.device)
+        y = torch.zeros((T, B), device=self.x.device)
 
-        # collect the sampled indices
-        batch, n_samples = sampled_indices.shape
-        seq_length, batch2, dim = self.x.shape
-        assert batch == batch2
+        for b, size in enumerate(self.num_valid):
+            sampled_indices = torch.randperm(size)
+            x[:size, b] = self.x[sampled_indices, b, :]
+            y[:size, b] = self.y[sampled_indices, b]
 
-        # Prepare indices for gather:
-        # We want to index x[ sampled_indices[b, i], b, : ] for each b, i
-        # So we need to build a batch index of shape [batch, n_samples]
-        batch_idx = torch.arange(batch, device=self.x.device).unsqueeze(1).expand(-1,n_samples)  # [batch, n_samples]
+        return x, y, self.padding_mask
 
-        # Now, sampled_indices and batch_idx can be used to index x
-        # But PyTorch advanced indexing wants all indices as 1D, so flatten:
-        gathered_x = self.x[sampled_indices, batch_idx, :]  # [batch, n_samples, dim]
-        gathered_y = self.y[sampled_indices, batch_idx]  # [batch, n_samples]
-        return gathered_x, gathered_y
 
 def collate(batch, min_length=10, max_length=500):
     """
@@ -84,18 +71,21 @@ def collate(batch, min_length=10, max_length=500):
 
     x = torch.stack([item[0][:size] for item in batch])
     y = torch.stack([item[1][:size] for item in batch])
+    padding = torch.stack([item[2][:, :size] for item in batch])
     # permute to get x: (batch, n_samples, n_tasks, dim), y: (batch, n_samples, n_tasks)
-    return x.permute(0,2,1,3), y.permute(0,2,1)
+    return x.permute(0, 2, 1, 3), y.permute(0, 2, 1), padding
+
 
 if __name__ == '__main__':
     from functools import partial
+
     # Example usage
     x = torch.randn(1000, 10)  # Example data
-    y = torch.randn(1000, 1)   # Example labels
+    y = torch.randn(1000, 1)  # Example labels
 
     dataset = DTrain(x, y, length=100)
     collate_fn = partial(collate, min_length=10, max_length=500)
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=32, collate_fn=collate_fn)
 
     for batch_x, batch_y in dataloader:
-        print("Batch X shape:", batch_x.shape , "Batch Y shape:", batch_y.shape)
+        print("Batch X shape:", batch_x.shape, "Batch Y shape:", batch_y.shape)
