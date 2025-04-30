@@ -212,7 +212,7 @@ class DistillContext(AbstractModel):
         dataloader = torch.utils.data.DataLoader(
             dataset,
             batch_size=batch_size,
-            collate_fn=partial(collate, min_length=10, max_length=500),
+            collate_fn=partial(collate, min_length=10),
         )
 
         self.pbar = tqdm(range(int(n_steps)), desc="Distillation Progress", unit="step")
@@ -220,42 +220,79 @@ class DistillContext(AbstractModel):
             losses = []
             for x_query, y_query, padding_mask in dataloader:
                 # tile the query points
+                # padding_mask.shape is (batch, n_tasks, T)
                 batch, T, n_tasks, dim = x_query.shape
                 tiled_batch = batch * n_tasks
-                # x_query = torch.cat([torch.zeros(4, 10, 1, 3), torch.ones(4,10,1, 3)], dim=2)
-                x_query = x_query.reshape(T, tiled_batch, dim)
-                y_query = y_query.reshape(T, tiled_batch)
 
-                x_query = x_query.to(self.device)  # T x B x dim
-                y_query = y_query.to(self.device)  # T x B
+                # dummy
+                # x_query = torch.cat([
+                #     torch.zeros(batch, T, 1, dim),
+                #     torch.ones(batch, T, 1, dim)
+                # ], dim=2)  # Now shape: (batch, T, 2, dim)
+                # padding_mask = torch.cat([
+                #     torch.zeros(batch, 1, T),
+                #     torch.ones(batch, 1, T)
+                # ], dim=1)
 
-                # for maximum throughput and parallel distillation for each task, we can tile;
-                # i.e. make it look like we had more batches, but of the same    nn.Parameter
-                # distilled_x = torch.cat([torch.zeros(6, 2, 3), torch.ones(6, 2, 3)])
-                # FIXME: this tiling repeat is probably not aligned!
-                distilled_x_latent_tiled = distilled_x_latent.repeat(1, batch, 1)
-                distilled_y_tiled = distilled_y.repeat(1, batch)
+                x_query = x_query.permute(1, 0, 2, 3).reshape(T, tiled_batch,dim)  # (T, batch * 2, dim)
+                y_query = y_query.permute(1, 0, 2).reshape(T, tiled_batch)
+                padding_mask_tiled = padding_mask.reshape(tiled_batch, T)
 
-                # FIXME: check with perplexity, if the distillation tiling is actually correct here!
+
+                x_query = x_query.to(self.device)
+                y_query = y_query.to(self.device)
+
+                # dummy
+                # distilled_x_latent = torch.cat([
+                #     torch.zeros(T, 1, dim),
+                #     torch.ones(T, 1, dim)
+                # ], dim=1)  # (T, 2, dim)
+
+                # Repeat distilled_x n_tasks times across batch dimension
+                distilled_x_latent_tiled = distilled_x_latent.repeat(1, batch, 1)  # (T, batch*2, dim)
+                distilled_y_tiled = distilled_y.repeat(1, batch)  # (T, batch*2)
+                # on the dummy
+                # assert distilled_x_latent_tiled.shape == (T, tiled_batch, dim)
+                # assert x_query.shape == (T, tiled_batch, dim)
+                # assert distilled_x_latent_tiled.shape == (T, tiled_batch, dim)
+                # assert (x_query + distilled_x_latent_tiled).unique().tolist() == [0, 2]
+                # assert torch.all(x_query[: , 0, :] == 0) and torch.all(distilled_x_latent_tiled[: , 0, :] == 0)
+                # assert torch.all(x_query[: , 1, :] == 1) and torch.all(distilled_x_latent_tiled[: , 1, :] == 1)
+                # assert torch.all(padding_mask_tiled[0] == 0)
+                # assert torch.all(padding_mask_tiled[1] == 1) # this one fails
+
+                # since we will cat([distilled_x, x_query], dim=0) in the model
+                # the padding needs to be extended:
+                # padding_mask_tiled = torch.cat([
+                #     torch.zeros((tiled_batch, distilled_x_latent.shape[0]), device=self.device,
+                #                 dtype=torch.bool),
+                #     padding_mask_tiled,
+                #
+                # ], dim=1)
 
                 loss = self.train_step(
-                    x_query, y_query, padding_mask,
+                    x_query, y_query,
                     # constrain the learnable parameters:
                     distilled_x=constrain(distilled_x_latent_tiled, temp=temperature),
-                    distilled_y=distilled_y_tiled
+                    distilled_y=distilled_y_tiled,
+                    padding_mask=padding_mask_tiled,
+                    batch=batch_size,
+                    n_tasks=n_tasks
                 )
                 losses.append(loss)
 
                 # log.debug(
                 #     f"Step {step}: Loss: {loss.item()}, Distilled Points: {constrain(distilled_x_latent).squeeze(1)}")
+            train_losses = torch.mean(torch.stack(losses, dim=0), dim=0)
+            for loss in train_losses:
+                self.logger.add_scalar(
+                    "train_loss",
+                    loss.item(),
+                    step,
+                    distilled_x_latent.shape[0],
+                    -1
+                )
 
-            self.logger.add_scalar(
-                "train_loss",
-                torch.mean(torch.cat(losses, dim=1)).item(),
-                step,
-                distilled_x_latent.shape[0],
-                -1
-            )
 
             if step % val_log_frequency == 0:
                 reconstruction, predictive = self.validation_step(
@@ -270,7 +307,8 @@ class DistillContext(AbstractModel):
 
                 self.pbar.set_postfix(
                     val_loss=reconstruction[0],
-                    train_loss=torch.mean(torch.cat(losses, dim=1)).item()
+                    train_loss=train_losses,
+                    predictive=predictive[0],
                 )
 
         # distilled_x_latent = distilled_x_latent.detach().cpu()
@@ -289,9 +327,9 @@ class DistillContext(AbstractModel):
     def validation_step(self, query_task_x, query_task_y, distilled_x_latent, distilled_y,
                         temperature, step, dataset):
         # testing on the same task, how well we predict the GT data given the distillation
-        x_context, y_context = dataset[0]
-        x_context = x_context.permute(1, 0, 2).to(self.device)
-        y_context = y_context.permute(1, 0).to(self.device)
+        x_context, y_context, padding = dataset[0]
+        # x_context = x_context.permute(1, 0, 2).to(self.device)
+        # y_context = y_context.permute(1, 0).to(self.device)
 
         # check how well we can reconstruct the data given the distillation
         reconstruction_loss = self.test_on_new_task(
@@ -324,13 +362,9 @@ class DistillContext(AbstractModel):
                 task_name="nll_distilled_predictive"
             )
 
-
-
-
-
         return reconstruction_loss, predictive_loss
 
-    def train_step(self, x_query, y_query, padding_mask, distilled_x, distilled_y):
+    def train_step(self, x_query, y_query, padding_mask, distilled_x, distilled_y, batch, n_tasks):
 
         # to ensure numerical stability:
         # with torch.no_grad():
@@ -344,7 +378,7 @@ class DistillContext(AbstractModel):
                 distilled_y
             ),
             single_eval_pos=distilled_x.shape[0],
-            src_key_padding_mask = padding_mask
+            # src_key_padding_mask = padding_mask
         )
 
         # Compute the BarDistribution NLL loss
@@ -352,7 +386,25 @@ class DistillContext(AbstractModel):
         # Found in PFNs4HPO.pfns4hpo.train.py: sometimes the seq length can be one off
         # that is because bar dist appends the mean
         loss = loss.view(-1, logits.shape[1])
-        train_loss = loss.mean()
+
+        # Step 1: Convert padding_mask to "valid mask", shape (T, B)
+        valid_mask = ~padding_mask
+
+        # Step 2: Mask the loss
+        masked_loss = loss.T * valid_mask
+
+        # Step 3: Count valid tokens per batch
+        valid_counts = valid_mask.sum(dim=1)  # (64,) — number of valid tokens per batch
+
+        # Step 4: Sum losses per batch and divide by valid count
+        loss_sum_per_batch = masked_loss.sum(dim=1)  # (64,)
+        loss_mean_per_batch = loss_sum_per_batch / valid_counts.clamp(min=1)
+
+        losses_per_task = loss_mean_per_batch.view(int(loss.shape[1] / n_tasks),n_tasks ).mean(
+            dim=0)  #
+        # (64, 2)
+
+        train_loss = losses_per_task.sum()
 
         # todo undo the tiling for loss and report the mean over the task dim
         # task_losses = torch.mean(loss, dim=0)  # related task wise losses
@@ -361,9 +413,9 @@ class DistillContext(AbstractModel):
         train_loss.backward()
         self.optimizer.step()
 
-        return loss #task_losses
+        return losses_per_task
 
-    def forward(self, x_query, x_context=None, y_context=None):
+    def forward(self,xy, single_eval_pos=0, src_key_padding_mask=None,):
         """
         Performs the forward pass of the model, taking query points, query labels, distilled
         points, and distilled labels as inputs. The method processes the input data by
@@ -383,10 +435,12 @@ class DistillContext(AbstractModel):
             expanded during the forward pass to match the batch size.
         :return: The computed logits after passing the processed inputs through the model.
         """
-        T, B, dim = x_query.shape
-        if x_context is None:
-            x_context = torch.zeros([], device=x_query.device)
-            y_context = torch.zeros([], device=x_query.device)
+        x, y = xy
+
+        T, B, dim = x.shape
+        x_context = x[:single_eval_pos, :, :]
+        y_context = y[:single_eval_pos, :]
+        x_query = x[single_eval_pos:, :, :]
 
         logits = self.model(
             # ([x_train, x_query], ytrain)
