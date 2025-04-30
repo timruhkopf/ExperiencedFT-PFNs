@@ -75,13 +75,19 @@ def collate(batch, min_length=10):
 
     # we cheat here, by saying that some points are padded (which they are not,
     # but we don't want them to be seen in this example)
-    padding = torch.ones((len(batch), n_tasks, T), dtype=torch.bool)
 
-    # fill each example mask
-    for task in range(n_tasks):
-        sizes = torch.randint(min_length, count_per_task[0], (len(batch),))
-        for b, size in enumerate(sizes):
-            padding[b, task, :size] = False # are observed
+    padding_per_task = batch[0][2]
+    valid_mask = ~padding_per_task
+    count_per_task = valid_mask.sum(dim=1)
+
+    # Random sizes for each (batch, task) entry
+    sizes = torch.randint(min_length, count_per_task[0], (len(batch), n_tasks))
+
+    # Create a range for time steps
+    time = torch.arange(T).expand(len(batch), n_tasks, T)
+
+    # Broadcast and compare to mark as observed (False = observed, True = padded)
+    padding = time >= sizes.unsqueeze(-1)
 
     x = torch.stack([item[0] for item in batch])
     y = torch.stack([item[1] for item in batch])

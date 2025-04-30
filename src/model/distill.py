@@ -284,13 +284,13 @@ class DistillContext(AbstractModel):
                 # log.debug(
                 #     f"Step {step}: Loss: {loss.item()}, Distilled Points: {constrain(distilled_x_latent).squeeze(1)}")
             train_losses = torch.mean(torch.stack(losses, dim=0), dim=0)
-            for loss in train_losses:
+            for i, loss in enumerate(train_losses):
                 self.logger.add_scalar(
-                    "train_loss",
+                    f"train_loss",
                     loss.item(),
                     step,
                     distilled_x_latent.shape[0],
-                    -1
+                    i
                 )
 
 
