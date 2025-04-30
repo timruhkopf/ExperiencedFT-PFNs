@@ -2,7 +2,7 @@ from pathlib import Path
 
 import torch
 
-from pfns4hpo.priors import Batch
+from ifbo.priors.prior import Batch
 
 
 class MyBatch:

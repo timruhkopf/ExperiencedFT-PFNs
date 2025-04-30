@@ -44,7 +44,7 @@ pip install -e ifBO_main
 # LCBench benchmark data: 
 #ExperiencedFT-PFNs/src/ifBO_icml2024$ python -m mfpbench download --benchmark lcbench-tabular
 cd src/ifBO_icml24
-pip install -r core_requirements.txt
+pip install -r requirements.txt
 
 
 

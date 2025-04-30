@@ -16,7 +16,7 @@ import logging
 from ifbo.utils import detokenize
 from ifbo import Batch
 
-from pfns4hpo.transformer import TransformerModel
+from ifbo.transformer import TransformerModel
 from src.dataset.taskprior import MetaTaskPriorSameProblem, detokenize_batch
 
 from src.evaluation.test_on_new_task_nll import TestOnNewTaskNLL
@@ -46,7 +46,7 @@ def main(cfg: DictConfig):
 
     # setting up the reference model:
     ftpfn = ifbo.surrogate.FTPFN(
-        target_path=Path(cfg.repo_root).parent / 'data' / '.model',
+        target_path=Path(cfg.repo_root) / 'data' / '.model',
         version="0.0.1",
         device=device
     )
@@ -55,9 +55,15 @@ def main(cfg: DictConfig):
 
     with (SeededRandomContext(cfg.benchmark_seed) as ctx):
 
+        # TODO train test split on tasks, pass to the benchmark instance
+
         # TODO iterate over the batch samples from the benchmark
         benchmark = hydra.utils.instantiate(cfg.benchmark.cls, device=device)
-        batch = benchmark.sample_batch(**cfg.benchmark.sample_config)
+
+        config = {}
+        if 'sample_config' in cfg.benchmark.keys():
+            config.update(cfg.benchmark.sample_config)
+        batch = benchmark.sample_batch(**config)
 
         if "n_prefix_tokens" in cfg.model.meta.keys():
             n_prefix_tokens = cfg.model.meta["n_prefix_tokens"]

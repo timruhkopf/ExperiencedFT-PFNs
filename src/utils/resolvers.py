@@ -24,7 +24,7 @@ def get_git_hash(_):
 
 
 def resolve_path(relative_path: str):
-    REPO_PATH = str(Path(__file__).parents[1])
+    REPO_PATH = str(Path(__file__).parents[2])
     if relative_path == '':
         return REPO_PATH
     return REPO_PATH + '/' + relative_path

@@ -1,4 +1,4 @@
-from typing import Optional, Union, List
+from typing import Optional, Union, List, Dict
 
 import numpy as np
 import torch
@@ -18,23 +18,38 @@ class LCBenchPrior:
                    'kr-vs-kp', 'mfeat-factors', 'MiniBooNE', 'nomao', 'numerai28.6', 'phoneme',
                    'segment', 'shuttle', 'sylvine', 'vehicle', 'volkert']
 
-    n_tasks=35
+    n_tasks = 35
 
-    def __init__(self, task_id, data_path, seq_len=2000, n_fidelities=None, device="cpu"):
-        benchmark = mfpbench.get(
-            name="lcbench_tabular", task_id=task_id, datadir=data_path,
-            preload=True, prior=None,
-            remove_constants=True, seed=True,
-            value_metric="val_balanced_accuracy",
-            value_metric_test="test_balanced_accuracy"
+    def __init__(self,
+                 task_id: [int],
+                 related_task_ids: List[int],
+                 data_path,
+                 seq_len=1000,
+                 n_fidelities=None,
+                 lcbench_kwargs: Dict =
+                 {"name": "lcbench_tabular", "preload": True, "prior": None,
+                  "remove_constants": True, "seed": True,
+                  "value_metric": "val_balanced_accuracy",
+                  "value_metric_test": "test_balanced_accuracy"},
+                 device="cpu"):
+        self.target_benchmark = mfpbench.get(
+            task_id=self.lcbench_ids[task_id], datadir=data_path, **lcbench_kwargs
         )
-        self.benchmark = benchmark
-        self.space = benchmark.space
-        self.dim_hyperparameters = len(benchmark.space)
-        self.max_fidelities = benchmark.end
-        self.ncurves = len(benchmark.configs)
+
+        assert all(torch.tensor(related_task_ids) <= len(self.lcbench_ids)), \
+            "related_task_ids must be a list of integers between 0 and 34"
+
+        self.related_benchmarks = [
+            mfpbench.get(task_id=self.lcbench_ids[task], datadir=data_path, **lcbench_kwargs)
+            for task in related_task_ids
+        ]
+
+        self.space = self.target_benchmark.space
+        self.dim_hyperparameters = len(self.target_benchmark.space)
+        self.max_fidelities = self.target_benchmark.end
+        self.ncurves = len(self.target_benchmark.configs)
         self.original_id = np.arange(self.ncurves)
-        self.offset = min([int(_) for _ in benchmark.configs.keys()])
+        self.offset = min([int(_) for _ in self.target_benchmark.configs.keys()])
 
         self.n_fidelities = n_fidelities if n_fidelities is not None else \
             int(np.round(10 ** np.random.uniform(0, 3)))
@@ -44,7 +59,8 @@ class LCBenchPrior:
         self.seq_len = seq_len
         self.device = device
 
-    def sample_dirichlet(self, alpha:float=None, eps:float=10 ** -9, single_eval_pos:int=500):
+    def sample_dirichlet(self, alpha: float = None, eps: float = 10 ** -9,
+                         single_eval_pos: int = 500):
         """
         Sample a Dirichlet distribution and compute token-to-curve associations with
         cutoff points and epochs per curve based on the generated probabilities.
@@ -97,7 +113,7 @@ class LCBenchPrior:
     #     return np.random.uniform(size=(self.seq_len, self.dim_hyperparameters))
 
     def _interpret_dirichlet_sample(self, ordering, epochs_per_curve, cutoff_per_curve,
-                                    single_eval_pos):
+                                    single_eval_pos, benchmark):
         """
         Processes Dirichlet sample data to generate task data and its corresponding
         tensor representations for model input and labels. The method uses the provided
@@ -162,7 +178,7 @@ class LCBenchPrior:
         epoch[single_eval_pos:end_pos] = self.max_fidelities
 
         task_data = []
-        offset = min([int(_) for _ in self.benchmark.configs.keys()])
+        offset = min([int(_) for _ in benchmark.configs.keys()])
         for ordering, config_id, fidelity in zip(
                 id_curve, original_id[id_curve.astype(int) - 1], epoch
         ):
@@ -173,10 +189,10 @@ class LCBenchPrior:
                 tmp = []
                 tmp = tmp + [ordering, fidelity]
                 tmp = tmp + self._get_normalized_values(
-                    config=self.benchmark.configs[_config_id], configuration_space=self.space
+                    config=benchmark.configs[_config_id], configuration_space=self.space
                 )
                 tmp = tmp + \
-                      [self.benchmark.query(
+                      [benchmark.query(
                           config=_config_id, at=fidelity).error]
             task_data.append(tmp)
 
@@ -195,7 +211,7 @@ class LCBenchPrior:
 
         return x, y
 
-    def sample_from_task(self, alpha, context_size):
+    def sample_from_task(self, alpha, context_size, benchmark):
         """
         Samples a task from the distribution specified by the Dirichlet process
         using provided context size and alpha value.
@@ -222,11 +238,17 @@ class LCBenchPrior:
             epochs_per_curve=epochs_per_curve,
             cutoff_per_curve=cutoff_per_curve,
             # hps=hps,
-            single_eval_pos=context_size
+            single_eval_pos=context_size,
+            benchmark=benchmark,
         )
+
         return x, y
 
-    def sample_batch(self, n_tasks:int, alphas:Optional[Union[List[float], float]],
+    @property
+    def n_tasks(self):
+        return 1 + len(self.related_benchmarks)
+
+    def sample_batch(self, alphas: Optional[Union[List[float], float]]=None,
                      single_eval_pos=None):
         """
         Generates a batch of data sampled from multiple tasks.
@@ -254,25 +276,35 @@ class LCBenchPrior:
             - single_eval_pos: The list of evaluation positions used for each task.
         :rtype: Batch
         """
+
+
         if alphas is None:
-            alphas = [10 ** np.random.uniform(-4, -1) for _ in range(n_tasks)]
+            alphas = [10 ** np.random.uniform(-4, -1) for _ in range(self.n_tasks)]
         if isinstance(alphas, float):
-            alphas = [alphas] * n_tasks
+            alphas = [alphas] * self.n_tasks
         assert len(
-            alphas) == n_tasks, "alphas must be a list of the same length as n_task"
+            alphas) == self.n_tasks,\
+            "alphas must be a list of the same length as n_task"
 
         if single_eval_pos is None:
             single_eval_pos = int(np.round(self.seq_len / 2))
         if isinstance(single_eval_pos, int):
-            single_eval_pos = [single_eval_pos] * n_tasks
+            single_eval_pos = [single_eval_pos] * self.n_tasks
         assert len(
-            single_eval_pos) == n_tasks, "single_eval_pos must be a list of the same length as n_tasks"
+            single_eval_pos) == self.n_tasks, \
+            ("single_eval_pos must be a list of the same length as n_tasks")
 
         X = []
         Y = []
-        for task, alpha, context_size in zip(range(n_tasks), alphas, single_eval_pos):
+        for task, alpha, context_size in zip(
+                [self.target_benchmark, *self.related_benchmarks],
+                alphas,
+                single_eval_pos
+        ):
             x, y = self.sample_from_task(
-                alpha=alpha, context_size=context_size)
+                alpha=alpha, context_size=context_size,
+                benchmark=task
+            )
             X.append(x)
             Y.append(y)
 
@@ -302,7 +334,6 @@ class LCBenchPrior:
             hyperparameters within the configuration space.
         :rtype: list[float]
         """
-
 
         list_hp_names = configuration_space.get_hyperparameter_names()
         dict_values = config.as_dict()
@@ -367,7 +398,6 @@ if __name__ == '__main__':
         n_tasks=5, alphas=0.1, single_eval_pos=500)
 
     contexts = detokenize_batch(batch)
-
 
     import seaborn as sns
     import matplotlib.pyplot as plt
