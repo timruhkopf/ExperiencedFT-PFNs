@@ -7,49 +7,152 @@ from ifbo import Batch
 from neps.search_spaces.search_space import pipeline_space_from_configspace
 from neps.search_spaces.search_space import SearchSpace
 import mfpbench
+from mfpbench.taskset_tabular.benchmark import TaskSetTabularBenchmark
+
+LCBENCH_IDS = ['adult', 'airlines', 'albert', 'Amazon_employee_access', 'APSFailure',
+               'Australian', 'bank-marketing', 'blood-transfusion-service-center', 'car',
+               'christine', 'cnae-9', 'connect-4', 'covertype', 'credit-g', 'dionis', 'fabert',
+               'Fashion-MNIST', 'helena', 'higgs', 'jannis', 'jasmine',
+               'jungle_chess_2pcs_raw_endgame_complete', 'kc1', 'KDDCup09_appetency',
+               'kr-vs-kp', 'mfeat-factors', 'MiniBooNE', 'nomao', 'numerai28.6', 'phoneme',
+               'segment', 'shuttle', 'sylvine', 'vehicle', 'volkert']
+
+PD1_IDS = [
+    {"model": "wide_resnet", "dataset": "cifar10", "batch_size": 256},
+    {"model": "wide_resnet", "dataset": "cifar10", "batch_size": 2048},
+    {"model": "wide_resnet", "dataset": "cifar100", "batch_size": 256},
+    {"model": "wide_resnet", "dataset": "svhn_no_extra", "batch_size": 256},
+    {"model": "simple_cnn", "dataset": "fashion_mnist", "batch_size": 256},
+    {"model": "simple_cnn", "dataset": "fashion_mnist", "batch_size": 2048},
+    {"model": "simple_cnn", "dataset": "mnist", "batch_size": 256},
+    {"model": "simple_cnn", "dataset": "mnist", "batch_size": 2048},
+    {"model": "resnet", "dataset": "imagenet", "batch_size": 256, "coarseness": 1},
+    {"model": "resnet", "dataset": "imagenet", "batch_size": 256, "coarseness": 2},
+    {"model": "resnet", "dataset": "imagenet", "batch_size": 256, "coarseness": 5},
+    {"model": "resnet", "dataset": "imagenet", "batch_size": 256, "coarseness": 10},
+    {"model": "resnet", "dataset": "imagenet", "batch_size": 512, "coarseness": 1},
+    {"model": "resnet", "dataset": "imagenet", "batch_size": 512, "coarseness": 2},
+    {"model": "resnet", "dataset": "imagenet", "batch_size": 512, "coarseness": 5},
+    {"model": "resnet", "dataset": "imagenet", "batch_size": 512, "coarseness": 10},
+    {"model": "resnet", "dataset": "imagenet", "batch_size": 1024, "coarseness": 1},
+    {"model": "resnet", "dataset": "imagenet", "batch_size": 1024, "coarseness": 2},
+    {"model": "resnet", "dataset": "imagenet", "batch_size": 1024, "coarseness": 5},
+    {"model": "transformer", "dataset": "lm1b", "batch_size": 2048},
+    {"model": "transformer", "dataset": "uniref50", "batch_size": 128},
+    {"model": "xformer_translate", "dataset": "translate_wmt", "batch_size": 64, "coarseness": 1},
+    {"model": "xformer_translate", "dataset": "translate_wmt", "batch_size": 64, "coarseness": 2},
+    {"model": "xformer_translate", "dataset": "translate_wmt", "batch_size": 64, "coarseness": 5},
+    {"model": "xformer_translate", "dataset": "translate_wmt", "batch_size": 64, "coarseness": 10},
+]
+
+TASKSET_IDS = [
+    {"task_id": "FixedTextRNNClassification_imdb_patch128_LSTM128_avg_bs64", "optimizer": "adam4p"},
+    {"task_id": "FixedTextRNNClassification_imdb_patch128_LSTM128_bs64", "optimizer": "adam4p"},
+    {"task_id": "FixedTextRNNClassification_imdb_patch128_LSTM128_embed128_bs64", "optimizer": "adam4p"},
+    {"task_id": "FixedTextRNNClassification_imdb_patch32_GRU128_bs128", "optimizer": "adam4p"},
+    {"task_id": "FixedTextRNNClassification_imdb_patch32_GRU64_avg_bs128", "optimizer": "adam4p"},
+    {"task_id": "FixedTextRNNClassification_imdb_patch32_IRNN64_relu_avg_bs128", "optimizer": "adam4p"},
+    {"task_id": "FixedTextRNNClassification_imdb_patch32_IRNN64_relu_last_bs128", "optimizer": "adam4p"},
+    {"task_id": "FixedTextRNNClassification_imdb_patch32_LSTM128_E128_bs128", "optimizer": "adam4p"},
+    {"task_id": "FixedTextRNNClassification_imdb_patch32_LSTM128_bs128", "optimizer": "adam4p"},
+    {"task_id": "FixedTextRNNClassification_imdb_patch32_VRNN128_tanh_bs128", "optimizer": "adam4p"},
+    {"task_id": "FixedTextRNNClassification_imdb_patch32_VRNN64_relu_avg_bs128", "optimizer": "adam4p"},
+    {"task_id": "FixedTextRNNClassification_imdb_patch32_VRNN64_tanh_avg_bs128", "optimizer": "adam4p"},
+    {"task_id": "FixedTextRNNClassification_imdb_patch128_LSTM128_avg_bs64", "optimizer": "adam8p"},
+    {"task_id": "FixedTextRNNClassification_imdb_patch128_LSTM128_bs64", "optimizer": "adam8p"},
+    {"task_id": "FixedTextRNNClassification_imdb_patch128_LSTM128_embed128_bs64", "optimizer": "adam8p"},
+    {"task_id": "FixedTextRNNClassification_imdb_patch32_GRU128_bs128", "optimizer": "adam8p"},
+    {"task_id": "FixedTextRNNClassification_imdb_patch32_GRU64_avg_bs128", "optimizer": "adam8p"},
+    {"task_id": "FixedTextRNNClassification_imdb_patch32_IRNN64_relu_avg_bs128", "optimizer": "adam8p"},
+    {"task_id": "FixedTextRNNClassification_imdb_patch32_IRNN64_relu_last_bs128", "optimizer": "adam8p"},
+    {"task_id": "FixedTextRNNClassification_imdb_patch32_LSTM128_E128_bs128", "optimizer": "adam8p"},
+    {"task_id": "FixedTextRNNClassification_imdb_patch32_LSTM128_bs128", "optimizer": "adam8p"},
+    {"task_id": "FixedTextRNNClassification_imdb_patch32_VRNN128_tanh_bs128", "optimizer": "adam8p"},
+    {"task_id": "FixedTextRNNClassification_imdb_patch32_VRNN64_relu_avg_bs128", "optimizer": "adam8p"},
+    {"task_id": "FixedTextRNNClassification_imdb_patch32_VRNN64_tanh_avg_bs128", "optimizer": "adam8p"},
+]
 
 
-class LCBenchPrior:
-    lcbench_ids = ['adult', 'airlines', 'albert', 'Amazon_employee_access', 'APSFailure',
-                   'Australian', 'bank-marketing', 'blood-transfusion-service-center', 'car',
-                   'christine', 'cnae-9', 'connect-4', 'covertype', 'credit-g', 'dionis', 'fabert',
-                   'Fashion-MNIST', 'helena', 'higgs', 'jannis', 'jasmine',
-                   'jungle_chess_2pcs_raw_endgame_complete', 'kc1', 'KDDCup09_appetency',
-                   'kr-vs-kp', 'mfeat-factors', 'MiniBooNE', 'nomao', 'numerai28.6', 'phoneme',
-                   'segment', 'shuttle', 'sylvine', 'vehicle', 'volkert']
-
-    n_tasks = 35
-
+class MFBenchPrior:
     def __init__(self,
+                 name: str,
                  task_id: [int],
                  related_task_ids: List[int],
                  data_path,
                  seq_len=1000,
                  n_fidelities=None,
-                 lcbench_kwargs: Dict =
-                 {"name": "lcbench_tabular", "preload": True, "prior": None,
-                  "remove_constants": True, "seed": True,
-                  "value_metric": "val_balanced_accuracy",
-                  "value_metric_test": "test_balanced_accuracy"},
+                 mfb_kwargs: Dict = None,
                  device="cpu"):
+
+        target = None
+        related = None
+        default_mfb_kwargs = None
+
+        if name == "lcbench_tabular":
+            default_mfb_kwargs = {"name": name, "preload": True, "prior": None,
+                                  "remove_constants": True, "seed": True,
+                                  "value_metric": "val_balanced_accuracy",
+                                  "value_metric_test": "test_balanced_accuracy"}
+            target = {"task_id": LCBENCH_IDS[task_id]}
+            related = [{"task_id": LCBENCH_IDS[task]}
+                       for task in related_task_ids]
+
+        elif name == "pd1_tabular":
+
+            if task_id >= len(PD1_IDS):
+                raise ValueError(
+                    f"task_id {task_id} is out of bounds for PD1_IDS with size {len(PD1_IDS)}")
+            if any(tid >= len(PD1_IDS) for tid in related_task_ids):
+                raise ValueError(
+                    f"Some related_task_ids are out of bounds for PD1_IDS with size {len(PD1_IDS)}")
+            default_mfb_kwargs = {"name": name,
+                                  "preload": True, "prior": None, "seed": True}
+            target = PD1_IDS[task_id]
+            related = [PD1_IDS[task] for task in related_task_ids]
+        elif name == "taskset_tabular":
+            default_mfb_kwargs = {"name": name,
+                                  "preload": True, "prior": None, "seed": True}
+            target = TASKSET_IDS[task_id]
+            related = [TASKSET_IDS[task] for task in related_task_ids]
+        else:
+            raise ValueError(
+                "name must be one of lcbench_tabular, pd1_tabular, or taskset")
+
+        if mfb_kwargs is not None:
+            default_mfb_kwargs.update(mfb_kwargs)
+        mfb_kwargs = default_mfb_kwargs
+
+        target_kwargs = mfb_kwargs.copy()
+        target_kwargs.update(target)
+
         self.target_benchmark = mfpbench.get(
-            task_id=self.lcbench_ids[task_id], datadir=data_path, **lcbench_kwargs
-        )
+            datadir=data_path, **target_kwargs)
 
-        assert all(torch.tensor(related_task_ids) <= len(self.lcbench_ids)), \
-            "related_task_ids must be a list of integers between 0 and 34"
+        self.related_benchmarks = []
+        for related_task in related:
+            related_kwargs = mfb_kwargs.copy()
+            related_kwargs.update(related_task)
+            self.related_benchmarks.append(
+                mfpbench.get(datadir=data_path, **related_kwargs))
 
-        self.related_benchmarks = [
-            mfpbench.get(task_id=self.lcbench_ids[task], datadir=data_path, **lcbench_kwargs)
-            for task in related_task_ids
-        ]
+        if name == "taskset_tabular":
+            self.target_benchmark = self._process_taskset_mfpbench_with_step_0_prior(
+                benchmark=self.target_benchmark, drop_step_0=True
+            )
+            self.related_benchmarks = [
+                self._process_taskset_mfpbench_with_step_0_prior(
+                    benchmark=benchmark, drop_step_0=True
+                )
+                for benchmark in self.related_benchmarks
+            ]
 
         self.space = self.target_benchmark.space
         self.dim_hyperparameters = len(self.target_benchmark.space)
         self.max_fidelities = self.target_benchmark.end
         self.ncurves = len(self.target_benchmark.configs)
         self.original_id = np.arange(self.ncurves)
-        self.offset = min([int(_) for _ in self.target_benchmark.configs.keys()])
+        self.offset = min([int(_)
+                          for _ in self.target_benchmark.configs.keys()])
 
         self.n_fidelities = n_fidelities if n_fidelities is not None else \
             int(np.round(10 ** np.random.uniform(0, 3)))
@@ -83,11 +186,13 @@ class LCBenchPrior:
         if alpha is None:
             alpha = 10 ** np.random.uniform(-4, -1)
 
-        weights = np.random.gamma(alpha, alpha, self.seq_len) + eps
+        # weights = np.random.gamma(alpha, alpha, self.seq_len) + eps
+        weights = np.random.gamma(alpha, alpha, min(1000, self.ncurves)) + eps
         p = weights / np.sum(weights)
 
         # identify which token belongs to which curve
-        ids = np.arange(self.seq_len)
+        # ids = np.arange(self.seq_len)
+        ids = np.arange(min(1000, self.ncurves))
         all_levels = np.repeat(ids, self.n_fidelities)
         # since each curve has self.n_fidelities (fidelities) we
         # could observe, this is just a flat array for all curves after one another
@@ -170,10 +275,10 @@ class LCBenchPrior:
         # assign max fidelity to all curves in context
         unique_curves = np.unique(id_curve[:single_eval_pos])
         nbiud = len(id_curve[single_eval_pos:(
-                single_eval_pos + len(unique_curves))])
+            single_eval_pos + len(unique_curves))])
         num_unique_curves = len(unique_curves)
         id_curve[single_eval_pos: single_eval_pos +
-                                  num_unique_curves] = unique_curves[:nbiud]
+                 num_unique_curves] = unique_curves[:nbiud]
         end_pos = min(single_eval_pos + num_unique_curves, self.seq_len)
         epoch[single_eval_pos:end_pos] = self.max_fidelities
 
@@ -192,8 +297,8 @@ class LCBenchPrior:
                     config=benchmark.configs[_config_id], configuration_space=self.space
                 )
                 tmp = tmp + \
-                      [benchmark.query(
-                          config=_config_id, at=fidelity).error]
+                    [benchmark.query(
+                        config=_config_id, at=fidelity).error]
             task_data.append(tmp)
 
         task_data = np.array(task_data).astype(np.float32)
@@ -248,7 +353,7 @@ class LCBenchPrior:
     def n_tasks(self):
         return 1 + len(self.related_benchmarks)
 
-    def sample_batch(self, alphas: Optional[Union[List[float], float]]=None,
+    def sample_batch(self, alphas: Optional[Union[List[float], float]] = None,
                      single_eval_pos=None):
         """
         Generates a batch of data sampled from multiple tasks.
@@ -277,13 +382,13 @@ class LCBenchPrior:
         :rtype: Batch
         """
 
-
         if alphas is None:
-            alphas = [10 ** np.random.uniform(-4, -1) for _ in range(self.n_tasks)]
+            alphas = [10 ** np.random.uniform(-4, -1)
+                      for _ in range(self.n_tasks)]
         if isinstance(alphas, float):
             alphas = [alphas] * self.n_tasks
         assert len(
-            alphas) == self.n_tasks,\
+            alphas) == self.n_tasks, \
             "alphas must be a list of the same length as n_task"
 
         if single_eval_pos is None:
@@ -357,6 +462,113 @@ class LCBenchPrior:
 
         return res
 
+    # https://github.com/automl/ifBO/blob/icml-2024/src/pfns_hpo/pfns_hpo/run.py
+
+    @staticmethod
+    def _process_taskset_mfpbench_with_step_0_prior(
+        benchmark: TaskSetTabularBenchmark,
+        loss_name_at_step_0_to_normalize_with: str = "valid1_loss",
+        metrics_to_normalize_and_clamp: tuple[str, ...] = (
+            "train_loss",
+            "valid1_loss",
+            "valid2_loss",
+            "test_loss",
+        ),
+        drop_step_0: bool = True,
+    ) -> TaskSetTabularBenchmark:
+        """Normalize metrics of benchmark with the step 0 median huerisitc.
+
+        To handle the case of unknown upper bounds, we need to normalize the results
+        returned to algorithms in a (0, 1) range. We do this through clipping to
+        some hueristic upper bound and then normalizing w.r.t. to this upper bound.
+
+        In practice, a practioner could provide this upper bound value from the prior,
+        either from rapid experimentation or previous experimental trials. They would
+        then normalize the results before feeding it the hpo algorithm. For convenience
+        sake, we apply this hueristic across the table using this prior knowledge.
+
+        To generalize across tables, where peeking at the maximum loss value could be
+        considered leaking information, we apply a heuristic that we believe matches
+        the above intuitions, namely we use the median loss at step 0 as the upper
+        bound. This corresponds to the median loss of the initial random configuration
+        and is a reasonable heuristic for the upper bound. Notably, this does not look
+        deep into the table to perform normalizations.
+
+        Args:
+            benchmark: The benchmark to normalize
+            loss_name_at_step_0_to_normalize_with: The loss column from which
+                to apply the hueristic and get the upper bound. By default,
+                this is the validation loss used in the benchmark.
+            metrics_to_normalize_and_clamp: The metric columns to normalize and clamp
+                according to the upper bound. By default, this applies to all
+                loss columns.
+            drop_step_0: Whether to drop the step 0 values after normalization. By default,
+                this will drop the step 0 values. These are random initializations and would
+                generally not be reported to a HPO algorithm.
+        """
+        table = benchmark.table
+
+        # Make sure that the table has a step column first
+        if "step" not in table.columns:
+            raise ValueError("Benchmark does not have 'step' in columns")
+
+        # Make sure benchmarks contain the random initializations we use for the heuristic
+        values = table[table["step"] == 0]
+        assert values.index.is_unique, f"Step 0 not unique across configs?\n{values.index}"
+
+        # Make sure that the loss column we are using to normalize with is non-negative
+        # and corresponds to a regular log-loss, where the known theoretical bound is 0.
+        # This is so the min-max normalization is well-defined and we can rely on the
+        # theoretical bound to be 0 for normalization.
+        if table[loss_name_at_step_0_to_normalize_with].min() < 0:
+            raise ValueError(
+                f"Benchmark has negative loss in '{loss_name_at_step_0_to_normalize_with}',"
+                " normalization can not be applied naively",
+            )
+
+        # Get the median loss at step 0 as the hueuristic upper bound
+        median_loss_to_use_as_prior = values[loss_name_at_step_0_to_normalize_with].median(
+        )
+
+        # Include the normalizing bound in the table
+        # NOTE: This causes a crash with neps and isn't essneital
+        # table[
+        # f"normalizing_bound_from_{loss_name_at_step_0_to_normalize_with}"
+        # ] = median_loss_to_use_as_prior
+
+        for metric in metrics_to_normalize_and_clamp:
+            # Make sure to store the corresponding non-normalized metric
+            # NOTE: This causes a crash with neps and isn't essneital
+            # table[f"{metric}_unnormalized"] = table[metric].copy()
+
+            # Clip according to the median loss at step 0
+            table[metric] = table[metric].clip(
+                lower=0, upper=median_loss_to_use_as_prior)
+
+            # And then normalize w.r.t. to this upper bound
+            table[metric] = table[metric] / median_loss_to_use_as_prior
+
+        if drop_step_0:
+            # Select all rows that are not step 0
+            table = table[table["step"] != 0]
+
+            # Decrease the epoch number by one for uniformity
+            table = table.reset_index()
+            table["epoch"] = table["epoch"] - 1
+            table = table.set_index(["id", "epoch"]).sort_index()
+
+            # Decrease the fidelity range by 1
+            lower, upper, step = benchmark.fidelity_range
+            benchmark.fidelity_range = (lower, upper - 1, step)
+
+        benchmark.table = table
+
+        if benchmark.table.isna().any().any():
+            print(benchmark.table.isna().any())
+            raise ValueError("There should not be an na's left")
+
+        return benchmark
+
 
 def detokenize_batch(batch: Batch):
     """
@@ -387,15 +599,37 @@ def detokenize_batch(batch: Batch):
 if __name__ == '__main__':
     from pathlib import Path
 
-    lcbench_task_prior = LCBenchPrior(
-        task_id="airlines",
+    lcbench_task_prior = MFBenchPrior(
+        name="lcbench_tabular",
+        task_id=0,
+        related_task_ids=[1, 2],
         data_path=Path(__file__).parents[2] / "data/lcbench-tabular/",
         seq_len=1000,
         n_fidelities=None,
         device="cpu"
     )
-    batch = lcbench_task_prior.sample_batch(
-        n_tasks=5, alphas=0.1, single_eval_pos=500)
+
+    pd1bench_task_prior = MFBenchPrior(
+        name="pd1_tabular",
+        task_id=0,
+        related_task_ids=[1, 2],
+        data_path=Path(__file__).parents[2] / "data/pd1-tabular/",
+        seq_len=1000,
+        n_fidelities=None,
+        device="cpu"
+    )
+
+    taskset_task_prior = MFBenchPrior(
+        name="taskset_tabular",
+        task_id=0,
+        related_task_ids=[1, 2],
+        data_path=Path(__file__).parents[2] / "data/taskset-tabular/",
+        seq_len=1000,
+        n_fidelities=None,
+        device="cpu"
+    )
+
+    batch = taskset_task_prior.sample_batch(alphas=0.1, single_eval_pos=500)
 
     contexts = detokenize_batch(batch)
 

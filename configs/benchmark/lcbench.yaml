@@ -4,7 +4,8 @@ meta:
   name: 'lcbench'
 
 cls:
-  _target_: src.dataset.lcbenchprior.LCBenchPrior
+  _target_: src.dataset.mfpbenchprior.MFBenchPrior
+  name: lcbench_tabular
   data_path: ${repo_root}/data/lcbench-tabular
   task_id: 0
   related_task_ids: [1, 2, 3]

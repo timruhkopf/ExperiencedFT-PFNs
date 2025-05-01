@@ -4,4 +4,8 @@ meta:
   name: 'taskset'
 
 cls:
-  _target_: src.dataset.
+  _target_: src.dataset.mfpbenchprior.MFBenchPrior
+  name: taskset_tabular
+  data_path: ${repo_root}/data/taskset-tabular
+  task_id: 0
+  related_task_ids: [1, 2, 3]
