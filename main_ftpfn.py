@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import List
 
 import hydra
+import numpy as np
 from omegaconf import DictConfig, OmegaConf
 import torch
 
@@ -19,13 +20,10 @@ from ifbo import Batch
 from ifbo.transformer import TransformerModel
 from sklearn.model_selection import train_test_split
 
-from src.dataset.taskprior import MetaTaskPriorSameProblem, detokenize_batch
-
 from src.evaluation.meta_train_test_split import k_folds
 from src.evaluation.test_on_new_task_nll import TestOnNewTaskNLL
 from src.model.batch_padded_pfn import parse_batch_for_padded_train_data
 from src.utils.filelogger import BufferedFileLogger
-from src.utils.parse_batch import parse_batch
 from src.utils.seeding import SeededRandomContext
 
 logger = logging.getLogger(__name__)
@@ -42,7 +40,7 @@ def main(cfg: DictConfig):
         file_path='.',
         buffer_size=1000,
         header=["metric", "value", 'global_step', "context_size", "task"],
-        postfix=["target_task", "train_ids", "seed"]
+        postfix=["target_task", "train_ids", "seed", "fold"]
     )
 
     # setting up the reference model:
@@ -56,11 +54,7 @@ def main(cfg: DictConfig):
 
     benchmark = hydra.utils.instantiate(cfg.benchmark.cls, device=device)
 
-
-
-    # sample over multiple meta task sizes & over multiple alpha allocations on those
-
-
+    # Generate and select the folds (meta-train-test splits) -------------------
     train_ids, test_ids = train_test_split(
         list(range(benchmark.n_tasks)),
         test_size=cfg.test_size,
@@ -70,35 +64,36 @@ def main(cfg: DictConfig):
 
     target_task = test_ids[cfg.target_idx]
 
-    config = {}
-    if 'sample_config' in cfg.benchmark.keys():
-        config.update(cfg.benchmark.sample_config)
-
-    # allow ourself to rerun certain experiments.
-    folds:List[List[int]] = k_folds(train_ids, k=cfg.k_folds)
+    # allow ourself to rerun certain experiments with specific folds
+    folds: List[List[int]] = k_folds(train_ids, k=cfg.k_folds)
     if cfg.fold is not None:
         folds = [folds[cfg.fold]]
 
     # select the target task and the split of context tasks
-    for train_ids in folds:
-        file_logger.postfix = [target_task, train_ids, None]
+    for i, train_ids in enumerate(folds):
+        file_logger.postfix = [target_task, train_ids, None, i]
 
+        # "instantiate" the task and related task datasets (with no budget allocation yet)
         benchmark.collect_task_split(target_id=target_task, train_ids=train_ids)
 
         for seed in cfg.allocation_seeds:
             with (SeededRandomContext(seed) as ctx):
-                file_logger.postfix[-1] =  seed
+                file_logger.postfix[-2] = seed
 
+                # Allocate budgets on the benchmarks --------------------------
+                # sample over multiple meta task sizes and dirichlet alphas
+                config = dict(
+                    single_eval_pos=[
+                        500,  # target task length
+                        *np.random.randint(200, 500, len(train_ids)).tolist()
+                    ],
+                    alphas=[10 ** np.random.uniform(-4, -1) for _ in range(len(train_ids) + 1)],
+                    **cfg.benchmark.sample_config if hasattr(cfg.benchmark, 'sample_config') else {}
+                )
+                # sample the dirichlet distributed data
                 batch = benchmark.sample_batch(**config)
-                # FIXME: sample the task sizes for the related tasks as well (if not specified
-                #  explicitly)
 
-                # if "n_prefix_tokens" in cfg.model.meta.keys():
-                #     n_prefix_tokens = cfg.model.meta["n_prefix_tokens"]
-                # else:
-                #     n_prefix_tokens = 0
-                # data = parse_batch(batch, cfg.target_idx, n_prefix_tokens=n_prefix_tokens)
-
+                # parse the batch ---------------------------------------------
                 padded_batch = parse_batch_for_padded_train_data(batch, target_idx=0)
 
                 related_task_data = padded_batch.related_tasks
@@ -114,6 +109,7 @@ def main(cfg: DictConfig):
                 n_related_tasks = related_task_data.x.shape[1]
 
             with SeededRandomContext(seed) as ctx:
+                # create and train the model -------------------------------
                 model = hydra.utils.instantiate(
                     cfg.model.cls,
                     model=pfn_backend,
@@ -133,6 +129,7 @@ def main(cfg: DictConfig):
                 # distillation will return a prefix, pfn_mixture won't
                 prefix = model.train(**train_config)
 
+                # Evaluate the model ----------------------------------------------
                 evaluator = TestOnNewTaskNLL(
                     criterion=pfn_backend.criterion,
                     logger=file_logger, device=device
@@ -166,7 +163,7 @@ def main(cfg: DictConfig):
                     **kwargs
                 )
 
-                # Quick Baselines --------------------
+                # Quick Baselines ----------------------------------------------
                 # sanity check: what if we put in the current task as context.
                 evaluator.test_on_new_task(
                     model=pfn_backend,

@@ -378,9 +378,6 @@ class MFBenchPrior:
 
         return x, y
 
-    @property
-    def n_related_tasks(self):
-        return 1 + len(self.related_benchmarks)
 
     def sample_batch(self, alphas: Optional[Union[List[float], float]] = None,
                      single_eval_pos=None, target_task=0, train_ids=None, **kwargs):
@@ -411,27 +408,26 @@ class MFBenchPrior:
         :rtype: Batch
         """
 
+        benchmarks = [self.target_benchmark, *self.related_benchmarks]
+
         if alphas is None:
-            alphas = [10 ** np.random.uniform(-4, -1)
-                      for _ in range(self.n_related_tasks)]
+            alphas = [10 ** np.random.uniform(-4, -1) for _ in range(len(benchmarks))]
         if isinstance(alphas, float):
-            alphas = [alphas] * self.n_related_tasks
-        assert len(
-            alphas) == self.n_related_tasks, \
+            alphas = [alphas] * len(benchmarks)
+        assert len(alphas) == len(benchmarks), \
             "alphas must be a list of the same length as n_task"
 
         if single_eval_pos is None:
             single_eval_pos = int(np.round(self.seq_len / 2))
         if isinstance(single_eval_pos, int):
-            single_eval_pos = [single_eval_pos] * self.n_related_tasks
-        assert len(
-            single_eval_pos) == self.n_related_tasks, \
+            single_eval_pos = [single_eval_pos] * len(benchmarks)
+        assert len(single_eval_pos) == len(benchmarks), \
             ("single_eval_pos must be a list of the same length as n_related_tasks")
 
         X = []
         Y = []
         for task, alpha, context_size in zip(
-                [self.target_benchmark, *self.related_benchmarks],
+                benchmarks,
                 alphas,
                 single_eval_pos
         ):
