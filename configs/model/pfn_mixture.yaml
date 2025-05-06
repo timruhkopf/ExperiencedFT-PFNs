@@ -16,7 +16,7 @@ cls:
     _partial_: True
     _target_: src.model.mixture.decay.constant_exponential
     lambda_: 0.005
-    constant: 300
+    constant: 0
 
   mixture_fn:
     _partial_: True

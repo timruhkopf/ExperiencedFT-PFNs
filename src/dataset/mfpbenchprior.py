@@ -48,94 +48,116 @@ PD1_IDS = [
 TASKSET_IDS = [
     {"task_id": "FixedTextRNNClassification_imdb_patch128_LSTM128_avg_bs64", "optimizer": "adam4p"},
     {"task_id": "FixedTextRNNClassification_imdb_patch128_LSTM128_bs64", "optimizer": "adam4p"},
-    {"task_id": "FixedTextRNNClassification_imdb_patch128_LSTM128_embed128_bs64", "optimizer": "adam4p"},
+    {"task_id": "FixedTextRNNClassification_imdb_patch128_LSTM128_embed128_bs64",
+     "optimizer": "adam4p"},
     {"task_id": "FixedTextRNNClassification_imdb_patch32_GRU128_bs128", "optimizer": "adam4p"},
     {"task_id": "FixedTextRNNClassification_imdb_patch32_GRU64_avg_bs128", "optimizer": "adam4p"},
-    {"task_id": "FixedTextRNNClassification_imdb_patch32_IRNN64_relu_avg_bs128", "optimizer": "adam4p"},
-    {"task_id": "FixedTextRNNClassification_imdb_patch32_IRNN64_relu_last_bs128", "optimizer": "adam4p"},
-    {"task_id": "FixedTextRNNClassification_imdb_patch32_LSTM128_E128_bs128", "optimizer": "adam4p"},
+    {"task_id": "FixedTextRNNClassification_imdb_patch32_IRNN64_relu_avg_bs128",
+     "optimizer": "adam4p"},
+    {"task_id": "FixedTextRNNClassification_imdb_patch32_IRNN64_relu_last_bs128",
+     "optimizer": "adam4p"},
+    {"task_id": "FixedTextRNNClassification_imdb_patch32_LSTM128_E128_bs128",
+     "optimizer": "adam4p"},
     {"task_id": "FixedTextRNNClassification_imdb_patch32_LSTM128_bs128", "optimizer": "adam4p"},
-    {"task_id": "FixedTextRNNClassification_imdb_patch32_VRNN128_tanh_bs128", "optimizer": "adam4p"},
-    {"task_id": "FixedTextRNNClassification_imdb_patch32_VRNN64_relu_avg_bs128", "optimizer": "adam4p"},
-    {"task_id": "FixedTextRNNClassification_imdb_patch32_VRNN64_tanh_avg_bs128", "optimizer": "adam4p"},
+    {"task_id": "FixedTextRNNClassification_imdb_patch32_VRNN128_tanh_bs128",
+     "optimizer": "adam4p"},
+    {"task_id": "FixedTextRNNClassification_imdb_patch32_VRNN64_relu_avg_bs128",
+     "optimizer": "adam4p"},
+    {"task_id": "FixedTextRNNClassification_imdb_patch32_VRNN64_tanh_avg_bs128",
+     "optimizer": "adam4p"},
     {"task_id": "FixedTextRNNClassification_imdb_patch128_LSTM128_avg_bs64", "optimizer": "adam8p"},
     {"task_id": "FixedTextRNNClassification_imdb_patch128_LSTM128_bs64", "optimizer": "adam8p"},
-    {"task_id": "FixedTextRNNClassification_imdb_patch128_LSTM128_embed128_bs64", "optimizer": "adam8p"},
+    {"task_id": "FixedTextRNNClassification_imdb_patch128_LSTM128_embed128_bs64",
+     "optimizer": "adam8p"},
     {"task_id": "FixedTextRNNClassification_imdb_patch32_GRU128_bs128", "optimizer": "adam8p"},
     {"task_id": "FixedTextRNNClassification_imdb_patch32_GRU64_avg_bs128", "optimizer": "adam8p"},
-    {"task_id": "FixedTextRNNClassification_imdb_patch32_IRNN64_relu_avg_bs128", "optimizer": "adam8p"},
-    {"task_id": "FixedTextRNNClassification_imdb_patch32_IRNN64_relu_last_bs128", "optimizer": "adam8p"},
-    {"task_id": "FixedTextRNNClassification_imdb_patch32_LSTM128_E128_bs128", "optimizer": "adam8p"},
+    {"task_id": "FixedTextRNNClassification_imdb_patch32_IRNN64_relu_avg_bs128",
+     "optimizer": "adam8p"},
+    {"task_id": "FixedTextRNNClassification_imdb_patch32_IRNN64_relu_last_bs128",
+     "optimizer": "adam8p"},
+    {"task_id": "FixedTextRNNClassification_imdb_patch32_LSTM128_E128_bs128",
+     "optimizer": "adam8p"},
     {"task_id": "FixedTextRNNClassification_imdb_patch32_LSTM128_bs128", "optimizer": "adam8p"},
-    {"task_id": "FixedTextRNNClassification_imdb_patch32_VRNN128_tanh_bs128", "optimizer": "adam8p"},
-    {"task_id": "FixedTextRNNClassification_imdb_patch32_VRNN64_relu_avg_bs128", "optimizer": "adam8p"},
-    {"task_id": "FixedTextRNNClassification_imdb_patch32_VRNN64_tanh_avg_bs128", "optimizer": "adam8p"},
+    {"task_id": "FixedTextRNNClassification_imdb_patch32_VRNN128_tanh_bs128",
+     "optimizer": "adam8p"},
+    {"task_id": "FixedTextRNNClassification_imdb_patch32_VRNN64_relu_avg_bs128",
+     "optimizer": "adam8p"},
+    {"task_id": "FixedTextRNNClassification_imdb_patch32_VRNN64_tanh_avg_bs128",
+     "optimizer": "adam8p"},
 ]
 
 
 class MFBenchPrior:
+
     def __init__(self,
                  name: str,
-                 task_id: [int],
-                 related_task_ids: List[int],
                  data_path,
                  seq_len=1000,
                  n_fidelities=None,
                  mfb_kwargs: Dict = None,
                  device="cpu"):
+        self.name = name
+        self.data_path = data_path
+        self.seq_len = seq_len
+        self.n_fidelities = n_fidelities
+        self.mfb_kwargs = mfb_kwargs
+        self.seq_len = seq_len
+        self.device = device
 
-        target = None
-        related = None
-        default_mfb_kwargs = None
+    def collect_task_split(
+            self,
+            target_id: [int],
+            train_ids: List[int],
+    ):
 
-        if name == "lcbench_tabular":
-            default_mfb_kwargs = {"name": name, "preload": True, "prior": None,
+        if self.name == "lcbench_tabular":
+            default_mfb_kwargs = {"name": self.name, "preload": True, "prior": None,
                                   "remove_constants": True, "seed": True,
                                   "value_metric": "val_balanced_accuracy",
                                   "value_metric_test": "test_balanced_accuracy"}
-            target = {"task_id": LCBENCH_IDS[task_id]}
+            target = {"task_id": LCBENCH_IDS[target_id]}
             related = [{"task_id": LCBENCH_IDS[task]}
-                       for task in related_task_ids]
+                       for task in train_ids]
 
-        elif name == "pd1_tabular":
+        elif self.name == "pd1_tabular":
 
-            if task_id >= len(PD1_IDS):
+            if target_id >= len(PD1_IDS):
                 raise ValueError(
-                    f"task_id {task_id} is out of bounds for PD1_IDS with size {len(PD1_IDS)}")
-            if any(tid >= len(PD1_IDS) for tid in related_task_ids):
+                    f"task_id {target_id} is out of bounds for PD1_IDS with size {len(PD1_IDS)}")
+            if any(tid >= len(PD1_IDS) for tid in train_ids):
                 raise ValueError(
                     f"Some related_task_ids are out of bounds for PD1_IDS with size {len(PD1_IDS)}")
-            default_mfb_kwargs = {"name": name,
+            default_mfb_kwargs = {"name": self.name,
                                   "preload": True, "prior": None, "seed": True}
-            target = PD1_IDS[task_id]
-            related = [PD1_IDS[task] for task in related_task_ids]
-        elif name == "taskset_tabular":
-            default_mfb_kwargs = {"name": name,
+            target = PD1_IDS[target_id]
+            related = [PD1_IDS[task] for task in train_ids]
+        elif self.name == "taskset_tabular":
+            default_mfb_kwargs = {"name": self.name,
                                   "preload": True, "prior": None, "seed": True}
-            target = TASKSET_IDS[task_id]
-            related = [TASKSET_IDS[task] for task in related_task_ids]
+            target = TASKSET_IDS[target_id]
+            related = [TASKSET_IDS[task] for task in train_ids]
         else:
             raise ValueError(
                 "name must be one of lcbench_tabular, pd1_tabular, or taskset")
 
-        if mfb_kwargs is not None:
-            default_mfb_kwargs.update(mfb_kwargs)
+        if self.mfb_kwargs is not None:
+            default_mfb_kwargs.update(self.mfb_kwargs)
         mfb_kwargs = default_mfb_kwargs
 
         target_kwargs = mfb_kwargs.copy()
         target_kwargs.update(target)
 
         self.target_benchmark = mfpbench.get(
-            datadir=data_path, **target_kwargs)
+            datadir=self.data_path, **target_kwargs)
 
         self.related_benchmarks = []
         for related_task in related:
             related_kwargs = mfb_kwargs.copy()
             related_kwargs.update(related_task)
             self.related_benchmarks.append(
-                mfpbench.get(datadir=data_path, **related_kwargs))
+                mfpbench.get(datadir=self.data_path, **related_kwargs))
 
-        if name == "taskset_tabular":
+        if self.name == "taskset_tabular":
             self.target_benchmark = self._process_taskset_mfpbench_with_step_0_prior(
                 benchmark=self.target_benchmark, drop_step_0=True
             )
@@ -152,15 +174,22 @@ class MFBenchPrior:
         self.ncurves = len(self.target_benchmark.configs)
         self.original_id = np.arange(self.ncurves)
         self.offset = min([int(_)
-                          for _ in self.target_benchmark.configs.keys()])
+                           for _ in self.target_benchmark.configs.keys()])
 
-        self.n_fidelities = n_fidelities if n_fidelities is not None else \
+        self.n_fidelities = self.n_fidelities if self.n_fidelities is not None else \
             int(np.round(10 ** np.random.uniform(0, 3)))
 
         self.n_fidelities = min(self.n_fidelities, self.max_fidelities)
 
-        self.seq_len = seq_len
-        self.device = device
+    @property
+    def n_tasks(self):
+        return len(
+            {
+                'lcbench_tabular': LCBENCH_IDS,
+                'pd1_tabular': PD1_IDS,
+                'taskset_tabular': TASKSET_IDS,
+            }[self.name]
+        )
 
     def sample_dirichlet(self, alpha: float = None, eps: float = 10 ** -9,
                          single_eval_pos: int = 500):
@@ -275,10 +304,10 @@ class MFBenchPrior:
         # assign max fidelity to all curves in context
         unique_curves = np.unique(id_curve[:single_eval_pos])
         nbiud = len(id_curve[single_eval_pos:(
-            single_eval_pos + len(unique_curves))])
+                single_eval_pos + len(unique_curves))])
         num_unique_curves = len(unique_curves)
         id_curve[single_eval_pos: single_eval_pos +
-                 num_unique_curves] = unique_curves[:nbiud]
+                                  num_unique_curves] = unique_curves[:nbiud]
         end_pos = min(single_eval_pos + num_unique_curves, self.seq_len)
         epoch[single_eval_pos:end_pos] = self.max_fidelities
 
@@ -297,8 +326,8 @@ class MFBenchPrior:
                     config=benchmark.configs[_config_id], configuration_space=self.space
                 )
                 tmp = tmp + \
-                    [benchmark.query(
-                        config=_config_id, at=fidelity).error]
+                      [benchmark.query(
+                          config=_config_id, at=fidelity).error]
             task_data.append(tmp)
 
         task_data = np.array(task_data).astype(np.float32)
@@ -350,11 +379,11 @@ class MFBenchPrior:
         return x, y
 
     @property
-    def n_tasks(self):
+    def n_related_tasks(self):
         return 1 + len(self.related_benchmarks)
 
     def sample_batch(self, alphas: Optional[Union[List[float], float]] = None,
-                     single_eval_pos=None):
+                     single_eval_pos=None, target_task=0, train_ids=None, **kwargs):
         """
         Generates a batch of data sampled from multiple tasks.
 
@@ -362,7 +391,7 @@ class MFBenchPrior:
         specified alpha values (scale parameter for task variability) and evaluation
         positions within the sequence.
 
-        :param n_tasks: The number of tasks to sample data for.
+        :param n_related_tasks: The number of tasks to sample data for.
         :param alphas: A list or single float value representing scale parameters
             (alpha values) for the tasks. If None, random alpha values are
             generated. If a single float is provided, it is applied to all tasks.
@@ -384,20 +413,20 @@ class MFBenchPrior:
 
         if alphas is None:
             alphas = [10 ** np.random.uniform(-4, -1)
-                      for _ in range(self.n_tasks)]
+                      for _ in range(self.n_related_tasks)]
         if isinstance(alphas, float):
-            alphas = [alphas] * self.n_tasks
+            alphas = [alphas] * self.n_related_tasks
         assert len(
-            alphas) == self.n_tasks, \
+            alphas) == self.n_related_tasks, \
             "alphas must be a list of the same length as n_task"
 
         if single_eval_pos is None:
             single_eval_pos = int(np.round(self.seq_len / 2))
         if isinstance(single_eval_pos, int):
-            single_eval_pos = [single_eval_pos] * self.n_tasks
+            single_eval_pos = [single_eval_pos] * self.n_related_tasks
         assert len(
-            single_eval_pos) == self.n_tasks, \
-            ("single_eval_pos must be a list of the same length as n_tasks")
+            single_eval_pos) == self.n_related_tasks, \
+            ("single_eval_pos must be a list of the same length as n_related_tasks")
 
         X = []
         Y = []
@@ -466,15 +495,15 @@ class MFBenchPrior:
 
     @staticmethod
     def _process_taskset_mfpbench_with_step_0_prior(
-        benchmark: TaskSetTabularBenchmark,
-        loss_name_at_step_0_to_normalize_with: str = "valid1_loss",
-        metrics_to_normalize_and_clamp: tuple[str, ...] = (
-            "train_loss",
-            "valid1_loss",
-            "valid2_loss",
-            "test_loss",
-        ),
-        drop_step_0: bool = True,
+            benchmark: TaskSetTabularBenchmark,
+            loss_name_at_step_0_to_normalize_with: str = "valid1_loss",
+            metrics_to_normalize_and_clamp: tuple[str, ...] = (
+                    "train_loss",
+                    "valid1_loss",
+                    "valid2_loss",
+                    "test_loss",
+            ),
+            drop_step_0: bool = True,
     ) -> TaskSetTabularBenchmark:
         """Normalize metrics of benchmark with the step 0 median huerisitc.
 

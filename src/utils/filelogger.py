@@ -41,7 +41,7 @@ class BufferedFileLogger:
         self.writer = csv.writer(self.file)
         if not exists:
             # Write the header of the CSV file
-            self.writer.writerow(header)
+            self.writer.writerow(header + postfix)
 
         # infer the header from file
         with open(self.file_path / self.file_name, 'r') as f:

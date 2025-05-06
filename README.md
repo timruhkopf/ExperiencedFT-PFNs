@@ -56,6 +56,26 @@ python -m mfpbench download --benchmark taskset  --data-dir $root/ExperiencedFT-
 
 ```
 
+# How to run the Experiments: 
+
+
+```shell
+python ExperiencedFT-PFNs/main_ftpfn.py \
+   device=cpu \
+   model=pfn_mixture \
+   benchmark=sanity_same \
+   seed=1 \
+   allocation_seeds=[42,43] # this will run over multiple instantiations of budget per task and alpha allocations
+
+```
+
+Plotting: 
+```python
+
+```
+
+
+
 
 
 
@@ -73,7 +93,6 @@ We build upon the work of ifBO directly and use their code and models.
 }
 
 ```
-
 
 # Citation 
 ```bibtex

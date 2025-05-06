@@ -164,9 +164,13 @@ class MetaTaskPrior:
     def sample_related_task(self):
         raise NotImplementedError("This method should be implemented in a subclass")
 
-    def sample_batch(self, n_tasks, alphas: Union[List[float], float] = None,
-                     single_eval_pos: Union[List[
-                         int], int] = None) -> Batch:
+    def sample_batch(
+            self,
+            n_tasks,
+            alphas: Union[List[float], float] = None,
+            single_eval_pos: Union[List[int], int] = None,
+            **kwargs
+    ) -> Batch:
         """
         Sample a batch of related tasks.
         :param n_tasks: the number of related tasks to sample
@@ -201,7 +205,8 @@ class MetaTaskPrior:
 
         self.relation_prior.new_dataset()
 
-        X = []; Y = []
+        X = [];
+        Y = []
         for task, alpha, context_size in zip(range(n_tasks), alphas, single_eval_pos):
             self.sample_related_task()
             x, y = self.sample_from_task(
@@ -397,6 +402,6 @@ if __name__ == '__main__':
               "single batches")
         print(e)
 
-        contexts=detokenize_batch(batch)
+        contexts = detokenize_batch(batch)
 
     print()
