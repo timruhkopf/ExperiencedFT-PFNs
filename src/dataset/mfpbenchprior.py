@@ -181,8 +181,7 @@ class MFBenchPrior:
 
         self.n_fidelities = min(self.n_fidelities, self.max_fidelities)
 
-    @property
-    def n_tasks(self):
+    def __len__(self):
         return len(
             {
                 'lcbench_tabular': LCBENCH_IDS,

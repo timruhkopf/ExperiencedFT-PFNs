@@ -8,14 +8,15 @@ cls:
   dim_hyperparameters: 3
   n_fidelities: 100
   seq_len: 1000
+  length: 30
 
 sample_config:
-  single_eval_pos:
-    - 500
-    - 500
-    - 400
-  alphas:
-    - 0.5
-    - 0.5
-    - 0.5
-  n_tasks: 3 # incl. target task
+#  single_eval_pos:
+#    - 500
+#    - 500
+#    - 400
+#  alphas:
+#    - 0.5
+#    - 0.5
+#    - 0.5
+  n_tasks: 6 # incl. target task

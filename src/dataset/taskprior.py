@@ -11,7 +11,17 @@ from ifbo import Batch
 
 class MetaTaskPrior:
     def __init__(self, dim_hyperparameters, n_fidelities=None, seq_len=1000,
-                 device='cpu'):
+                 device='cpu', length=30):
+        """
+
+        :param dim_hyperparameters:
+        :param n_fidelities:
+        :param seq_len:
+        :param device:
+        :param length: just some artificial value to accomodate the format from mfpbench
+        """
+
+        self.length = length
 
         # sample the dimensionality (i.e. hp space dim)
         self.dim_hyperparameters = np.random.randint(1, dim_hyperparameters - 1)
@@ -29,6 +39,12 @@ class MetaTaskPrior:
 
     def __hash__(self):
         self.relation_prior.model.__hash__()
+
+    def __len__(self):
+        return self.length
+
+    def collect_task_split(self, **kwargs):
+        pass
 
     def sample_dirichlet(self, alpha: float, eps=10 ** -9, single_eval_pos: int = 500) -> \
             (np.ndarray, np.ndarray, np.ndarray):
