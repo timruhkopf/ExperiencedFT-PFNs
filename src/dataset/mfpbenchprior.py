@@ -72,6 +72,36 @@ TASKSET_IDS = [
     {"task_id": "FixedTextRNNClassification_imdb_patch32_VRNN64_tanh_avg_bs128", "optimizer": "adam8p"},
 ]
 
+# for debugging purposes
+def setup_debug_logger():
+    """Create a dedicated debug logger that writes to a separate file"""
+    import logging
+    import os
+
+    # Create logs directory if it doesn't exist
+    os.makedirs('logs', exist_ok=True)
+
+    # Configure logger
+    debug_logger = logging.getLogger('debug')
+    debug_logger.setLevel(logging.DEBUG)
+
+    # Create file handler
+    file_handler = logging.FileHandler('logs/debug.log', mode='w')
+    file_handler.setLevel(logging.DEBUG)
+
+    # Create formatter and add to handler
+    formatter = logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    file_handler.setFormatter(formatter)
+
+    # Add handler to logger
+    debug_logger.addHandler(file_handler)
+
+    return debug_logger
+
+
+# debug_logger = setup_debug_logger()
+
 
 class MFBenchPrior:
     def __init__(self,
@@ -146,23 +176,24 @@ class MFBenchPrior:
                 for benchmark in self.related_benchmarks
             ]
 
-        self.space = self.target_benchmark.space
-        self.dim_hyperparameters = len(self.target_benchmark.space)
-        self.max_fidelities = self.target_benchmark.end
-        self.ncurves = len(self.target_benchmark.configs)
-        self.original_id = np.arange(self.ncurves)
-        self.offset = min([int(_)
-                          for _ in self.target_benchmark.configs.keys()])
+        # self.space = self.target_benchmark.space
+        # self.dim_hyperparameters = len(self.target_benchmark.space)
+        # self.max_fidelities = self.target_benchmark.end
+        # self.ncurves = len(self.target_benchmark.configs)
+        # self.original_id = np.arange(self.ncurves)
+        # self.offset = min([int(_)
+        #                   for _ in self.target_benchmark.configs.keys()])
 
-        self.n_fidelities = n_fidelities if n_fidelities is not None else \
-            int(np.round(10 ** np.random.uniform(0, 3)))
+        # self.n_fidelities = n_fidelities if n_fidelities is not None else \
+        #     int(np.round(10 ** np.random.uniform(0, 3)))
 
-        self.n_fidelities = min(self.n_fidelities, self.max_fidelities)
+        # self.n_fidelities = min(self.n_fidelities, self.max_fidelities)
 
+        self.n_fidelities = n_fidelities
         self.seq_len = seq_len
         self.device = device
 
-    def sample_dirichlet(self, alpha: float = None, eps: float = 10 ** -9,
+    def sample_dirichlet(self, ncurves: int, n_fidelities: int, alpha: float = None, eps: float = 10 ** -9,
                          single_eval_pos: int = 500):
         """
         Sample a Dirichlet distribution and compute token-to-curve associations with
@@ -173,6 +204,7 @@ class MFBenchPrior:
         to corresponding curves. It then calculates the number of epochs and
         cutoff values for each curve considering the position of the single evaluation.
 
+        :param ncurves: The number of curves to sample from the Dirichlet distribution.
         :param alpha: Concentration parameter of the Dirichlet distribution. It
             determines the sparsity of the distribution. Defaults to a random value
             in the range [10^-4, 10^-1] if set to None.
@@ -187,20 +219,21 @@ class MFBenchPrior:
             alpha = 10 ** np.random.uniform(-4, -1)
 
         # weights = np.random.gamma(alpha, alpha, self.seq_len) + eps
-        weights = np.random.gamma(alpha, alpha, min(1000, self.ncurves)) + eps
+        weights = np.random.gamma(alpha, alpha, min(1000, ncurves)) + eps
         p = weights / np.sum(weights)
 
         # identify which token belongs to which curve
         # ids = np.arange(self.seq_len)
-        ids = np.arange(min(1000, self.ncurves))
-        all_levels = np.repeat(ids, self.n_fidelities)
+        ids = np.arange(min(1000, ncurves))
+        all_levels = np.repeat(ids, n_fidelities)
         # since each curve has self.n_fidelities (fidelities) we
         # could observe, this is just a flat array for all curves after one another
-        all_p = np.repeat(p, self.n_fidelities) / self.n_fidelities
+        all_p = np.repeat(p, n_fidelities) / n_fidelities
         # The ordering vector is basically the mapping to the hp idx for each token
         # provided, that the token ordering is random and we are having a cutoff point where the
         # query starts, the subsequent for loop will do a "cumsum" over the occurences of the idx
         # to determine the length of that curve and where we are querying (past the query cutoff)
+
         ordering = np.random.choice(
             all_levels, p=all_p, size=self.seq_len, replace=False)
 
@@ -214,11 +247,8 @@ class MFBenchPrior:
 
         return cutoff_per_curve, epochs_per_curve, ordering
 
-    # def sample_hyperparameters(self, ):
-    #     return np.random.uniform(size=(self.seq_len, self.dim_hyperparameters))
-
     def _interpret_dirichlet_sample(self, ordering, epochs_per_curve, cutoff_per_curve,
-                                    single_eval_pos, benchmark):
+                                    single_eval_pos, benchmark, n_fidelities):
         """
         Processes Dirichlet sample data to generate task data and its corresponding
         tensor representations for model input and labels. The method uses the provided
@@ -236,6 +266,7 @@ class MFBenchPrior:
         :param single_eval_pos: The position in the sequence to evaluate a single curve
             before any others. This dictates the shape of the returned data.
         :type single_eval_pos: int
+
         :return: A tuple containing two tensors:
             - The first tensor contains the processed input data combining curve ID,
               epoch, configuration, and fidelity information.
@@ -246,8 +277,11 @@ class MFBenchPrior:
 
         epoch = np.zeros(self.seq_len)
         id_curve = np.zeros(self.seq_len)
-        original_id = np.arange(self.ncurves)
+        ncurves = len(benchmark.configs)
+        original_id = np.arange(ncurves)
 
+        max_fidelities = benchmark.end
+        # debug_logger.debug(f"Max fidelities: {max_fidelities}")
         curve_xs = []
         for cid in range(self.seq_len):  # loop over every curve
             if epochs_per_curve[cid] > 0:
@@ -258,7 +292,7 @@ class MFBenchPrior:
                 # queries (if any)
                 if cutoff_per_curve[cid] < epochs_per_curve[cid]:
                     x_[cutoff_per_curve[cid]:] = np.random.choice(np.arange(
-                        cutoff_per_curve[cid] + 1, self.n_fidelities + 1),
+                        cutoff_per_curve[cid] + 1, n_fidelities + 1),
                         size=epochs_per_curve[cid] - cutoff_per_curve[cid], replace=False)
                 curve_xs.append(x_)
             else:
@@ -280,10 +314,11 @@ class MFBenchPrior:
         id_curve[single_eval_pos: single_eval_pos +
                  num_unique_curves] = unique_curves[:nbiud]
         end_pos = min(single_eval_pos + num_unique_curves, self.seq_len)
-        epoch[single_eval_pos:end_pos] = self.max_fidelities
+        epoch[single_eval_pos:end_pos] = max_fidelities
 
         task_data = []
         offset = min([int(_) for _ in benchmark.configs.keys()])
+
         for ordering, config_id, fidelity in zip(
                 id_curve, original_id[id_curve.astype(int) - 1], epoch
         ):
@@ -294,7 +329,7 @@ class MFBenchPrior:
                 tmp = []
                 tmp = tmp + [ordering, fidelity]
                 tmp = tmp + self._get_normalized_values(
-                    config=benchmark.configs[_config_id], configuration_space=self.space
+                    config=benchmark.configs[_config_id], configuration_space=benchmark.space
                 )
                 tmp = tmp + \
                     [benchmark.query(
@@ -308,15 +343,19 @@ class MFBenchPrior:
         # convert id_curve and epoch to torch tensors
         id_curve = torch.from_numpy(id_curve).to(torch.int64)
 
+        # debug_logger.debug(f"Epochs before normalization: {epoch}")
+
         epoch = torch.from_numpy(epoch).to(
-            torch.int64) / self.n_fidelities  # normalize to [0,1]
+            torch.int64) / max_fidelities  # normalize to [0,1] same as https://github.com/automl/ifBO/blob/988e48ef4d9036d3670c32042906604321747823/src/section5.1/evaluate_pfn.py#L22
+
+        # debug_logger.debug(f"Epochs after normalization: {epoch}")
 
         x = torch.cat([torch.stack([id_curve, epoch], dim=1), config], dim=1)
         y = curve_val
 
         return x, y
 
-    def sample_from_task(self, alpha, context_size, benchmark):
+    def sample_from_task(self, alpha, context_size, benchmark, n_fidelities):
         """
         Samples a task from the distribution specified by the Dirichlet process
         using provided context size and alpha value.
@@ -332,9 +371,15 @@ class MFBenchPrior:
         :return: A tuple `(x, y)` where `x` represents the input data
             and `y` represents the corresponding output data.
         """
-        # sample exactly seq_len hps, but some may become inactive
-        # hps = self.sample_hyperparameters()
+
+        ncurves = len(benchmark.configs)
+        max_fidelities = benchmark.end
+
+        n_fidelities = min(n_fidelities, max_fidelities)
+
         cutoff_per_curve, epochs_per_curve, ordering = self.sample_dirichlet(
+            ncurves=ncurves,
+            n_fidelities=n_fidelities,
             alpha=alpha,
             single_eval_pos=context_size,
         )
@@ -342,9 +387,9 @@ class MFBenchPrior:
             ordering=ordering,
             epochs_per_curve=epochs_per_curve,
             cutoff_per_curve=cutoff_per_curve,
-            # hps=hps,
             single_eval_pos=context_size,
             benchmark=benchmark,
+            n_fidelities=n_fidelities
         )
 
         return x, y
@@ -354,7 +399,7 @@ class MFBenchPrior:
         return 1 + len(self.related_benchmarks)
 
     def sample_batch(self, alphas: Optional[Union[List[float], float]] = None,
-                     single_eval_pos=None):
+                     single_eval_pos=None, n_fidelities=None):
         """
         Generates a batch of data sampled from multiple tasks.
 
@@ -399,16 +444,20 @@ class MFBenchPrior:
             single_eval_pos) == self.n_tasks, \
             ("single_eval_pos must be a list of the same length as n_tasks")
 
+        if n_fidelities is None:
+            n_fidelities = int(np.round(10 ** np.random.uniform(0, 3)))
+
         X = []
         Y = []
         for task, alpha, context_size in zip(
                 [self.target_benchmark, *self.related_benchmarks],
                 alphas,
-                single_eval_pos
+                single_eval_pos,
         ):
             x, y = self.sample_from_task(
                 alpha=alpha, context_size=context_size,
-                benchmark=task
+                benchmark=task,
+                n_fidelities=n_fidelities
             )
             X.append(x)
             Y.append(y)
@@ -612,7 +661,7 @@ if __name__ == '__main__':
     pd1bench_task_prior = MFBenchPrior(
         name="pd1_tabular",
         task_id=0,
-        related_task_ids=[1, 2],
+        related_task_ids=[1, 2, 3],
         data_path=Path(__file__).parents[2] / "data/pd1-tabular/",
         seq_len=1000,
         n_fidelities=None,
@@ -629,7 +678,7 @@ if __name__ == '__main__':
         device="cpu"
     )
 
-    batch = taskset_task_prior.sample_batch(alphas=0.1, single_eval_pos=500)
+    batch = pd1bench_task_prior.sample_batch(alphas=0.1, single_eval_pos=500)
 
     contexts = detokenize_batch(batch)
 
