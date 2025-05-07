@@ -23,21 +23,25 @@ PD1_IDS = [
     {"model": "wide_resnet", "dataset": "cifar100", "batch_size": 256},
     {"model": "wide_resnet", "dataset": "svhn_no_extra", "batch_size": 256},
     {"model": "simple_cnn", "dataset": "fashion_mnist", "batch_size": 256},
+
     {"model": "simple_cnn", "dataset": "fashion_mnist", "batch_size": 2048},
     {"model": "simple_cnn", "dataset": "mnist", "batch_size": 256},
     {"model": "simple_cnn", "dataset": "mnist", "batch_size": 2048},
     {"model": "resnet", "dataset": "imagenet", "batch_size": 256, "coarseness": 1},
     {"model": "resnet", "dataset": "imagenet", "batch_size": 256, "coarseness": 2},
+
     {"model": "resnet", "dataset": "imagenet", "batch_size": 256, "coarseness": 5},
     {"model": "resnet", "dataset": "imagenet", "batch_size": 256, "coarseness": 10},
     {"model": "resnet", "dataset": "imagenet", "batch_size": 512, "coarseness": 1},
     {"model": "resnet", "dataset": "imagenet", "batch_size": 512, "coarseness": 2},
     {"model": "resnet", "dataset": "imagenet", "batch_size": 512, "coarseness": 5},
+
     {"model": "resnet", "dataset": "imagenet", "batch_size": 512, "coarseness": 10},
     {"model": "resnet", "dataset": "imagenet", "batch_size": 1024, "coarseness": 1},
     {"model": "resnet", "dataset": "imagenet", "batch_size": 1024, "coarseness": 2},
     {"model": "resnet", "dataset": "imagenet", "batch_size": 1024, "coarseness": 5},
     {"model": "transformer", "dataset": "lm1b", "batch_size": 2048},
+
     {"model": "transformer", "dataset": "uniref50", "batch_size": 128},
     {"model": "xformer_translate", "dataset": "translate_wmt", "batch_size": 64, "coarseness": 1},
     {"model": "xformer_translate", "dataset": "translate_wmt", "batch_size": 64, "coarseness": 2},
@@ -354,7 +358,72 @@ class MFBenchPrior:
         x = torch.cat([torch.stack([id_curve, epoch], dim=1), config], dim=1)
         y = curve_val
 
+        self._collect_all_config_data(benchmark, n_fidelities)
+
         return x, y
+
+    def _collect_all_config_data(self, benchmark, n_fidelities):
+        """
+        Collects data for all configurations at all fidelities.
+
+        # JUST FOR DEBUGGING PLOTTING PURPOSES
+
+        :param benchmark: Benchmark object containing configurations and query method.
+        :param n_fidelities: Number of fidelities to evaluate per configuration.
+        :return: Tuple of (input tensor, label tensor) containing all config-fidelity data.
+        """
+        task_data = []
+        offset = min(int(k) for k in benchmark.configs.keys())
+
+        for config_key in benchmark.configs:
+            config = benchmark.configs[config_key]
+            config_id = int(config_key) - offset  # Adjust for offset
+            normalized_config = self._get_normalized_values(config, benchmark.space)
+
+            # Query all fidelities from 1 to n_fidelities
+            for fidelity in range(1, n_fidelities + 1):
+                error = benchmark.query(config=config_key, at=fidelity).error
+                task_data.append([
+                    config_id + 1,  # Match original 1-based indexing
+                    fidelity,
+                    *normalized_config,
+                    error
+                ])
+
+        # Convert to tensors
+        task_data = np.array(task_data, dtype=np.float32)
+        config_ids = torch.from_numpy(task_data[:, 0]).long()
+        fidelities = torch.from_numpy(task_data[:, 1]).float() / n_fidelities  # Normalize
+        config_features = torch.from_numpy(task_data[:, 2:-1]).float()
+        labels = torch.from_numpy(task_data[:, -1]).float()
+
+        x = torch.cat([
+            torch.stack([config_ids, fidelities], dim=1),
+            config_features
+        ], dim=1)
+
+        self.plot_data(x, labels, len(benchmark.configs), n_fidelities)
+
+        return x, labels
+
+
+    @staticmethod
+    def plot_data(x, y, num_configs, n_fidelities):
+        import numpy as np
+        import matplotlib.pyplot as plt
+        plt.figure(figsize=(10, 6))
+        for config_id in range(1, num_configs + 1):
+            mask = x[:, 0] == config_id
+            fidelities = x[mask, 1] * n_fidelities  # denormalize for plotting
+            errors = y[mask]
+            plt.plot(fidelities, errors, marker='o', label=f'Config {config_id}')
+
+        plt.xlabel('Fidelity')
+        plt.ylabel('Error')
+        plt.title('Error vs Fidelity for each Configuration')
+        plt.legend()
+        plt.grid(True)
+        plt.show()
 
     def sample_from_task(self, alpha, context_size, benchmark, n_fidelities):
         """
@@ -646,37 +715,34 @@ def detokenize_batch(batch: Batch):
 if __name__ == '__main__':
     from pathlib import Path
 
-    lcbench_task_prior = MFBenchPrior(
-        name="lcbench_tabular",
-        task_id=0,
-        related_task_ids=[1, 2],
-        data_path=Path(__file__).parents[2] / "data/lcbench-tabular/",
-        seq_len=1000,
-        n_fidelities=None,
-        device="cpu"
-    )
+    # lcbench_task_prior = MFBenchPrior(
+    #     name="lcbench_tabular",
+    #
+    #     data_path=Path(__file__).parents[2] / "data/lcbench-tabular/",
+    #     seq_len=1000,
+    #     n_fidelities=None,
+    #     device="cpu"
+    # )
 
     pd1bench_task_prior = MFBenchPrior(
         name="pd1_tabular",
-        task_id=0,
-        related_task_ids=[1, 2, 3],
         data_path=Path(__file__).parents[2] / "data/pd1-tabular/",
         seq_len=1000,
         n_fidelities=None,
         device="cpu"
     )
 
-    taskset_task_prior = MFBenchPrior(
-        name="taskset_tabular",
-        task_id=0,
-        related_task_ids=[1, 2],
-        data_path=Path(__file__).parents[2] / "data/taskset-tabular/",
-        seq_len=1000,
-        n_fidelities=None,
-        device="cpu"
-    )
+    # taskset_task_prior = MFBenchPrior(
+    #     name="taskset_tabular",
+    #
+    #     data_path=Path(__file__).parents[2] / "data/taskset-tabular/",
+    #     seq_len=1000,
+    #     n_fidelities=None,
+    #     device="cpu"
+    # )
 
-    batch = pd1bench_task_prior.sample_batch(alphas=0.1, single_eval_pos=500)
+    pd1bench_task_prior.collect_task_split(target_id=11, train_ids=[13, 16])
+    batch = pd1bench_task_prior.sample_batch()
 
     contexts = detokenize_batch(batch)
 
