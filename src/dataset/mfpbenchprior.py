@@ -184,22 +184,6 @@ class MFBenchPrior:
                 for benchmark in self.related_benchmarks
             ]
 
-        # self.space = self.target_benchmark.space
-        # self.dim_hyperparameters = len(self.target_benchmark.space)
-        # self.max_fidelities = self.target_benchmark.end
-        # self.ncurves = len(self.target_benchmark.configs)
-        # self.original_id = np.arange(self.ncurves)
-        # self.offset = min([int(_)
-        #                   for _ in self.target_benchmark.configs.keys()])
-
-        # self.n_fidelities = n_fidelities if n_fidelities is not None else \
-        #     int(np.round(10 ** np.random.uniform(0, 3)))
-
-        # self.n_fidelities = min(self.n_fidelities, self.max_fidelities)
-
-        self.n_fidelities = n_fidelities
-        self.seq_len = seq_len
-        self.device = device
 
     def __len__(self):
         return len(
