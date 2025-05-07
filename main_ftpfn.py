@@ -72,15 +72,17 @@ def main(cfg: DictConfig):
         test_ids = [test_ids[cfg.target_idx]]
 
     # select the target task and the split of context tasks
-    for target_task in test_ids:
-        for i, train_ids in enumerate(folds):
+    for j, target_task in enumerate(test_ids, start=1):
+        for i, train_ids in enumerate(folds, start=1):
             file_logger.postfix = [target_task, train_ids, None, i]
 
             # "instantiate" the task and related task datasets (with no budget allocation yet)
             benchmark.collect_task_split(target_id=target_task, train_ids=train_ids)
 
             for seed in cfg.allocation_seeds:
-                with (SeededRandomContext(seed) as ctx):
+                with (SeededRandomContext(seed * i * j**2) as ctx):
+                    # i, j because we want to make sure, that every task fold sample combination
+                    # has its own unique budget allocation
                     file_logger.postfix[-2] = seed
 
                     # Allocate budgets on the benchmarks --------------------------
