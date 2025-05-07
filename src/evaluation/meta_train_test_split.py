@@ -11,5 +11,5 @@ def k_folds(train_ids, k=5):
 
 def folds_of_size(train_ids, size=5):
     """Split train_ids into non overlapping folds of at most size"""
-    n = len(train_ids)
-    return [train_ids[i*size:(i+1)*size] for i in range(size)]
+    n =  int(math.ceil(len(train_ids) / size))
+    return [train_ids[i*size:(i+1)*size] for i in range(n)]
