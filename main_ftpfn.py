@@ -32,7 +32,7 @@ from src.utils.seeding import SeededRandomContext
 logger = logging.getLogger(__name__)
 
 
-@hydra.main(config_path="configs", config_name="base", version_base="1.1")
+@hydra.main(config_path="configs", config_name="base_ft", version_base="1.1")
 def main(cfg: DictConfig):
     logger.info(f'Current working directory: {Path.cwd()}')
     logger.info(f"Running with config: \n {OmegaConf.to_yaml(cfg, resolve=True)}")
