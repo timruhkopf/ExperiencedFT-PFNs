@@ -1,5 +1,6 @@
 import math
 from copy import copy
+from itertools import product
 from pathlib import Path
 from typing import List
 
@@ -13,12 +14,14 @@ from ifbo import Curve, PredictionResult
 from ifbo.priors.ftpfn_prior import DatasetPrior
 
 import logging
+import warnings
 
 from ifbo.utils import detokenize
 from ifbo import Batch
 
 from ifbo.transformer import TransformerModel
 from sklearn.model_selection import train_test_split
+from tqdm import tqdm
 
 from src.evaluation.meta_train_test_split import k_folds, folds_of_size
 from src.evaluation.test_on_new_task_nll import TestOnNewTaskNLL
@@ -40,7 +43,7 @@ def main(cfg: DictConfig):
         file_path='.',
         buffer_size=1000,
         header=["metric", "value", 'global_step', "context_size", "task"],
-        postfix=["target_task", "train_ids", "seed", "fold"]
+        postfix=["target_task", "train_ids", "seed"]
     )
 
     # setting up the reference model:
@@ -72,200 +75,207 @@ def main(cfg: DictConfig):
         test_ids = [test_ids[cfg.target_idx]]
 
     # select the target task and the split of context tasks
-    for j, target_task in enumerate(test_ids, start=1):
-        for i, train_ids in enumerate(folds, start=1):
-            file_logger.postfix = [target_task, train_ids, None, i]
+    for i, (target_task, train_ids, seed) in enumerate(
+            tqdm(
+                product(test_ids, folds, cfg.allocation_seeds),
+                total=len(test_ids) * len(folds) * len(cfg.allocation_seeds)
+            ), start=1):
+        logger.info(f"Running task {i}: target_task={target_task}, train_ids={train_ids}, seed={seed * i}")
 
-            # "instantiate" the task and related task datasets (with no budget allocation yet)
+        file_logger.postfix = [target_task, train_ids, seed*i]
+
+        # "instantiate" the task and related task datasets (with no budget allocation yet)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
             benchmark.collect_task_split(target_id=target_task, train_ids=train_ids)
 
-            for seed in cfg.allocation_seeds:
-                with (SeededRandomContext(seed * i * j**2) as ctx):
-                    # i, j because we want to make sure, that every task fold sample combination
-                    # has its own unique budget allocation
-                    file_logger.postfix[-2] = seed
+        # for seed in cfg.allocation_seeds:
+        with (SeededRandomContext(seed * i) as ctx):
+            # i, j because we want to make sure, that every task fold sample combination
+            # has its own unique budget allocation
 
-                    # Allocate budgets on the benchmarks --------------------------
-                    # sample over multiple meta task sizes and dirichlet alphas
-                    config = dict(
-                        single_eval_pos=[
-                            500,  # target task length
-                            *np.random.randint(200, 500, len(train_ids)).tolist()
-                        ],
-                        alphas=[10 ** np.random.uniform(-4, -1) for _ in range(len(train_ids) + 1)],
-                        **cfg.benchmark.sample_config if hasattr(cfg.benchmark, 'sample_config') else {}
-                    )
-                    # sample the dirichlet distributed data
-                    batch = benchmark.sample_batch(**config)
 
-                    # parse the batch ---------------------------------------------
-                    padded_batch = parse_batch_for_padded_train_data(batch, target_idx=0)
+            # Allocate budgets on the benchmarks --------------------------
+            # sample over multiple meta task sizes and dirichlet alphas
+            config = dict(
+                single_eval_pos=[
+                    500,  # target task length
+                    *np.random.randint(200, 500, len(train_ids)).tolist()
+                ],
+                alphas=[10 ** np.random.uniform(-4, -1) for _ in range(len(train_ids) + 1)],
+                **cfg.benchmark.sample_config if hasattr(cfg.benchmark, 'sample_config') else {}
+            )
+            # sample the dirichlet distributed data
+            batch = benchmark.sample_batch(**config)
 
-                    related_task_data = padded_batch.related_tasks
-                    task_data = padded_batch.target_task
+            # parse the batch ---------------------------------------------
+            padded_batch = parse_batch_for_padded_train_data(batch, target_idx=0)
 
-                    logger.info(f'Amount of related task data: {related_task_data.observed}')
+            related_task_data = padded_batch.related_tasks
+            task_data = padded_batch.target_task
 
-                    target_task_context_x = task_data.x
-                    target_task_context_y = task_data.y
-                    target_task_query_x = task_data.query_x
-                    target_task_query_y = task_data.query_y
-                    padding_mask = related_task_data.padding_mask
-                    n_related_tasks = related_task_data.x.shape[1]
+            logger.info(f'Amount of related task data: {related_task_data.observed}')
 
-                with SeededRandomContext(seed) as ctx:
-                    # create and train the model -------------------------------
-                    model = hydra.utils.instantiate(
-                        cfg.model.cls,
-                        model=pfn_backend,
-                        device=device,
-                        criterion=criterion,
-                        logger=file_logger,
-                        related_task_data=related_task_data,
-                    )
+            target_task_context_x = task_data.x
+            target_task_context_y = task_data.y
+            target_task_query_x = task_data.query_x
+            target_task_query_y = task_data.query_y
+            padding_mask = related_task_data.padding_mask
+            n_related_tasks = related_task_data.x.shape[1]
 
-                    train_config = dict(
-                        query_task_x=target_task_query_x,
-                        query_task_y=target_task_query_y
-                    )
-                    if 'train_call' in cfg.model.keys():
-                        train_config.update(cfg.model.train_call)
+        with SeededRandomContext(seed) as ctx:
+            # create and train the model -------------------------------
+            model = hydra.utils.instantiate(
+                cfg.model.cls,
+                model=pfn_backend,
+                device=device,
+                criterion=criterion,
+                logger=file_logger,
+                related_task_data=related_task_data,
+            )
 
-                    # distillation will return a prefix, pfn_mixture won't
-                    prefix = model.train(**train_config)
+            train_config = dict(
+                query_task_x=target_task_query_x,
+                query_task_y=target_task_query_y
+            )
+            if 'train_call' in cfg.model.keys():
+                train_config.update(cfg.model.train_call)
 
-                    # Evaluate the model ----------------------------------------------
-                    evaluator = TestOnNewTaskNLL(
-                        criterion=pfn_backend.criterion,
-                        logger=file_logger, device=device
-                    )
+            # distillation will return a prefix, pfn_mixture won't
+            prefix = model.train(**train_config)
 
-                    context_sizes = cfg.context_sizes
-                    context_sizes = [math.floor(i * target_task_context_x.shape[0]) for i in
-                                     context_sizes]
+            # Evaluate the model ----------------------------------------------
+            evaluator = TestOnNewTaskNLL(
+                criterion=pfn_backend.criterion,
+                logger=file_logger, device=device
+            )
 
-                    kwargs = {}
+            context_sizes = cfg.context_sizes
+            context_sizes = [math.floor(i * target_task_context_x.shape[0]) for i in
+                             context_sizes]
 
-                    if 'inference_kwargs' in cfg.model.keys():
-                        kwargs.update(cfg.model.inference_kwargs)
+            kwargs = {}
 
-                    if not bool(prefix):
-                        prefix = (torch.empty(0, device=device), torch.empty(0, device=device))
+            if 'inference_kwargs' in cfg.model.keys():
+                kwargs.update(cfg.model.inference_kwargs)
 
-                    n_related = related_task_data.x.shape[1]
-                    evaluator.test_on_new_task(
-                        model=model,
-                        prefix_x=prefix[0],
-                        prefix_y=prefix[1],
-                        context_task_x=target_task_context_x.repeat(1, n_related, 1),
-                        context_task_y=target_task_context_y.repeat(1, n_related),
-                        query_task_x=target_task_query_x.repeat(1, n_related, 1),
-                        query_task_y=target_task_query_y.repeat(1, n_related),
-                        task_name=cfg.model.meta.name,
-                        step=0,
-                        context_sizes=context_sizes,
-                        # fwd kwargs
-                        **kwargs
-                    )
+            if not bool(prefix):
+                prefix = (torch.empty(0, device=device), torch.empty(0, device=device))
 
-                    # Quick Baselines ----------------------------------------------
-                    # sanity check: what if we put in the current task as context.
-                    evaluator.test_on_new_task(
-                        model=pfn_backend,
-                        task_name=f'Baseline: complete target_task_x as context',
+            n_related = related_task_data.x.shape[1]
+            evaluator.test_on_new_task(
+                model=model,
+                prefix_x=prefix[0],
+                prefix_y=prefix[1],
+                context_task_x=target_task_context_x.repeat(1, n_related, 1),
+                context_task_y=target_task_context_y.repeat(1, n_related),
+                query_task_x=target_task_query_x.repeat(1, n_related, 1),
+                query_task_y=target_task_query_y.repeat(1, n_related),
+                task_name=cfg.model.meta.name,
+                step=0,
+                context_sizes=context_sizes,
+                # fwd kwargs
+                **kwargs
+            )
 
-                        context_task_x=target_task_context_x,
-                        context_task_y=target_task_context_y,
-                        query_task_x=target_task_query_x,
-                        query_task_y=target_task_query_y,
+            # Quick Baselines ----------------------------------------------
+            # sanity check: what if we put in the current task as context.
+            evaluator.test_on_new_task(
+                model=pfn_backend,
+                task_name=f'Baseline: complete target_task_x as context',
 
-                    )
+                context_task_x=target_task_context_x,
+                context_task_y=target_task_context_y,
+                query_task_x=target_task_query_x,
+                query_task_y=target_task_query_y,
 
-                    # Sanity check: what if we took the complete context from the related task and attempted
-                    # to predict the current task
-                    evaluator.test_on_new_task(
-                        model=pfn_backend,
-                        task_name=f'Baseline: approx. conditioning on complete related',
-                        prefix_x=related_task_data.x[:-25],
-                        prefix_y=related_task_data.y[:-25],
-                        context_task_x=target_task_context_x.repeat(1, n_related_tasks, 1),
-                        context_task_y=target_task_context_y.repeat(1, n_related_tasks),
-                        query_task_x=target_task_query_x.repeat(1, n_related_tasks, 1),
-                        query_task_y=target_task_query_y.repeat(1, n_related_tasks),
-                        context_sizes=context_sizes,
-                        src_key_padding_mask=padding_mask
-                    )
+            )
 
-                    evaluator.test_on_new_task(
-                        model=pfn_backend,
-                        task_name='Baseline: naked pfn',
-                        context_task_x=target_task_context_x,
-                        context_task_y=target_task_context_y,
-                        query_task_x=target_task_query_x,
-                        query_task_y=target_task_query_y,
-                        context_sizes=context_sizes
-                    )
+            # Sanity check: what if we took the complete context from the related task and attempted
+            # to predict the current task
+            evaluator.test_on_new_task(
+                model=pfn_backend,
+                task_name=f'Baseline: approx. conditioning on complete related',
+                prefix_x=related_task_data.x[:-25],
+                prefix_y=related_task_data.y[:-25],
+                context_task_x=target_task_context_x.repeat(1, n_related_tasks, 1),
+                context_task_y=target_task_context_y.repeat(1, n_related_tasks),
+                query_task_x=target_task_query_x.repeat(1, n_related_tasks, 1),
+                query_task_y=target_task_query_y.repeat(1, n_related_tasks),
+                context_sizes=context_sizes,
+                src_key_padding_mask=padding_mask
+            )
 
-                    if cfg.model.meta.name == 'distill':
-                        # Sanity check: the initial points of optimization added as context
-                        evaluator.test_on_new_task(
-                            model=pfn_backend,
-                            task_name='x_init context (no-distillation)',
-                            prefix_x=model._init_x,
-                            prefix_y=model._init_y,
-                            context_task_x=target_task_context_x.repeat(1, n_related_tasks, 1),
-                            context_task_y=target_task_context_y.repeat(1, n_related_tasks),
-                            query_task_x=target_task_query_x.repeat(1, n_related_tasks, 1),
-                            query_task_y=target_task_query_y.repeat(1, n_related_tasks),
-                            context_sizes=context_sizes
-                        )
+            evaluator.test_on_new_task(
+                model=pfn_backend,
+                task_name='Baseline: naked pfn',
+                context_task_x=target_task_context_x,
+                context_task_y=target_task_context_y,
+                query_task_x=target_task_query_x,
+                query_task_y=target_task_query_y,
+                context_sizes=context_sizes
+            )
 
-                    # Intensely checking sanity baselines: for each task
-                    # for task in data['related_task_data']:
-                    #     x_task_context = task['x']
-                    #     y_task_context = task['y']
-                    #
-                    #     # Adding in the entire context of the related task
-                    #     evaluator.test_on_new_task(
-                    #         model=pfn_backend,
-                    #         task_name='baseline (full context task 0)',
-                    #         prefix_x=x_task_context,
-                    #         prefix_y=y_task_context,
-                    #         context_task_x=target_task_context_x,
-                    #         context_task_y=target_task_context_y,
-                    #         query_task_x=target_task_query_x,
-                    #         query_task_y=target_task_query_y,
-                    #         context_sizes=context_sizes
-                    #     )
-                    #
-                    #     # adding in half of the related dataset in
-                    #     half_x = x_task_context.shape[0] // 2
-                    #     evaluator.test_on_new_task(
-                    #         model=pfn_backend,
-                    #         task_name='baseline (half context task 0)',
-                    #         prefix_x=x_task_context[:half_x],
-                    #         prefix_y=y_task_context[:half_x],
-                    #         context_task_x=target_task_context_x,
-                    #         context_task_y=target_task_context_y,
-                    #         query_task_x=target_task_query_x,
-                    #         query_task_y=target_task_query_y,
-                    #         context_sizes=context_sizes
-                    #     )
-                    #
-                    #     # Adding in (almost) the entire context of the related task
-                    #     # we can't fit the entire one, since we need space in the sequence
-                    #     # to do a batched evaluation over the query points
-                    #     evaluator.test_on_new_task(
-                    #         model=pfn_backend,
-                    #         task_name='baseline (approx. complete context task 0)',
-                    #         prefix_x=x_task_context,
-                    #         prefix_y=y_task_context,
-                    #         context_task_x=target_task_context_x[:-25],
-                    #         context_task_y=target_task_context_y[:-25],
-                    #         query_task_x=target_task_query_x,
-                    #         query_task_y=target_task_query_y,
-                    #         context_sizes=context_sizes  # [:10]
-                    #     )
+            if cfg.model.meta.name == 'distill':
+                # Sanity check: the initial points of optimization added as context
+                evaluator.test_on_new_task(
+                    model=pfn_backend,
+                    task_name='x_init context (no-distillation)',
+                    prefix_x=model._init_x,
+                    prefix_y=model._init_y,
+                    context_task_x=target_task_context_x.repeat(1, n_related_tasks, 1),
+                    context_task_y=target_task_context_y.repeat(1, n_related_tasks),
+                    query_task_x=target_task_query_x.repeat(1, n_related_tasks, 1),
+                    query_task_y=target_task_query_y.repeat(1, n_related_tasks),
+                    context_sizes=context_sizes
+                )
+
+            # Intensely checking sanity baselines: for each task
+            # for task in data['related_task_data']:
+            #     x_task_context = task['x']
+            #     y_task_context = task['y']
+            #
+            #     # Adding in the entire context of the related task
+            #     evaluator.test_on_new_task(
+            #         model=pfn_backend,
+            #         task_name='baseline (full context task 0)',
+            #         prefix_x=x_task_context,
+            #         prefix_y=y_task_context,
+            #         context_task_x=target_task_context_x,
+            #         context_task_y=target_task_context_y,
+            #         query_task_x=target_task_query_x,
+            #         query_task_y=target_task_query_y,
+            #         context_sizes=context_sizes
+            #     )
+            #
+            #     # adding in half of the related dataset in
+            #     half_x = x_task_context.shape[0] // 2
+            #     evaluator.test_on_new_task(
+            #         model=pfn_backend,
+            #         task_name='baseline (half context task 0)',
+            #         prefix_x=x_task_context[:half_x],
+            #         prefix_y=y_task_context[:half_x],
+            #         context_task_x=target_task_context_x,
+            #         context_task_y=target_task_context_y,
+            #         query_task_x=target_task_query_x,
+            #         query_task_y=target_task_query_y,
+            #         context_sizes=context_sizes
+            #     )
+            #
+            #     # Adding in (almost) the entire context of the related task
+            #     # we can't fit the entire one, since we need space in the sequence
+            #     # to do a batched evaluation over the query points
+            #     evaluator.test_on_new_task(
+            #         model=pfn_backend,
+            #         task_name='baseline (approx. complete context task 0)',
+            #         prefix_x=x_task_context,
+            #         prefix_y=y_task_context,
+            #         context_task_x=target_task_context_x[:-25],
+            #         context_task_y=target_task_context_y[:-25],
+            #         query_task_x=target_task_query_x,
+            #         query_task_y=target_task_query_y,
+            #         context_sizes=context_sizes  # [:10]
+            #     )
 
     file_logger.close()
 
