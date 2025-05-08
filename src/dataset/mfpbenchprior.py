@@ -358,7 +358,7 @@ class MFBenchPrior:
         x = torch.cat([torch.stack([id_curve, epoch], dim=1), config], dim=1)
         y = curve_val
 
-        self._collect_all_config_data(benchmark, n_fidelities)
+        # self._collect_all_config_data(benchmark, n_fidelities)
 
         return x, y
 

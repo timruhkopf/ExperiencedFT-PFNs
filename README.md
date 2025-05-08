@@ -28,7 +28,7 @@ pip install -e .
 
 
 # FIXME: move this install directly to setup.py
-cd src
+
 git clone git@github.com:automl/ifBO.git
 git checkout icml-2024
 mv ifBO ifBO_icml24
@@ -39,6 +39,8 @@ git checkout main
 mv ifBO ifBO_main
 #pip install -U ifBO
 pip install -e ifBO_main
+
+PYTHONPATH=[...]/ExperiencedFT-PFNs/ifBO_main/ifbo:$PYTHONPATH
 
 
 # LCBench benchmark data: 

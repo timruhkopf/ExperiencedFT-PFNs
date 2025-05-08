@@ -9,19 +9,22 @@ import numpy as np
 from omegaconf import DictConfig, OmegaConf
 import torch
 
-import ifbo
-from ifbo import Curve, PredictionResult
-from ifbo.priors.ftpfn_prior import DatasetPrior
+
 
 import logging
 import warnings
 
+from sklearn.model_selection import train_test_split
+from tqdm import tqdm
+
+import ifbo
+from ifbo import Curve, PredictionResult
+from ifbo.priors.ftpfn_prior import DatasetPrior
 from ifbo.utils import detokenize
 from ifbo import Batch
 
 from ifbo.transformer import TransformerModel
-from sklearn.model_selection import train_test_split
-from tqdm import tqdm
+
 
 from src.evaluation.meta_train_test_split import k_folds, folds_of_size
 from src.evaluation.test_on_new_task_nll import TestOnNewTaskNLL
