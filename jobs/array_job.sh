@@ -7,6 +7,7 @@
 #SBATCH --output=surrogate_array%j.out
 #SBATCH --error=surrogate_array%j.err
 #SBATCH --partition=ai,taurus,amo
+#SBATCH --exclude=ai-n[001-004],ai-n009
 
 DEVICE=cpu
 PARAM_FILE=job_params.txt
