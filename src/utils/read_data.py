@@ -19,7 +19,8 @@ def config_parser(config_path, keys: List) -> dict:
         hydra_config = yaml.safe_load(hydra_file)
 
     hydra_config = DictConfig(hydra_config)
-    keys.extend(OmegaConf.select(hydra_config, 'hydra.sweeper.search_space.hyperparameters').keys())
+    if 'search_space' in hydra_config.hydra.sweeper:
+        keys.extend(OmegaConf.select(hydra_config, 'hydra.sweeper.search_space.hyperparameters').keys())
 
     with open(config_path / "config.yaml", 'r') as config_file:
         config = yaml.safe_load(config_file)

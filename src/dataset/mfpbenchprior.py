@@ -698,7 +698,7 @@ def detokenize_batch(batch: Batch):
     ]
 
     detokenized_tasks = [
-        detokenize(b, b.single_eval_pos, device='cpu')
+        detokenize(b, b.single_eval_pos, device=b.x.device)
         for b in (batches)
     ]
 

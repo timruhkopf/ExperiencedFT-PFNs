@@ -224,6 +224,10 @@ class DistillContext(AbstractModel):
                 batch, T, n_tasks, dim = x_query.shape
                 tiled_batch = batch * n_tasks
 
+                x_query = x_query.to(self.device)
+                y_query = y_query.to(self.device)
+                padding_mask = padding_mask.to(self.device)
+
                 # dummy
                 # x_query = torch.cat([
                 #     torch.zeros(batch, T, 1, dim),
@@ -249,7 +253,9 @@ class DistillContext(AbstractModel):
                 # ], dim=1)  # (T, 2, dim)
 
                 # Repeat distilled_x n_tasks times across batch dimension
-                distilled_x_latent_tiled = distilled_x_latent.repeat(1, batch, 1)  # (T, batch*2, dim)
+                distilled_x_latent_tiled = distilled_x_latent.repeat(1, batch, 1)
+                # (T,
+                # batch*2, dim)
                 distilled_y_tiled = distilled_y.repeat(1, batch)  # (T, batch*2)
                 # on the dummy
                 # assert distilled_x_latent_tiled.shape == (T, tiled_batch, dim)
