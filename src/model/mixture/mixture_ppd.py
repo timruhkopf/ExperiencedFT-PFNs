@@ -5,7 +5,7 @@ import torch
 from ifbo.transformer import TransformerModel
 
 from src.evaluation.test_on_new_task_nll import TestOnNewTaskNLL
-from src.ifBO_main.ifbo import BarDistribution, FTPFN
+from ifbo import BarDistribution, FTPFN
 from src.model.abstractmodel import AbstractModel
 from src.model.batch_padded_pfn import MyBatch
 from src.utils.filelogger import BufferedFileLogger
