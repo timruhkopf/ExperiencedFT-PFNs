@@ -76,9 +76,9 @@ def main(cfg: DictConfig):
         test_ids = [test_ids[cfg.target_idx]]
 
     # select the target task and the split of context tasks
-    for i, (target_task, train_ids, seed) in enumerate(
+    for i, (train_ids, target_task, seed) in enumerate(
             tqdm(
-                product(test_ids, folds, cfg.allocation_seeds),
+                product(folds, test_ids,  cfg.allocation_seeds),
                 total=len(test_ids) * len(folds) * len(cfg.allocation_seeds)
             ), start=1):
         logger.info(f"Running task {i}: target_task={target_task}, train_ids={train_ids}, seed={seed * i}")

@@ -123,6 +123,10 @@ class MFBenchPrior:
             target_id: [int],
             train_ids: List[int],
     ):
+        if not hasattr(self, 'train_ids'):
+            # lazy load the train_ids (which takes time
+            self.target_id = None
+            self.train_ids = None
 
         if self.name == "lcbench_tabular":
             default_mfb_kwargs = {"name": self.name, "preload": True, "prior": None,
@@ -130,8 +134,12 @@ class MFBenchPrior:
                                   "value_metric": "val_balanced_accuracy",
                                   "value_metric_test": "test_balanced_accuracy"}
             target = {"task_id": LCBENCH_IDS[target_id]}
-            related = [{"task_id": LCBENCH_IDS[task]}
-                       for task in train_ids]
+
+            if train_ids != self.train_ids:
+                self.related = [{"task_id": LCBENCH_IDS[task]}
+                           for task in train_ids]
+
+
 
         elif self.name == "pd1_tabular":
 
@@ -144,12 +152,14 @@ class MFBenchPrior:
             default_mfb_kwargs = {"name": self.name,
                                   "preload": True, "prior": None, "seed": True}
             target = PD1_IDS[target_id]
-            related = [PD1_IDS[task] for task in train_ids]
+            if train_ids != self.train_ids:
+                self.related = [PD1_IDS[task] for task in train_ids]
         elif self.name == "taskset_tabular":
             default_mfb_kwargs = {"name": self.name,
                                   "preload": True, "prior": None, "seed": True}
             target = TASKSET_IDS[target_id]
-            related = [TASKSET_IDS[task] for task in train_ids]
+            if train_ids != self.train_ids:
+                self.related = [TASKSET_IDS[task] for task in train_ids]
         else:
             raise ValueError(
                 "name must be one of lcbench_tabular, pd1_tabular, or taskset")
@@ -165,7 +175,7 @@ class MFBenchPrior:
             datadir=self.data_path, **target_kwargs)
 
         self.related_benchmarks = []
-        for related_task in related:
+        for related_task in self.related:
             related_kwargs = mfb_kwargs.copy()
             related_kwargs.update(related_task)
             self.related_benchmarks.append(
@@ -182,6 +192,8 @@ class MFBenchPrior:
                 for benchmark in self.related_benchmarks
             ]
 
+        self.target_id = target_id
+        self.train_ids = train_ids
 
     def __len__(self):
         return len(

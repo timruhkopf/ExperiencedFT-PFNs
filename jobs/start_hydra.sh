@@ -89,5 +89,7 @@ python $BIGWORK/$REPONAME/src/utils/read_data.py \
 wait
 
 
+#watch -n 1 nvidia-smi
+
 #salloc --partition=ai  --nodes=1  --time=02:00:00  --cpus-per-task=8  --gres=gpu:1  --mem=8GB
 #HYDRA_FULL_ERROR=1 python main.py smactuner.epochs=1 smactuner='al' scheduler='sh' +budgets=[0.0001,0.0002,0.0003] n_init_cfgs=2 dataset='cifar10' smactuner.batch_size=512 smactuner.track_scores=False seed=1 al_method='DCOM' dataset.path='/bigwork/nhwpruht/AdaptiveMFSimple/data' +pretrain_epochs=1
