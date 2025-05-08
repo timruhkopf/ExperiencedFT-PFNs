@@ -37,7 +37,8 @@ def main(cfg: DictConfig):
     logger.info(f'Current working directory: {Path.cwd()}')
     logger.info(f"Running with config: \n {OmegaConf.to_yaml(cfg, resolve=True)}")
     # fixme: device
-    device = torch.device('cpu')  # torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device =  torch.device("cuda" if torch.cuda.is_available() else "cpu") if cfg.device is None \
+        else torch.device(cfg.device)
     file_logger = BufferedFileLogger(
         file_name='results.csv',
         file_path='.',

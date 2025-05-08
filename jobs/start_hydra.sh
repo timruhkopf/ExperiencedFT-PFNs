@@ -17,7 +17,7 @@ commit_hash=$(git log -1 --pretty=format:"%h")
 module load Miniforge3
 echo 'activating conda'
 
-REPONAME=Experienced-FT-PFNs
+REPONAME=ExperiencedFT-PFNs
 
 conda activate $BIGWORK/envs/eft-pfn2
 export PYTHONPATH=$BIGWORK/$REPONAME/src:$PYTHONPATH
@@ -48,7 +48,7 @@ while [[ "$#" -gt 0 ]]; do
 done
 
 # Construct the Hydra command
-HYDRA_CMD="python main.py"
+HYDRA_CMD="python main_ftpfn.py"
 
 # Add all Hydra overrides
 for override in "${HYDRA_OVERRIDES[@]}"; do
@@ -80,7 +80,7 @@ echo "Hydra output directory: $HYDRA_DIR"
 
 echo "Running read_data:"
 DIR=$BIGWORK/$REPONAME/$HYDRA_DIR
-python $BIGWORK/$REPONAME/src/read_data.py \
+python $BIGWORK/$REPONAME/src/utils/read_data.py \
   --root_dir $DIR \
   --file_pattern "results.csv" \
   --keys "[\"experiment_name\",\"model.meta.name\",\"dataset.meta.name\",\"budget\",\"fidelity_seed\"]" \

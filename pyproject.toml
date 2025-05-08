@@ -24,12 +24,52 @@ dependencies = [
     "omegaconf==2.3.0",
     "hydra-core==1.3.2",
     "ConfigSpace==0.4.21",
-    "neural-pipeline-search",
+    "nltk==3.8.1",
+    "fire",
+    "path==16.7.1",
 
     # if these don't work immediately:
+    # pip install -r core_requirements.txt
     "ifBO_icml2024/src/neps_lcpfn_hpo",
     "ifBO_icml2024/src/mf-prior-bench",
-    "ifBO_icml2024/src/PFNs4HPO"
+    "ifBO_icml2024/src/PFNs4HPO",
+    "ifBO_icml2024/src/pfns_hpo",
+
+
+    "torch==1.13.1",
+    "scikit-learn==1.0.2",
+    "PyYAML==6.0.1",
+    "numpy==1.24.4",
+    "requests==2.31.0",
+    "requests-oauthlib==1.3.1",
+    "gpytorch==1.11",
+    "ConfigSpace==0.4.21",
+    "tqdm==4.62.1",
+    "botorch==0.9.2",
+    "pandas==2.2.2",
+    "more-itertools==10.1.0",
+    "pyarrow==13.0.0",
+    "GraKeL==0.1.9",
+    "networkx==2.8.8",
+    "nltk==3.8.1",
+    "scipy==1.9.1",
+    "torchvision==0.14.1",
+    "matplotlib==3.7.2",
+    "portalocker==2.7.0",
+    "seaborn==0.13.0",
+    "tensorboard==2.14.0",
+    "tensorboard-data-server==0.7.1",
+    "path==16.7.1",
+    "submitit==1.4.5",
+    "hydra-core==1.3.2",
+    "python-git-info==0.8.3",
+    "tueplots==0.0.15",
+    "tensorflow==2.14.1",
+    "psutil==6.0.0",
+    "hickle==5.0.3",
+]
+
+
 
     # torch with gpu support
 ]
