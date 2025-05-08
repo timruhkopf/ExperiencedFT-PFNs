@@ -188,8 +188,8 @@ class DistillContext(AbstractModel):
             size=self.distillsize
         )
 
-        self._init_x = deepcopy(distilled_x)
-        self._init_y = deepcopy(distilled_y)
+        self._init_x = deepcopy(distilled_x).to(self.device)
+        self._init_y = deepcopy(distilled_y).to(self.device)
 
         # # to enforce the [0,1] constraint, we first map the values that actually
         # # live in the [0,1] space to the logit space (because during the loop we will apply sigmoid)
