@@ -74,7 +74,7 @@ class TestOnNewTaskNLL:
             n_tasks = prefix_x.shape[1]
             padding = torch.cat([
                 src_key_padding_mask,
-                torch.zeros((n_tasks, 1000), dtype=torch.bool)
+                torch.zeros((n_tasks, 1000), dtype=torch.bool).to(self.device)
             ], dim=1)
 
         else:
