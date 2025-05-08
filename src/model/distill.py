@@ -319,7 +319,7 @@ class DistillContext(AbstractModel):
 
         # distilled_x_latent = distilled_x_latent.detach().cpu()
         # distilled_x_latent[:, :, 1:] = torch.sigmoid(distilled_x_latent[:, :, 1:]).detach().cpu()
-        distilled_x = constrain(distilled_x_latent, temp=1).detach().cpu()
+        distilled_x = constrain(distilled_x_latent, temp=1)
 
         if torch.allclose(self._init_x, distilled_x) or torch.allclose(self._init_y, distilled_y):
             warnings.warn(

@@ -5,7 +5,7 @@ defaults:
   - _self_
 
 
-seed: 42 # train-test split seed
+split_seed: 42 # train-test split seed
 test_size: 0.33 # share of the meta tasks for testing
 allocation_seeds: [42, 43] # refers to the budget sizes and budget allocations on each task; defines an actual MFHPO task.
 device: 'cpu'
@@ -25,6 +25,6 @@ target_idx: 0 # the target task from the batch of tasks # fixme: index on the ta
 
 hydra:
   run:
-    dir: output/${experiment_name}/${slurm_id}_${git_commit:''}_${model.meta.name}_${benchmark.meta.name}_seed_${seed}
+    dir: output/${experiment_name}/${slurm_id}_${git_commit:''}_${model.meta.name}_${benchmark.meta.name}_seed_${split_seed}
   sweep:
-    dir: multirun/${experiment_name}/${slurm_id}_${git_commit:''}_${model.meta.name}_${benchmark.meta.name}_seed_${fidelity_seed}
+    dir: multirun/${experiment_name}/${slurm_id}_${git_commit:''}_${model.meta.name}_${benchmark.meta.name}_seed_${split_seed}

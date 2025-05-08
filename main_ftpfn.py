@@ -62,12 +62,12 @@ def main(cfg: DictConfig):
     all_train_ids, test_ids = train_test_split(
         list(range(len(benchmark))),
         test_size=cfg.test_size,
-        random_state=cfg.seed,  # train test split seed
+        random_state=cfg.split_seed,  # train test split seed
         shuffle=True
     )
 
     # allow ourself to rerun certain experiments with specific folds
-    folds: List[List[int]] = folds_of_size(all_train_ids, size=5)
+    folds: List[List[int]] = folds_of_size(all_train_ids, size=cfg.fold_size, drop=True)
     #    folds: List[List[int]] = k_folds(train_ids, k=cfg.k_folds)
     if "fold" in cfg.keys():
         folds = [folds[cfg.fold]]
@@ -76,10 +76,11 @@ def main(cfg: DictConfig):
         test_ids = [test_ids[cfg.target_idx]]
 
     # select the target task and the split of context tasks
+    allocation_seeds = range(*cfg.allocation_seeds)
     for i, (train_ids, target_task, seed) in enumerate(
             tqdm(
-                product(folds, test_ids,  cfg.allocation_seeds),
-                total=len(test_ids) * len(folds) * len(cfg.allocation_seeds)
+                product(folds, test_ids,  allocation_seeds),
+                total=len(test_ids) * len(folds) * len(allocation_seeds)
             ), start=1):
         logger.info(f"Running task {i}: target_task={target_task}, train_ids={train_ids}, seed={seed * i}")
 
@@ -124,7 +125,7 @@ def main(cfg: DictConfig):
             padding_mask = related_task_data.padding_mask
             n_related_tasks = related_task_data.x.shape[1]
 
-        with SeededRandomContext(seed) as ctx:
+
             # create and train the model -------------------------------
             model = hydra.utils.instantiate(
                 cfg.model.cls,
