@@ -17,8 +17,11 @@ commit_hash=$(git log -1 --pretty=format:"%h")
 module load Miniforge3
 echo 'activating conda'
 
-conda activate $BIGWORK/.conda/regglitch
-export PYTHONPATH=$BIGWORK/RegularizationGlitch
+REPONAME=Experienced-FT-PFNs
+
+conda activate $BIGWORK/envs/eft-pfn2
+export PYTHONPATH=$BIGWORK/$REPONAME/src:$PYTHONPATH
+export PYTHONPATH=$BIGWORK/$REPONAME/ifBO_main:$PYTHONPATH
 
 
 export CUBLAS_WORKSPACE_CONFIG=:4096:8
@@ -76,8 +79,8 @@ wait
 echo "Hydra output directory: $HYDRA_DIR"
 
 echo "Running read_data:"
-DIR=$BIGWORK/RegularizationGlitch/$HYDRA_DIR
-python $BIGWORK/RegularizationGlitch/src/read_data.py \
+DIR=$BIGWORK/$REPONAME/$HYDRA_DIR
+python $BIGWORK/$REPONAME/src/read_data.py \
   --root_dir $DIR \
   --file_pattern "results.csv" \
   --keys "[\"experiment_name\",\"model.meta.name\",\"dataset.meta.name\",\"budget\",\"fidelity_seed\"]" \
