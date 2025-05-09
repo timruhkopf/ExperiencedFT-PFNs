@@ -339,6 +339,8 @@ class MFBenchPrior:
         task_data = []
         offset = min([int(_) for _ in benchmark.configs.keys()])
 
+        updated_space = False
+        
         for ordering, config_id, fidelity in zip(
                 id_curve, original_id[id_curve.astype(int) - 1], epoch
         ):
@@ -348,8 +350,68 @@ class MFBenchPrior:
                 _config_id = str(config_id + offset)
                 tmp = []
                 tmp = tmp + [ordering, fidelity]
+                
+                config = benchmark.configs[_config_id]
+                
+                if self.name == "taskset_tabular":
+                    optimizer_name = benchmark.name.split("-")[1].split("_")[0]
+                    
+                    config = benchmark.configs[_config_id]
+                    
+                    
+                    if optimizer_name == "adam4p":
+                        if not updated_space:
+                            updated_space = True
+                            from ConfigSpace.hyperparameters import UniformFloatHyperparameter
+                            benchmark.space.add_hyperparameters(
+                                [
+                                    UniformFloatHyperparameter(
+                                        "l1",
+                                        lower=1e-9,
+                                        upper=10,
+                                        log=True,
+                                    ),
+                                    UniformFloatHyperparameter(
+                                        "l2",
+                                        lower=1e-9,
+                                        upper=10,
+                                        log=True,
+                                    ),
+                                    UniformFloatHyperparameter(
+                                        "linear_decay",
+                                        lower=1e-8,
+                                        upper=0.0001,
+                                        log=True,
+                                    ),
+                                    UniformFloatHyperparameter(
+                                        "exponential_decay",
+                                        lower=1e-6,
+                                        upper=1e-3,
+                                        log=True,
+                                    ),
+                                ],
+                            )
+                            
+                        config = benchmark.configs[_config_id].as_dict()
+                        default_values = {
+                            "l1": 1e-7,
+                            "l2": 1e-7,
+                            "linear_decay": 1e-8,
+                            "exponential_decay": 1e-6,}
+                        config.update(default_values)
+                        
+                    elif optimizer_name == "adam8p":
+                        pass # do nothing, we don't need to update the space
+                    
+                    else:
+                        raise ValueError(
+                            f"Optimizer {optimizer_name} is currently not supported"
+                        )
+                    
+                    
+                
                 tmp = tmp + self._get_normalized_values(
-                    config=benchmark.configs[_config_id], configuration_space=benchmark.space
+                    config=config, configuration_space=benchmark.space
                 )
                 tmp = tmp + \
                     [benchmark.query(
@@ -363,13 +425,9 @@ class MFBenchPrior:
         # convert id_curve and epoch to torch tensors
         id_curve = torch.from_numpy(id_curve).to(torch.int64)
 
-        # debug_logger.debug(f"Epochs before normalization: {epoch}")
-
         epoch = torch.from_numpy(epoch).to(
             torch.int64) / max_fidelities  # normalize to [0,1] same as https://github.com/automl/ifBO/blob/988e48ef4d9036d3670c32042906604321747823/src/section5.1/evaluate_pfn.py#L22
-
-        # debug_logger.debug(f"Epochs after normalization: {epoch}")
-
+        
         x = torch.cat([torch.stack([id_curve, epoch], dim=1), config], dim=1)
         y = curve_val
 
@@ -465,6 +523,7 @@ class MFBenchPrior:
             alpha=alpha,
             single_eval_pos=context_size,
         )
+        
         x, y = self._interpret_dirichlet_sample(
             ordering=ordering,
             epochs_per_curve=epochs_per_curve,
@@ -564,7 +623,11 @@ class MFBenchPrior:
         """
 
         list_hp_names = configuration_space.get_hyperparameter_names()
-        dict_values = config.as_dict()
+        if isinstance(config, dict):
+            dict_values = config
+        else:
+            dict_values = config.as_dict()
+        
         dict_values = dict((hp, dict_values[hp]) for hp in list_hp_names)
 
         neps_cfg = SearchSpace(
@@ -575,9 +638,9 @@ class MFBenchPrior:
                 if k in list_hp_names
             }
         )
-
         neps_cfg.set_hyperparameters_from_dict(dict_values, defaults=False)
         res = [neps_cfg[k].normalized().value for k in list_hp_names]
+
         if any([res[_] is None for _ in range(len(res))]):
             print("WARNING: NaN values found in normalized values.")
             import pudb
@@ -693,6 +756,7 @@ class MFBenchPrior:
         return benchmark
 
 
+
 def detokenize_batch(batch: Batch):
     """
     Since detokenize only works for batch sizes of 1, we need to detokenize the batch
@@ -730,7 +794,7 @@ if __name__ == '__main__':
     )
     lcbench_task_prior.collect_task_split(
         target_id=0,
-        train_ids=[1, 2, 3]
+        train_ids=[1, 2, 3, 4, 5 , 6, 7, 8]
     )
 
     pd1bench_task_prior = MFBenchPrior(
@@ -751,11 +815,11 @@ if __name__ == '__main__':
         device="cpu"
     )
     taskset_task_prior.collect_task_split(
-        target_id=0,
-        train_ids=[1, 2, 3]
+        target_id=8,
+        train_ids=[21, 5, 2, 12, 15]
     )
 
-    batch = lcbench_task_prior.sample_batch(alphas=0.1, single_eval_pos=500)
+    batch = taskset_task_prior.sample_batch(alphas=0.1, single_eval_pos=500)
 
     contexts = detokenize_batch(batch)
 
