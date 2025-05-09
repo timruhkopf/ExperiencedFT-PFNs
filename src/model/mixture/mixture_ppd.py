@@ -36,17 +36,18 @@ def _calc_reliability(
     task_context_x = related_task_data.x
     task_context_y = related_task_data.y
     padding_mask = related_task_data.padding_mask
+    num_related = task_context_x.shape[1]
 
     logits = model(
         (
-            torch.cat([task_context_x, context_x], dim=0),
+            torch.cat([task_context_x, context_x.repeat(1, num_related, 1)], dim=0),
             task_context_y
         ),
         single_eval_pos=task_context_x.shape[0],
         src_key_padding_mask=padding_mask
     )
     # y's associated with query for that task
-    target = context_y
+    target = context_y.repeat(1, num_related)
     loss = criterion(logits, target)
     loss = loss.view(-1, logits.shape[1])  # bar distribution issue
     loss = loss.mean(dim=0)  # mean over the batch
@@ -145,25 +146,7 @@ class PFNPPDMixture(AbstractModel):
 
         return logits
 
-    def forward(self, *args, **kwargs):
-        """
-        Interface for the TransformerModel class from ifbo.
-        """
-        if isinstance(args, tuple) and len(args) == 1:
-            # this is the unfortunate TransformerModel compatability
-            args = args[0]
-            x, y = args
-            single_eval_pos = kwargs['single_eval_pos']
-            kwargs = {
-                'context_x': x[:single_eval_pos],
-                'context_y': y,
-                'query_x': x[single_eval_pos:]
-            }
 
-        if 'single_eval_pos' in kwargs:
-            del kwargs['single_eval_pos']
-
-        return self._forward(**kwargs)
 
     @torch.no_grad()
     def _forward(self, context_x, context_y, query_x, *args, **kwargs) -> (
@@ -236,10 +219,11 @@ class PFNPPDMixture(AbstractModel):
         task_context_x = self.related_task_data.x
         task_context_y = self.related_task_data.y
         padding_mask = self.related_task_data.padding_mask
+        num_related = task_context_x.shape[1]
 
         related_logits = self.model(
             (
-                torch.cat([task_context_x, query_x], dim=0),
+                torch.cat([task_context_x, query_x.repeat(1, num_related, 1)], dim=0),
                 task_context_y
             ),
             single_eval_pos=task_context_x.shape[0],
@@ -267,8 +251,7 @@ class PFNPPDMixture(AbstractModel):
 
         return mixture_logits
 
-    def __call__(self, *args, **kwargs):
-        return self.forward(*args, **kwargs)
+
 
 
 # def calc_logits_mixture(

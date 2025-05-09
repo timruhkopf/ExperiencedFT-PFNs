@@ -144,7 +144,7 @@ def main(cfg: DictConfig):
                 train_config.update(cfg.model.train_call)
 
             # distillation will return a prefix, pfn_mixture won't
-            prefix = model.train(**train_config)
+            model.train(**train_config)
 
             # Evaluate the model ----------------------------------------------
             evaluator = TestOnNewTaskNLL(
@@ -161,18 +161,13 @@ def main(cfg: DictConfig):
             if 'inference_kwargs' in cfg.model.keys():
                 kwargs.update(cfg.model.inference_kwargs)
 
-            if not bool(prefix):
-                prefix = (torch.empty(0, device=device), torch.empty(0, device=device))
-
             n_related = related_task_data.x.shape[1]
             evaluator.test_on_new_task(
                 model=model,
-                prefix_x=prefix[0],
-                prefix_y=prefix[1],
-                context_task_x=target_task_context_x.repeat(1, n_related, 1),
-                context_task_y=target_task_context_y.repeat(1, n_related),
-                query_task_x=target_task_query_x.repeat(1, n_related, 1),
-                query_task_y=target_task_query_y.repeat(1, n_related),
+                context_task_x=target_task_context_x,
+                context_task_y=target_task_context_y,
+                query_task_x=target_task_query_x,
+                query_task_y=target_task_query_y,
                 task_name=cfg.model.meta.name,
                 step=0,
                 context_sizes=context_sizes,
@@ -182,16 +177,14 @@ def main(cfg: DictConfig):
 
             # Quick Baselines ----------------------------------------------
             # sanity check: what if we put in the current task as context.
-            evaluator.test_on_new_task(
-                model=pfn_backend,
-                task_name=f'Baseline: complete target_task_x as context',
-
-                context_task_x=target_task_context_x,
-                context_task_y=target_task_context_y,
-                query_task_x=target_task_query_x,
-                query_task_y=target_task_query_y,
-
-            )
+            # evaluator.test_on_new_task(
+            #     model=pfn_backend,
+            #     task_name=f'Baseline: complete target_task_x as context',
+            #     context_task_x=target_task_context_x,
+            #     context_task_y=target_task_context_y,
+            #     query_task_x=target_task_query_x,
+            #     query_task_y=target_task_query_y
+            # )
 
             # Sanity check: what if we took the complete context from the related task and attempted
             # to predict the current task

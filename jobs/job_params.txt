@@ -1,8 +1,3 @@
-pfn_mixture sanity_same 1
-pfn_mixture lcbench 1
-pfn_mixture pd1 1
-pfn_mixture taskset 1
-pfn_softmax sanity_same 1
-pfn_softmax lcbench 1
-pfn_softmax pd1 1
-pfn_softmax taskset 1
+distill sanity_same 1
+distill lcbench 1
+distill pd1 1

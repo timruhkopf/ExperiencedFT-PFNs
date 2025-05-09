@@ -12,5 +12,28 @@ class AbstractModel:
         """
         return None
 
-    def forward(self):
+    def forward(self, *args, **kwargs):
+        """
+        Interface for the TransformerModel class from ifbo.
+        """
+        if isinstance(args, tuple) and len(args) == 1:
+            # this is the unfortunate TransformerModel compatability
+            args = args[0]
+            x, y = args
+            single_eval_pos = kwargs['single_eval_pos']
+            kwargs = {
+                'context_x': x[:single_eval_pos],
+                'context_y': y,
+                'query_x': x[single_eval_pos:]
+            }
+
+        if 'single_eval_pos' in kwargs:
+            del kwargs['single_eval_pos']
+
+        return self._forward(**kwargs)
+
+    def _forward(self, *args, **kwargs):
         pass
+
+    def __call__(self, *args, **kwargs):
+        return self.forward(*args, **kwargs)
