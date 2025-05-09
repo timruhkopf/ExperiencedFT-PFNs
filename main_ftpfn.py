@@ -99,6 +99,9 @@ def main(cfg: DictConfig):
 
             # Allocate budgets on the benchmarks --------------------------
             # sample over multiple meta task sizes and dirichlet alphas
+            # TODO for efficiency, we could also repeat the data sampling and then do all of the
+            #  tasks at once
+
             config = dict(
                 single_eval_pos=[
                     500,  # target task length

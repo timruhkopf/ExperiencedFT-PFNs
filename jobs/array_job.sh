@@ -8,6 +8,13 @@
 #SBATCH --error=surrogate_array%j.err
 #SBATCH --partition=ai,taurus,amo
 #SBATCH --exclude=ai-n[001-004],ai-n009
+#--partition=ai,tnt,ainlp  --nodes=1  --time=03:00:00  --cpus-per-task=8  --gres=gpu:1  --mem=8GB
+
+#default calling method would therfor be bash --array=0-32 jobs/array_job.sh
+
+
+#sbatch --partition=ai,tnt --gres=gpu:1 --job-name=distill_array --output=distill%j.out --error=distill%j.err jobs/array_job.sh
+EXPERIMENT_NAME=$1
 
 # TODO adjust array size by n of lines in job_params.txt times number of intervals
 DEVICE=cpu
@@ -47,7 +54,7 @@ echo "SPLIT_SEED: $SPLIT_SEED"
 echo "ALLOCATION_SEEDS: [$START,$END]"
 
 bash jobs/start_hydra.sh \
-  experiment_name=surrogate_softmax \
+  experiment_name=$EXPERIMENT_NAME \
   device=$DEVICE \
   model=$MODEL \
   benchmark=$BENCHMARK \
