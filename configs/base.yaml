@@ -14,7 +14,7 @@ fold_size: 5
 fold: 0
 
 repo_root: ${resolve_path:''}
-experiment_name: 'base'
+experiment_name: base
 commit_hash: ${git_commit:''}
 slurm_id: 999
 

@@ -83,7 +83,7 @@ DIR=$BIGWORK/$REPONAME/$HYDRA_DIR
 python $BIGWORK/$REPONAME/src/utils/read_data.py \
   --root_dir $DIR \
   --file_pattern "results.csv" \
-  --keys "[\"experiment_name\",\"model.meta.name\",\"dataset.meta.name\",\"budget\",\"fidelity_seed\"]" \
+  --keys "[\"experiment_name\",\"model.meta.name\",\"benchmark.meta.name\"]" \
   - to_csv $DIR/joint_results.csv
 
 wait

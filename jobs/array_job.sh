@@ -10,13 +10,22 @@
 #SBATCH --exclude=ai-n[001-004],ai-n009
 
 DEVICE=cpu
-PARAM_FILE=job_params.txt
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PARAM_FILE="$SCRIPT_DIR/job_params.txt"
+echo "Using parameter file: $PARAM_FILE"
 
 # Read the relevant line for this task
 LINE=$(sed -n "$((SLURM_ARRAY_TASK_ID+1))p" $PARAM_FILE)
 MODEL=$(echo $LINE | awk '{print $1}')
 BENCHMARK=$(echo $LINE | awk '{print $2}')
 SPLIT_SEED=$(echo $LINE | awk '{print $3}')
+
+echo "Running task $SLURM_ARRAY_TASK_ID with parameters:"
+echo "MODEL: $MODEL"
+echo "BENCHMARK: $BENCHMARK"
+echo "SPLIT_SEED: $SPLIT_SEED"
+echo "\n"
 
 bash jobs/start_hydra.sh \
   experiment_name=surrogate \
