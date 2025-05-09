@@ -42,7 +42,7 @@ def main(cfg: DictConfig):
     file_logger = BufferedFileLogger(
         file_name='results.csv',
         file_path='.',
-        buffer_size=1000,
+        buffer_size=100,
         header=["metric", "value", 'global_step', "context_size", "task"],
         postfix=["target_task", "train_ids", "seed"]
     )
