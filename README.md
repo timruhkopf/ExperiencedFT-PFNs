@@ -29,16 +29,15 @@ pip install -e .
 
 # FIXME: move this install directly to setup.py
 
-git clone git@github.com:automl/ifBO.git
+git clone git@github.com:automl/ifBO.git ifBO_icml2024
 git checkout icml-2024
-mv ifBO ifBO_icml24
 pip install -U ifBO_icml24
+# collect the padding changes
 
-git clone git@github.com:automl/ifBO.git
+git clone git@github.com:automl/ifBO.git ifBO_main
 git checkout main
-mv ifBO ifBO_main
-#pip install -U ifBO
-pip install -e ifBO_main
+pip install -U ifBO_main
+# collect the padding changes
 
 PYTHONPATH=[...]/ExperiencedFT-PFNs/ifBO_main/ifbo:$PYTHONPATH
 
