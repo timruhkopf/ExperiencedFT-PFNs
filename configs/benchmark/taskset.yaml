@@ -9,3 +9,6 @@ cls:
   data_path: ${repo_root}/data/taskset-tabular
 #  task_id: 0
 #  related_task_ids: [1, 2, 3]
+
+
+tabular: true

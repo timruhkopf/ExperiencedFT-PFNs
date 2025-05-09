@@ -2,12 +2,16 @@ from typing import Optional, Union, List, Dict
 
 import numpy as np
 import torch
+from mfpbench import TabularBenchmark
+
 from ifbo.utils import detokenize
 from ifbo import Batch
 from neps.search_spaces.search_space import pipeline_space_from_configspace
 from neps.search_spaces.search_space import SearchSpace
 import mfpbench
 from mfpbench.taskset_tabular.benchmark import TaskSetTabularBenchmark
+
+import ConfigSpace as CS
 
 LCBENCH_IDS = ['adult', 'airlines', 'albert', 'Amazon_employee_access', 'APSFailure',
                'Australian', 'bank-marketing', 'blood-transfusion-service-center', 'car',
@@ -103,7 +107,7 @@ def setup_debug_logger():
 # debug_logger = setup_debug_logger()
 
 
-class MFBenchPrior:
+class MFBenchPrior(TabularBenchmark):
 
     def __init__(self,
                  name: str,
@@ -194,6 +198,16 @@ class MFBenchPrior:
 
         self.target_id = target_id
         self.train_ids = train_ids
+        self.name = self.name
+        self.fidelity_name = None
+        self.fidelity_range = None
+
+        self.space: Union[SearchSpace, CS.ConfigurationSpace]
+        self.table #
+
+    def trajectory(self, config): # -> what type?
+        raise NotImplementedError()
+
 
     def __len__(self):
         return len(

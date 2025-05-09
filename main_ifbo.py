@@ -14,8 +14,8 @@ from mfpbench.taskset_tabular.benchmark import TaskSetTabularBenchmark
 import neps
 from neps.search_spaces.search_space import SearchSpace, pipeline_space_from_configspace
 
-from src.ifBO_icml2024.src.pfns_hpo.pfns_hpo.plot3D import Plotter3D
-from src.ifBO_icml2024.src.pfns_hpo.pfns_hpo.run import process_mfpbench_trajectories, \
+from ifBO_icml2024.src.pfns_hpo.pfns_hpo.plot3D import Plotter3D
+from ifBO_icml2024.src.pfns_hpo.pfns_hpo.run import process_mfpbench_trajectories, \
     process_taskset_mfpbench_with_step_0_prior, preprocess_tabular
 
 logger = logging.getLogger("main_ifbo")
@@ -57,6 +57,8 @@ def main(cfg: DictConfig):
     #  taskset-tabular-nlp-1-4p.yaml
     #  as example for the benchmark.api
 
+    #
+
     benchmark: Benchmark = hydra.utils.instantiate(cfg.benchmark.api)  # type: ignore
 
     # Maybe apply step 0 median normalization, read docstring of func for more
@@ -64,9 +66,10 @@ def main(cfg: DictConfig):
             isinstance(benchmark, TaskSetTabularBenchmark)
             and cfg.benchmark.get("apply_user_prior_step_0_median_normalized", False) is True
     ):
-        print(f"PREPROCESSING {benchmark.name} with 'apply_user_prior_step_0_median_normalized'")
+        print(f"PREPROCESSING {benchmark.meta.name} with "
+              f"'apply_user_prior_step_0_median_normalized'")
         drop_0_epoch = cfg.benchmark.get("drop_epoch_0", True)
-        print(f"PREPROCESSING {benchmark.name} with '{drop_0_epoch=}'")
+        print(f"PREPROCESSING {benchmark.meta.name} with '{drop_0_epoch=}'")
         benchmark = process_taskset_mfpbench_with_step_0_prior(
             benchmark=benchmark,
             drop_step_0=drop_0_epoch,
@@ -76,6 +79,9 @@ def main(cfg: DictConfig):
     bench_is_tabular = (
         True if hasattr(cfg.benchmark, "tabular") and cfg.benchmark.tabular else False
     )
+
+    # TODO for loop over the alpha repetitions of the context tasks
+    # TODO collect_task_split, sample_batch, parse and pass to the model for "train"
 
     def run_pipeline(previous_pipeline_directory: Path, **config: Any) -> dict:
         start = time.time()
@@ -159,6 +165,7 @@ def main(cfg: DictConfig):
     # snippet to handle tabular benchmarks
     if bench_is_tabular:
         # extracting and processing the tabular data and raw space
+        #
         _table = preprocess_tabular(cfg.benchmark.name, benchmark.table)
         # updates the pipeline_space to be only config IDs mapping to tabular data
         pipeline_space = {
