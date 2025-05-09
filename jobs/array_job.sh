@@ -11,7 +11,7 @@
 
 DEVICE=cpu
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR=$BIGWORK/ExperiencedFT-PFNs/jobs
 PARAM_FILE="$SCRIPT_DIR/job_params.txt"
 echo "Using parameter file: $PARAM_FILE"
 
