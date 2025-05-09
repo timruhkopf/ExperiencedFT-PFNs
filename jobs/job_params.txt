@@ -2,3 +2,7 @@ pfn_mixture sanity_same 1
 pfn_mixture lcbench 1
 pfn_mixture pd1 1
 pfn_mixture taskset 1
+pfn_softmax sanity_same 1
+pfn_softmax lcbench 1
+pfn_softmax pd1 1
+pfn_softmax taskset 1

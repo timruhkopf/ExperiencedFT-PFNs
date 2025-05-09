@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 
 @hydra.main(config_path="configs", config_name="base", version_base="1.1")
 def main(cfg: DictConfig):
-    logger.info(f'Current working directory: {Path.cwd()}')
+    logger.info(f'Hydra output directory: {Path.cwd()}')
     logger.info(f"Running with config: \n {OmegaConf.to_yaml(cfg, resolve=True)}")
     # fixme: device
     device =  torch.device("cuda" if torch.cuda.is_available() else "cpu") if cfg.device is None \

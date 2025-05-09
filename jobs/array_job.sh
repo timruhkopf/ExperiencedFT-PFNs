@@ -47,7 +47,7 @@ echo "SPLIT_SEED: $SPLIT_SEED"
 echo "ALLOCATION_SEEDS: [$START,$END]"
 
 bash jobs/start_hydra.sh \
-  experiment_name=surrogate \
+  experiment_name=surrogate_softmax \
   device=$DEVICE \
   model=$MODEL \
   benchmark=$BENCHMARK \
