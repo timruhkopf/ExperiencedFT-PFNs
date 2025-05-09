@@ -23,25 +23,21 @@ PD1_IDS = [
     {"model": "wide_resnet", "dataset": "cifar100", "batch_size": 256},
     {"model": "wide_resnet", "dataset": "svhn_no_extra", "batch_size": 256},
     {"model": "simple_cnn", "dataset": "fashion_mnist", "batch_size": 256},
-
     {"model": "simple_cnn", "dataset": "fashion_mnist", "batch_size": 2048},
     {"model": "simple_cnn", "dataset": "mnist", "batch_size": 256},
     {"model": "simple_cnn", "dataset": "mnist", "batch_size": 2048},
     {"model": "resnet", "dataset": "imagenet", "batch_size": 256, "coarseness": 1},
     {"model": "resnet", "dataset": "imagenet", "batch_size": 256, "coarseness": 2},
-
     {"model": "resnet", "dataset": "imagenet", "batch_size": 256, "coarseness": 5},
     {"model": "resnet", "dataset": "imagenet", "batch_size": 256, "coarseness": 10},
     {"model": "resnet", "dataset": "imagenet", "batch_size": 512, "coarseness": 1},
     {"model": "resnet", "dataset": "imagenet", "batch_size": 512, "coarseness": 2},
     {"model": "resnet", "dataset": "imagenet", "batch_size": 512, "coarseness": 5},
-
     {"model": "resnet", "dataset": "imagenet", "batch_size": 512, "coarseness": 10},
     {"model": "resnet", "dataset": "imagenet", "batch_size": 1024, "coarseness": 1},
     {"model": "resnet", "dataset": "imagenet", "batch_size": 1024, "coarseness": 2},
     {"model": "resnet", "dataset": "imagenet", "batch_size": 1024, "coarseness": 5},
     {"model": "transformer", "dataset": "lm1b", "batch_size": 2048},
-
     {"model": "transformer", "dataset": "uniref50", "batch_size": 128},
     {"model": "xformer_translate", "dataset": "translate_wmt", "batch_size": 64, "coarseness": 1},
     {"model": "xformer_translate", "dataset": "translate_wmt", "batch_size": 64, "coarseness": 2},
@@ -113,13 +109,11 @@ class MFBenchPrior:
                  name: str,
                  data_path,
                  seq_len=1000,
-                 n_fidelities=None,
                  mfb_kwargs: Dict = None,
                  device="cpu"):
         self.name = name
         self.data_path = data_path
         self.seq_len = seq_len
-        self.n_fidelities = n_fidelities
         self.mfb_kwargs = mfb_kwargs
         self.seq_len = seq_len
         self.device = device
@@ -129,6 +123,10 @@ class MFBenchPrior:
             target_id: [int],
             train_ids: List[int],
     ):
+        if not hasattr(self, 'train_ids'):
+            # lazy load the train_ids (which takes time
+            self.target_id = None
+            self.train_ids = None
 
         if self.name == "lcbench_tabular":
             default_mfb_kwargs = {"name": self.name, "preload": True, "prior": None,
@@ -136,8 +134,12 @@ class MFBenchPrior:
                                   "value_metric": "val_balanced_accuracy",
                                   "value_metric_test": "test_balanced_accuracy"}
             target = {"task_id": LCBENCH_IDS[target_id]}
-            related = [{"task_id": LCBENCH_IDS[task]}
-                       for task in train_ids]
+
+            if train_ids != self.train_ids:
+                self.related = [{"task_id": LCBENCH_IDS[task]}
+                           for task in train_ids]
+
+
 
         elif self.name == "pd1_tabular":
 
@@ -150,12 +152,14 @@ class MFBenchPrior:
             default_mfb_kwargs = {"name": self.name,
                                   "preload": True, "prior": None, "seed": True}
             target = PD1_IDS[target_id]
-            related = [PD1_IDS[task] for task in train_ids]
+            if train_ids != self.train_ids:
+                self.related = [PD1_IDS[task] for task in train_ids]
         elif self.name == "taskset_tabular":
             default_mfb_kwargs = {"name": self.name,
                                   "preload": True, "prior": None, "seed": True}
             target = TASKSET_IDS[target_id]
-            related = [TASKSET_IDS[task] for task in train_ids]
+            if train_ids != self.train_ids:
+                self.related = [TASKSET_IDS[task] for task in train_ids]
         else:
             raise ValueError(
                 "name must be one of lcbench_tabular, pd1_tabular, or taskset")
@@ -171,7 +175,7 @@ class MFBenchPrior:
             datadir=self.data_path, **target_kwargs)
 
         self.related_benchmarks = []
-        for related_task in related:
+        for related_task in self.related:
             related_kwargs = mfb_kwargs.copy()
             related_kwargs.update(related_task)
             self.related_benchmarks.append(
@@ -188,6 +192,8 @@ class MFBenchPrior:
                 for benchmark in self.related_benchmarks
             ]
 
+        self.target_id = target_id
+        self.train_ids = train_ids
 
     def __len__(self):
         return len(
@@ -198,7 +204,7 @@ class MFBenchPrior:
             }[self.name]
         )
 
-    def sample_dirichlet(self, ncurves: int, n_fidelities: int, alpha: float = None, eps: float = 10 ** -9,
+    def sample_dirichlet(self, ncurves: int, max_fidelities: int, alpha: float = None, eps: float = 10 ** -9,
                          single_eval_pos: int = 500):
         """
         Sample a Dirichlet distribution and compute token-to-curve associations with
@@ -220,25 +226,34 @@ class MFBenchPrior:
             curve for assigning tokens, and the mapping of tokens to their respective curves.
         :rtype: tuple[numpy.ndarray, numpy.ndarray, numpy.ndarray]
         """
-        if alpha is None:
-            alpha = 10 ** np.random.uniform(-4, -1)
 
-        # weights = np.random.gamma(alpha, alpha, self.seq_len) + eps
-        weights = np.random.gamma(alpha, alpha, min(1000, ncurves)) + eps
-        p = weights / np.sum(weights)
+        ok = False
+        while not ok:
+            if alpha is None:
+                alpha = 10 ** np.random.uniform(-4, -1)
 
-        # identify which token belongs to which curve
-        # ids = np.arange(self.seq_len)
-        ids = np.arange(min(1000, ncurves))
-        all_levels = np.repeat(ids, n_fidelities)
-        # since each curve has self.n_fidelities (fidelities) we
-        # could observe, this is just a flat array for all curves after one another
-        all_p = np.repeat(p, n_fidelities) / n_fidelities
+            n_levels = int(np.round(10 ** np.random.uniform(0, 3)))
+            n_levels = min(n_levels, max_fidelities)
+
+            # weights = np.random.gamma(alpha, alpha, self.seq_len) + eps
+            weights = np.random.gamma(alpha, alpha, min(1000, ncurves)) + eps
+            p = weights / np.sum(weights)
+
+            # identify which token belongs to which curve
+            # ids = np.arange(self.seq_len)
+            ids = np.arange(min(1000, ncurves))
+            all_levels = np.repeat(ids, n_levels)
+            # since each curve has self.n_fidelities (fidelities) we
+            # could observe, this is just a flat array for all curves after one another
+            all_p = np.repeat(p, n_levels) / n_levels
+
+            if len(all_levels) > self.seq_len:
+                ok = True
+
         # The ordering vector is basically the mapping to the hp idx for each token
         # provided, that the token ordering is random and we are having a cutoff point where the
         # query starts, the subsequent for loop will do a "cumsum" over the occurences of the idx
         # to determine the length of that curve and where we are querying (past the query cutoff)
-
         ordering = np.random.choice(
             all_levels, p=all_p, size=self.seq_len, replace=False)
 
@@ -250,10 +265,10 @@ class MFBenchPrior:
             if i < single_eval_pos:
                 cutoff_per_curve[cid] += 1
 
-        return cutoff_per_curve, epochs_per_curve, ordering
+        return cutoff_per_curve, epochs_per_curve, ordering, n_levels
 
     def _interpret_dirichlet_sample(self, ordering, epochs_per_curve, cutoff_per_curve,
-                                    single_eval_pos, benchmark, n_fidelities):
+                                    single_eval_pos, benchmark, n_levels):
         """
         Processes Dirichlet sample data to generate task data and its corresponding
         tensor representations for model input and labels. The method uses the provided
@@ -297,7 +312,7 @@ class MFBenchPrior:
                 # queries (if any)
                 if cutoff_per_curve[cid] < epochs_per_curve[cid]:
                     x_[cutoff_per_curve[cid]:] = np.random.choice(np.arange(
-                        cutoff_per_curve[cid] + 1, n_fidelities + 1),
+                        cutoff_per_curve[cid] + 1, n_levels + 1),
                         size=epochs_per_curve[cid] - cutoff_per_curve[cid], replace=False)
                 curve_xs.append(x_)
             else:
@@ -357,8 +372,6 @@ class MFBenchPrior:
 
         x = torch.cat([torch.stack([id_curve, epoch], dim=1), config], dim=1)
         y = curve_val
-
-        # self._collect_all_config_data(benchmark, n_fidelities)
 
         return x, y
 
@@ -425,7 +438,7 @@ class MFBenchPrior:
         plt.grid(True)
         plt.show()
 
-    def sample_from_task(self, alpha, context_size, benchmark, n_fidelities):
+    def sample_from_task(self, alpha, context_size, benchmark):
         """
         Samples a task from the distribution specified by the Dirichlet process
         using provided context size and alpha value.
@@ -445,11 +458,10 @@ class MFBenchPrior:
         ncurves = len(benchmark.configs)
         max_fidelities = benchmark.end
 
-        n_fidelities = min(n_fidelities, max_fidelities)
 
-        cutoff_per_curve, epochs_per_curve, ordering = self.sample_dirichlet(
+        cutoff_per_curve, epochs_per_curve, ordering, n_levels = self.sample_dirichlet(
             ncurves=ncurves,
-            n_fidelities=n_fidelities,
+            max_fidelities=max_fidelities,
             alpha=alpha,
             single_eval_pos=context_size,
         )
@@ -459,14 +471,13 @@ class MFBenchPrior:
             cutoff_per_curve=cutoff_per_curve,
             single_eval_pos=context_size,
             benchmark=benchmark,
-            n_fidelities=n_fidelities
+            n_levels=n_levels,
         )
 
         return x, y
 
 
     def sample_batch(self, alphas: Optional[Union[List[float], float]] = None,
-                     n_fidelities=None,
                      single_eval_pos=None, target_task=0, train_ids=None, **kwargs):
         """
         Generates a batch of data sampled from multiple tasks.
@@ -511,9 +522,6 @@ class MFBenchPrior:
         assert len(single_eval_pos) == len(benchmarks), \
             ("single_eval_pos must be a list of the same length as n_related_tasks")
 
-        if n_fidelities is None:
-            n_fidelities = int(np.round(10 ** np.random.uniform(0, 3)))
-
         X = []
         Y = []
         for task, alpha, context_size in zip(
@@ -524,7 +532,6 @@ class MFBenchPrior:
             x, y = self.sample_from_task(
                 alpha=alpha, context_size=context_size,
                 benchmark=task,
-                n_fidelities=n_fidelities
             )
             X.append(x)
             Y.append(y)
@@ -703,7 +710,7 @@ def detokenize_batch(batch: Batch):
     ]
 
     detokenized_tasks = [
-        detokenize(b, b.single_eval_pos, device='cpu')
+        detokenize(b, b.single_eval_pos, device=b.x.device)
         for b in (batches)
     ]
 
@@ -715,34 +722,40 @@ def detokenize_batch(batch: Batch):
 if __name__ == '__main__':
     from pathlib import Path
 
-    # lcbench_task_prior = MFBenchPrior(
-    #     name="lcbench_tabular",
-    #
-    #     data_path=Path(__file__).parents[2] / "data/lcbench-tabular/",
-    #     seq_len=1000,
-    #     n_fidelities=None,
-    #     device="cpu"
-    # )
+    lcbench_task_prior = MFBenchPrior(
+        name="lcbench_tabular",
+        data_path=Path(__file__).parents[2] / "data/lcbench-tabular/",
+        seq_len=1000,
+        device="cpu"
+    )
+    lcbench_task_prior.collect_task_split(
+        target_id=0,
+        train_ids=[1, 2, 3]
+    )
 
     pd1bench_task_prior = MFBenchPrior(
         name="pd1_tabular",
         data_path=Path(__file__).parents[2] / "data/pd1-tabular/",
         seq_len=1000,
-        n_fidelities=None,
         device="cpu"
     )
+    pd1bench_task_prior.collect_task_split(
+        target_id=14,
+        train_ids=[1, 2, 3]
+    )
 
-    # taskset_task_prior = MFBenchPrior(
-    #     name="taskset_tabular",
-    #
-    #     data_path=Path(__file__).parents[2] / "data/taskset-tabular/",
-    #     seq_len=1000,
-    #     n_fidelities=None,
-    #     device="cpu"
-    # )
+    taskset_task_prior = MFBenchPrior(
+        name="taskset_tabular",
+        data_path=Path(__file__).parents[2] / "data/taskset-tabular/",
+        seq_len=1000,
+        device="cpu"
+    )
+    taskset_task_prior.collect_task_split(
+        target_id=0,
+        train_ids=[1, 2, 3]
+    )
 
-    pd1bench_task_prior.collect_task_split(target_id=11, train_ids=[13, 16])
-    batch = pd1bench_task_prior.sample_batch()
+    batch = lcbench_task_prior.sample_batch(alphas=0.1, single_eval_pos=500)
 
     contexts = detokenize_batch(batch)
 

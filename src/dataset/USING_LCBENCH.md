@@ -5,17 +5,14 @@
 2. Install ifbo as well as nessary dependencies from icml24 branch
 ```
 cd src
-git clone https://github.com/automl/ifBO.git
+git clone https://github.com/automl/ifBO.git ifBO_icml2024
 cd ifBO
 pip install -U ifBO
 git checkout icml-2024
-mkdir ../ifBO_icml24
-cp -r * ../ifBO_icml24
-git checkout main
 cd ..
-pip install -U ifBO_icml24/src/neps_lcpfn_hpo
-pip install -U ifBO_icml24/src/mf-prior-bench
-pip install -U ifBO_icml24/src/PFNs4HPO
+pip install -U ifBO_icml2024/src/neps_lcpfn_hpo
+pip install -U ifBO_icml2024/src/mf-prior-bench
+pip install -U ifBO_icml2024/src/PFNs4HPO
 ```
 
 3. Download lcbench-tabular

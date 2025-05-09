@@ -1,0 +1,11 @@
+# @package model
+
+defaults:
+  - pfn_mixture
+meta:
+  name: 'pfn_softmax'
+
+cls:
+  mixture_fn:
+    _partial_: True
+    _target_:  src.model.mixture.mixing.softmax

@@ -13,7 +13,19 @@ cls:
 
   distillsize: 100
 
+  decay_fn:
+    _partial_: True
+    _target_: src.model.mixture.decay.constant_exponential
+    lambda_: 0.005
+    constant: 0
+
+  mixture_fn:
+    _partial_: True
+    _target_: src.model.mixture.mixing.argmin
+
+  min_context_size: 10
+
 train_call:
-  n_steps: 100
+  n_steps: 50
   val_log_frequency: 1
   batch_size: 32

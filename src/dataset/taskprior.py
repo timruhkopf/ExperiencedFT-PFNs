@@ -51,7 +51,7 @@ class MetaTaskPrior:
         """
         Sample a Dirichlet distribution to sample a budget allocation along the curves for both 
         context and query.
-        
+
         :param alpha: the concentration parameter of the Dirichlet distribution.
          smaller α → sparser allocations (focus on few configs): Exploitation-focused (low α →
             few configs get most tokens). Exploration-focused with larger α → uniform distribution.
@@ -383,7 +383,7 @@ def detokenize_batch(batch: Batch) -> List[List[Curve]]:
     ]
 
     detokenized_tasks = [
-        detokenize(b, b.single_eval_pos, device='cpu')
+        detokenize(b, b.single_eval_pos, device=b.x.device)
         for b in (batches)
     ]
 

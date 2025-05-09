@@ -67,6 +67,7 @@ class TestOnNewTaskNLL:
         prefix_x, prefix_y = prefix_x.to(self.device), prefix_y.to(self.device)
         context_task_x, context_task_y = context_task_x.to(self.device), context_task_y.to(
             self.device)
+        query_task_x, query_task_y = query_task_x.to(self.device), query_task_y.to(self.device)
 
         losses = []
 
@@ -74,7 +75,7 @@ class TestOnNewTaskNLL:
             n_tasks = prefix_x.shape[1]
             padding = torch.cat([
                 src_key_padding_mask,
-                torch.zeros((n_tasks, 1000), dtype=torch.bool)
+                torch.zeros((n_tasks, 1000), dtype=torch.bool).to(self.device)
             ], dim=1)
 
         else:

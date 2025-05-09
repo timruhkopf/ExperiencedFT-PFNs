@@ -17,8 +17,11 @@ commit_hash=$(git log -1 --pretty=format:"%h")
 module load Miniforge3
 echo 'activating conda'
 
-conda activate $BIGWORK/.conda/regglitch
-export PYTHONPATH=$BIGWORK/RegularizationGlitch
+REPONAME=ExperiencedFT-PFNs
+
+conda activate $BIGWORK/envs/eft-pfn2
+export PYTHONPATH=$BIGWORK/$REPONAME/src:$PYTHONPATH
+export PYTHONPATH=$BIGWORK/$REPONAME/ifBO_main:$PYTHONPATH
 
 
 export CUBLAS_WORKSPACE_CONFIG=:4096:8
@@ -45,7 +48,7 @@ while [[ "$#" -gt 0 ]]; do
 done
 
 # Construct the Hydra command
-HYDRA_CMD="python main.py"
+HYDRA_CMD="python main_ftpfn.py"
 
 # Add all Hydra overrides
 for override in "${HYDRA_OVERRIDES[@]}"; do
@@ -76,15 +79,17 @@ wait
 echo "Hydra output directory: $HYDRA_DIR"
 
 echo "Running read_data:"
-DIR=$BIGWORK/RegularizationGlitch/$HYDRA_DIR
-python $BIGWORK/RegularizationGlitch/src/read_data.py \
+DIR=$BIGWORK/$REPONAME/$HYDRA_DIR
+python $BIGWORK/$REPONAME/src/utils/read_data.py \
   --root_dir $DIR \
   --file_pattern "results.csv" \
-  --keys "[\"experiment_name\",\"model.meta.name\",\"dataset.meta.name\",\"budget\",\"fidelity_seed\"]" \
+  --keys "[\"experiment_name\",\"model.meta.name\",\"benchmark.meta.name\"]" \
   - to_csv $DIR/joint_results.csv
 
 wait
 
+
+#watch -n 1 nvidia-smi
 
 #salloc --partition=ai  --nodes=1  --time=02:00:00  --cpus-per-task=8  --gres=gpu:1  --mem=8GB
 #HYDRA_FULL_ERROR=1 python main.py smactuner.epochs=1 smactuner='al' scheduler='sh' +budgets=[0.0001,0.0002,0.0003] n_init_cfgs=2 dataset='cifar10' smactuner.batch_size=512 smactuner.track_scores=False seed=1 al_method='DCOM' dataset.path='/bigwork/nhwpruht/AdaptiveMFSimple/data' +pretrain_epochs=1

@@ -1,7 +1,7 @@
 import warnings
 from copy import deepcopy
 from functools import partial
-from typing import Union, Tuple
+from typing import Union, Tuple, Callable
 
 import torch
 from ifbo import BarDistribution, FTPFN
@@ -69,7 +69,11 @@ class DistillContext(AbstractModel):
                  criterion: BarDistribution = None,
                  device: Union[str, torch.device] = "cuda" if torch.cuda.is_available() else "cpu",
                  temperature_annealing: AdaptiveTemperature = None,
-                 distillsize=100
+                 distillsize=100,
+                 decay_fn: Callable = None,
+                 mixture_fn: Callable = None,
+                 # reliability_fn: Callable = None,
+                 min_context_size: int = 10
                  ):
         """
 
@@ -105,6 +109,12 @@ class DistillContext(AbstractModel):
 
         # dummy initializaiton
         self.distilled_x, distilled_y = torch.tensor([]), torch.tensor([])
+        self.init_x, self._init_y = torch.tensor([]), torch.tensor([])
+
+        self.decay_fn = decay_fn
+        self.mixture_fn = mixture_fn
+        # self.reliability_fn = reliability_fn
+        self.min_context_size = min_context_size
 
     @staticmethod
     def freeze_model(model, device):
@@ -188,8 +198,8 @@ class DistillContext(AbstractModel):
             size=self.distillsize
         )
 
-        self._init_x = deepcopy(distilled_x)
-        self._init_y = deepcopy(distilled_y)
+        self._init_x = deepcopy(distilled_x).to(self.device)
+        self._init_y = deepcopy(distilled_y).to(self.device)
 
         # # to enforce the [0,1] constraint, we first map the values that actually
         # # live in the [0,1] space to the logit space (because during the loop we will apply sigmoid)
@@ -224,6 +234,10 @@ class DistillContext(AbstractModel):
                 batch, T, n_tasks, dim = x_query.shape
                 tiled_batch = batch * n_tasks
 
+                x_query = x_query.to(self.device)
+                y_query = y_query.to(self.device)
+                padding_mask = padding_mask.to(self.device)
+
                 # dummy
                 # x_query = torch.cat([
                 #     torch.zeros(batch, T, 1, dim),
@@ -249,7 +263,9 @@ class DistillContext(AbstractModel):
                 # ], dim=1)  # (T, 2, dim)
 
                 # Repeat distilled_x n_tasks times across batch dimension
-                distilled_x_latent_tiled = distilled_x_latent.repeat(1, batch, 1)  # (T, batch*2, dim)
+                distilled_x_latent_tiled = distilled_x_latent.repeat(1, batch, 1)
+                # (T,
+                # batch*2, dim)
                 distilled_y_tiled = distilled_y.repeat(1, batch)  # (T, batch*2)
                 # on the dummy
                 # assert distilled_x_latent_tiled.shape == (T, tiled_batch, dim)
@@ -313,7 +329,7 @@ class DistillContext(AbstractModel):
 
         # distilled_x_latent = distilled_x_latent.detach().cpu()
         # distilled_x_latent[:, :, 1:] = torch.sigmoid(distilled_x_latent[:, :, 1:]).detach().cpu()
-        distilled_x = constrain(distilled_x_latent, temp=1).detach().cpu()
+        distilled_x = constrain(distilled_x_latent, temp=1)
 
         if torch.allclose(self._init_x, distilled_x) or torch.allclose(self._init_y, distilled_y):
             warnings.warn(
@@ -415,7 +431,8 @@ class DistillContext(AbstractModel):
 
         return losses_per_task
 
-    def forward(self,xy, single_eval_pos=0, src_key_padding_mask=None,):
+    @torch.no_grad()
+    def _forward(self, context_x, context_y, query_x, src_key_padding_mask=None,):
         """
         Performs the forward pass of the model, taking query points, query labels, distilled
         points, and distilled labels as inputs. The method processes the input data by
@@ -435,23 +452,61 @@ class DistillContext(AbstractModel):
             expanded during the forward pass to match the batch size.
         :return: The computed logits after passing the processed inputs through the model.
         """
-        x, y = xy
+        context_size = context_x.shape[0]
+        num_related = len(self.related_task_data)
+        num_bars = self.criterion.num_bars
 
-        T, B, dim = x.shape
-        x_context = x[:single_eval_pos, :, :]
-        y_context = y[:single_eval_pos, :]
-        x_query = x[single_eval_pos:, :, :]
-
-        logits = self.model(
-            # ([x_train, x_query], ytrain)
-            (  # notice, that x_query comes from the dataset and thus is constrained
-                torch.cat([self.distilled_x.expand(-1, B, -1), x_context, x_query], dim=0),
-                torch.cat([self.distilled_y.expand(-1, B), y_context], dim=0)
+        base_logits = self.model(
+            (
+                torch.cat([context_x, query_x], dim=0),
+                context_y
             ),
-            single_eval_pos=self.distilled_x.shape[0] + x_context.shape[0]
+            single_eval_pos=context_x.shape[0]
         )
 
-        return logits
+        # because we need
+        cx = context_x.repeat(1, num_related, 1)
+        cy = context_y.repeat(1, num_related)
+        qx = query_x.repeat(1, num_related, 1)
+
+        if context_size >= self.min_context_size:
+            reliability = self.model(
+                # ([x_train, x_query], ytrain)
+                (
+                    # FIXME: we should have to expand the context_x.expand(-1, B, -1)
+                    #  with B = num_related
+                    torch.cat([self.distilled_x, cx], dim=0),
+            self.distilled_y
+                ),
+                single_eval_pos=self.distilled_x.shape[0]
+            )
+
+            # y's associated with query for that task
+            loss = self.criterion(reliability, cy)
+            loss = loss.view(-1, reliability.shape[1])  # bar distribution issue
+            reliability_scores = loss.mean(dim=0)  # mean over the batch
+        else:
+            reliability_scores = -torch.log(torch.ones(num_related)).to(context_x.device)
+
+
+        related_logits = self.model(
+            # ([x_train, x_query], ytrain)
+            (
+                torch.cat([self.distilled_x, cx, qx], dim=0),
+                torch.cat([self.distilled_y, cy], dim=0)
+            ),
+            single_eval_pos=self.distilled_x.shape[0] + cx.shape[0]
+        )
+
+        mixture_logits = self.mixture_fn(
+            base_logits,
+            related_logits,
+            reliability_scores,
+            # temperature=temperature,
+            alpha=self.decay_fn(context_size)
+        )
+
+        return mixture_logits
 
     def __call__(self, *args, **kwargs):
         return self.forward(*args, **kwargs)
