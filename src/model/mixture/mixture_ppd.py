@@ -147,7 +147,6 @@ class PFNPPDMixture(AbstractModel):
         return logits
 
 
-
     @torch.no_grad()
     def _forward(self, context_x, context_y, query_x, *args, **kwargs) -> (
             torch.Tensor):
@@ -195,7 +194,7 @@ class PFNPPDMixture(AbstractModel):
                 context_x.device)
 
         # 0 idx is reserved for the current task
-        for i, score in enumerate(reliability_scores, start=1):
+        for i, score in enumerate(reliability_scores):
             self.logger.add_scalar(
                 "reliability_score",
                 score.item(),

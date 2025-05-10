@@ -203,7 +203,7 @@ class MFBenchPrior(TabularBenchmark):
         self.fidelity_range = None
 
         self.space: Union[SearchSpace, CS.ConfigurationSpace]
-        self.table #
+        self.table =None
 
     def trajectory(self, config): # -> what type?
         raise NotImplementedError()

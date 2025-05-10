@@ -1,11 +1,12 @@
 # @package model
 
 defaults:
-  - pfn_mixture
+  - pfn_argmin
 meta:
   name: 'pfn_softmax'
 
 cls:
   mixture_fn:
     _partial_: True
-    _target_:  src.model.mixture.mixing.softmax
+    _target_:  src.model.mixture.mixing.softmax_mixture
+    temperature: 1.0

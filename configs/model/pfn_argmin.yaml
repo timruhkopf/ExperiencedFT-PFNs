@@ -1,7 +1,7 @@
 # @package model
 
 meta:
-  name: 'pfn_mixture'
+  name: 'pfn_argmin'
 
 cls:
   _target_: src.model.mixture.mixture_ppd.PFNPPDMixture
@@ -16,7 +16,7 @@ cls:
     _partial_: True
     _target_: src.model.mixture.decay.constant_exponential
     lambda_: 0.005
-    constant: 0
+    constant: 100
 
   mixture_fn:
     _partial_: True

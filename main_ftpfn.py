@@ -9,8 +9,6 @@ import numpy as np
 from omegaconf import DictConfig, OmegaConf
 import torch
 
-
-
 import logging
 import warnings
 
@@ -24,7 +22,6 @@ from ifbo.utils import detokenize
 from ifbo import Batch
 
 from ifbo.transformer import TransformerModel
-
 
 from src.evaluation.meta_train_test_split import k_folds, folds_of_size
 from src.evaluation.test_on_new_task_nll import TestOnNewTaskNLL
@@ -40,7 +37,7 @@ def main(cfg: DictConfig):
     logger.info(f'Sweep dir: {Path.cwd()}')
     logger.info(f"Running with config: \n {OmegaConf.to_yaml(cfg, resolve=True)}")
     # fixme: device
-    device =  torch.device("cuda" if torch.cuda.is_available() else "cpu") if cfg.device is None \
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu") if cfg.device is None \
         else torch.device(cfg.device)
     file_logger = BufferedFileLogger(
         file_name='results.csv',
@@ -80,14 +77,13 @@ def main(cfg: DictConfig):
 
     # select the target task and the split of context tasks
     allocation_seeds = range(*cfg.allocation_seeds)
-    for i, (train_ids, target_task, seed) in enumerate(
-            tqdm(
-                product(folds, test_ids,  allocation_seeds),
-                total=len(test_ids) * len(folds) * len(allocation_seeds)
-            ), start=1):
-        logger.info(f"Running task {i}: target_task={target_task}, train_ids={train_ids}, seed={seed * i}")
+    for train_ids, target_task, seed in tqdm(
+            product(folds, test_ids, allocation_seeds),
+            total=len(test_ids) * len(folds) * len(allocation_seeds)
+    ):
+        logger.info(f"Running task: target_task={target_task}, train_ids={train_ids}, seed={seed}")
 
-        file_logger.postfix = [target_task, train_ids, seed*i]
+        file_logger.postfix = [target_task, train_ids, seed]
 
         # "instantiate" the task and related task datasets (with no budget allocation yet)
         with warnings.catch_warnings():
@@ -95,10 +91,9 @@ def main(cfg: DictConfig):
             benchmark.collect_task_split(target_id=target_task, train_ids=train_ids)
 
         # for seed in cfg.allocation_seeds:
-        with (SeededRandomContext(seed * i) as ctx):
+        with (SeededRandomContext(seed) as ctx):
             # i, j because we want to make sure, that every task fold sample combination
             # has its own unique budget allocation
-
 
             # Allocate budgets on the benchmarks --------------------------
             # sample over multiple meta task sizes and dirichlet alphas
@@ -130,7 +125,6 @@ def main(cfg: DictConfig):
             target_task_query_y = task_data.query_y
             padding_mask = related_task_data.padding_mask
             n_related_tasks = related_task_data.x.shape[1]
-
 
             # create and train the model -------------------------------
             model = hydra.utils.instantiate(
