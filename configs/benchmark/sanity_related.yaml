@@ -13,3 +13,5 @@ cls:
 sample_config:
 
   n_tasks: 6 # incl. target task
+
+tabular: true

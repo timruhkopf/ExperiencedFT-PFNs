@@ -198,12 +198,21 @@ class MFBenchPrior(TabularBenchmark):
 
         self.target_id = target_id
         self.train_ids = train_ids
-        self.name = self.name
-        self.fidelity_name = None
-        self.fidelity_range = None
+        # self.name = self.name
+        # self.fidelity_name = None
+        # self.fidelity_range = None
+        #
+        # self.space: Union[SearchSpace, CS.ConfigurationSpace]
+        # self.table =None
 
-        self.space: Union[SearchSpace, CS.ConfigurationSpace]
-        self.table =None
+    def __getattr__(self, name):
+        if name in self.__dict__.keys():
+            return self.__dict__[name]
+        elif 'target_benchmark' in self.__dict__.keys():
+            return self.__dict__['target_benchmark'].__dict__[name]
+
+
+
 
     def trajectory(self, config): # -> what type?
         raise NotImplementedError()

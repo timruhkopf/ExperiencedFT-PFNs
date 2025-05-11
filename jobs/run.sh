@@ -20,7 +20,7 @@ for ((i=0; i<$NUM_PARAMS; i++)); do
 
     JOB_NAME="${MODEL}_${BENCH}_${SPLIT_SEED}"
     if [[ "$MODEL" == "distill" ]]; then
-        PARTITION="ai,tnt,ainlp"
+        PARTITION="ai,tnt"
         GRES="--gres=gpu:1"
         EXCLUDE=""
         TIME="--time=48:00:00"
@@ -48,3 +48,10 @@ for ((i=0; i<$NUM_PARAMS; i++)); do
            $BIGWORK/ExperiencedFT-PFNs/jobs/array_job.sh "$EXPERIMENT_NAME" "$DEVICE" "$LINE"
 
 done
+
+
+# watch -n 1 "squeue --me -o '%.18i %.9P %.25j %.8u %.2t %.10M %.6D %R'"
+
+# filter for running jobs (PD instead of R for pending)
+#watch -n 1 "squeue --me -t R -o '%.18i %.9P %.25j %.8u %.2t %.10M %.6D %R'"
+

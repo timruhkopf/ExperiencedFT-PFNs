@@ -1,7 +1,5 @@
 import math
-from copy import copy
 from itertools import product
-from pathlib import Path
 from typing import List
 
 import hydra
@@ -16,10 +14,7 @@ from sklearn.model_selection import train_test_split
 from tqdm import tqdm
 
 import ifbo
-from ifbo import Curve, PredictionResult
-from ifbo.priors.ftpfn_prior import DatasetPrior
-from ifbo.utils import detokenize
-from ifbo import Batch
+
 
 from ifbo.transformer import TransformerModel
 
@@ -36,7 +31,7 @@ logger = logging.getLogger(__name__)
 def main(cfg: DictConfig):
     logger.info(f'Sweep dir: {Path.cwd()}')
     logger.info(f"Running with config: \n {OmegaConf.to_yaml(cfg, resolve=True)}")
-    # fixme: device
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu") if cfg.device is None \
         else torch.device(cfg.device)
     file_logger = BufferedFileLogger(
