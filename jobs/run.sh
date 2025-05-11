@@ -45,6 +45,6 @@ for ((i=0; i<$NUM_PARAMS; i++)); do
            --partition=$PARTITION \
            $GRES \
            $EXCLUDE \
-           $SCRIPT_DIR/array_job.sh "$EXPERIMENT_NAME" "$DEVICE" "$LINE"
+           $BIGWORK/ExperiencedFT-PFNs/jobs/array_job.sh "$EXPERIMENT_NAME" "$DEVICE" "$LINE"
 
 done
