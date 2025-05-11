@@ -116,7 +116,8 @@ def main(cfg: DictConfig):
 
     # Generate and select the folds (meta-train-test splits)
     all_train_ids, test_ids = train_test_split(
-        list(range(len(benchmark))),
+        # FIXME: default is just for compatability reasons in debug
+        list(range(len(benchmark))) if hasattr(benchmark, '__len__') else list(range(100)),
         test_size=cfg.test_size,
         random_state=cfg.split_seed,  # train test split seed
         shuffle=True
@@ -145,7 +146,10 @@ def main(cfg: DictConfig):
         # "instantiate" the task and related task datasets (with no budget allocation yet)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", DeprecationWarning)
-            benchmark.collect_task_split(target_id=target_task, train_ids=train_ids)
+
+            if hasattr(benchmark, 'collect_task_split'):
+                # FIXME if for compat. reasons in debugging
+                benchmark.collect_task_split(target_id=target_task, train_ids=train_ids)
 
         with SeededRandomContext(seed):
             config = dict(
@@ -157,22 +161,23 @@ def main(cfg: DictConfig):
                 **cfg.benchmark.sample_config if hasattr(cfg.benchmark, 'sample_config') else {}
             )
             # sample the dirichlet distributed data
-            batch = benchmark.sample_batch(**config)
+            if hasattr(benchmark, 'sample_batch'):
+                batch = benchmark.sample_batch(**config)
 
-            # parse the batch ---------------------------------------------
-            padded_batch = parse_batch_for_padded_train_data(batch, target_idx=0)
+                # parse the batch ---------------------------------------------
+                padded_batch = parse_batch_for_padded_train_data(batch, target_idx=0)
 
-            related_task_data = padded_batch.related_tasks
-            task_data = padded_batch.target_task
+                related_task_data = padded_batch.related_tasks
+                task_data = padded_batch.target_task
 
-            logger.info(f'Amount of related task data: {related_task_data.observed}')
+                logger.info(f'Amount of related task data: {related_task_data.observed}')
 
-            target_task_context_x = task_data.x
-            target_task_context_y = task_data.y
-            target_task_query_x = task_data.query_x
-            target_task_query_y = task_data.query_y
-            padding_mask = related_task_data.padding_mask
-            n_related_tasks = related_task_data.x.shape[1]
+                target_task_context_x = task_data.x
+                target_task_context_y = task_data.y
+                target_task_query_x = task_data.query_x
+                target_task_query_y = task_data.query_y
+                padding_mask = related_task_data.padding_mask
+                n_related_tasks = related_task_data.x.shape[1]
 
         # --------------------------------------------------------------------------
 
@@ -266,7 +271,10 @@ def main(cfg: DictConfig):
         if bench_is_tabular:
             # extracting and processing the tabular data and raw space
             #
-            _table = preprocess_tabular(benchmark.target_benchmark.name, benchmark.table)
+            if hasattr(benchmark, 'sample_batch'):
+                _table = preprocess_tabular(benchmark.target_benchmark.name, benchmark.table)
+            else:
+                _table = preprocess_tabular(cfg.benchmark.name, benchmark.table)
             # updates the pipeline_space to be only config IDs mapping to tabular data
             pipeline_space = {
                 "id": neps.IntegerParameter(
@@ -306,6 +314,32 @@ def main(cfg: DictConfig):
         # end of tabular check block
 
         print("MAX EVALUATIONS:", max_evaluations_total)
+
+        # ---------------------------------------------------
+        # Manual edit of the search space accoding to  neps.api._run_args l 324
+        if hasattr(benchmark, 'sample_batch'):
+            try:
+                # Support pipeline space as ConfigurationSpace definition
+                if isinstance(pipeline_space, CS.ConfigurationSpace):
+                    pipeline_space = pipeline_space_from_configspace(pipeline_space)
+
+                # Support pipeline space as mix of ConfigurationSpace and neps parameters
+                new_pipeline_space: dict[str, Parameter] = dict()
+                for key, value in pipeline_space.items():
+                    if isinstance(value, CS.ConfigurationSpace):
+                        config_space_parameters = pipeline_space_from_configspace(value)
+                        new_pipeline_space = {**new_pipeline_space, **config_space_parameters}
+                    else:
+                        new_pipeline_space[key] = value
+                pipeline_space = new_pipeline_space
+
+                # Transform to neps internal representation of the pipeline space
+                pipeline_space = SearchSpace(**pipeline_space)
+            except TypeError as e:
+                message = f"The pipeline_space has invalid type: {type(pipeline_space)}"
+                raise TypeError(message) from e
+
+        # -----------------------------------------------------------------------
         neps.run(
             run_pipeline=run_pipeline,
             pipeline_space=pipeline_space,
@@ -314,13 +348,17 @@ def main(cfg: DictConfig):
             #  calculates continuation costs to subtract from optimization budget
             # **budget_args,
             max_evaluations_total=max_evaluations_total,
-            searcher=cfg.algorithm.name,
 
-            # FIXME: @TIM add in a searcher instantiation (BaseOptimizer subclass), that will also get
+            # FIXME: backward compat: hasattr(cfg.algorithm, 'searcher') for
+            searcher=hydra.utils.instantiate(cfg.algorithm.searcher, pipeline_space=pipeline_space) \
+            if hasattr(cfg.algorithm, 'searcher') and  '_target_' in \
+               cfg.algorithm.searcher.keys() else  cfg.algorithm.name,
+
+            # FIXME: add in a searcher instantiation (BaseOptimizer subclass), that will also get
             #  the benchmark instance as info
 
-            # hydra.utils.instantiate(args.algorithm.searcher, _partial_=True),
-            searcher_path=Path(__file__).parent / "configs" / "algorithm",
+
+            searcher_path=Path(__file__).parent / 'ifBO_icml2024' / 'src' / 'pfns_hpo' / 'pfns_hpoconfigs' / "algorithm",
             overwrite_working_directory=OVERWRITE,
             pre_load_hooks=[set_grid_table_space],  # crucial in allowing tabular grid access
             post_run_summary=True,  # important for efficient plotting

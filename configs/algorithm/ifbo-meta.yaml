@@ -1,0 +1,30 @@
+name: ifbo
+mf: True
+sh_based: False
+
+searcher:
+   _target_: src.model.ifbo.IFBO
+
+   budget: Null # FIXME: 1k ? check in the algorithm/ifbo.yaml execution (if this value is being filled)
+   #   pipeline_space: <neps.search_spaces.search_space.SearchSpace at 0x7f4f533fae00>
+
+   #   neps.api.py l423: (evaluated)
+
+   acquisition: 'MFPI-random'
+   acquisition_args: Null
+   acquisition_sampler: 'freeze-thaw'
+   acquisition_sampler_args: Null
+
+   # FIXME: make this instantiateable / exchangable in our subclass
+   surrogate_model: 'pfn'
+   surrogate_model_args:
+    model_name: ${repo_root}/data/.model/bopfn_broken_unisep_1000curves_10params_2M.pt
+    checkpointing: True
+    root_directory: 'neps_root_directory'
+
+   initial_design_fraction: Null
+   initial_design_size: 1
+   initial_design_budget: 1
+   loss_value_on_error: Null
+   cost_value_on_error: Null
+   ignore_errors: False
