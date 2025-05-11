@@ -449,7 +449,7 @@ class MFBenchPrior(TabularBenchmark):
 
     def _collect_all_config_data(self, benchmark, n_fidelities):
         """
-        Collects data for all configurations at all fidelities.
+        Collects data for all configurations at all fidelities. in order to plot them.
 
         # JUST FOR DEBUGGING PLOTTING PURPOSES
 
@@ -487,14 +487,14 @@ class MFBenchPrior(TabularBenchmark):
             config_features
         ], dim=1)
 
-        self.plot_data(x, labels, len(benchmark.configs), n_fidelities)
+        self._plot_data(x, labels, len(benchmark.configs), n_fidelities)
 
         return x, labels
 
 
     @staticmethod
-    def plot_data(x, y, num_configs, n_fidelities):
-        import numpy as np
+    def _plot_data(x, y, num_configs, n_fidelities):
+
         import matplotlib.pyplot as plt
         plt.figure(figsize=(10, 6))
         for config_id in range(1, num_configs + 1):
@@ -612,7 +612,12 @@ class MFBenchPrior(TabularBenchmark):
         X = torch.stack(X, dim=1).to(self.device).float()
         Y = torch.stack(Y, dim=1).to(self.device).float()
 
-        return Batch(x=X, y=Y, target_y=Y.clone(), single_eval_pos=single_eval_pos)
+        # flip the curves to be increasing (lcbench, pd1, taskset)
+
+        # from src.utils.plot_curve_tensor import plot_curve_tensor
+        # plot_curve_tensor(X, -(Y-1), single_eval_pos, idx=0)
+
+        return Batch(x=X, y=-(Y-1), target_y=Y.clone(), single_eval_pos=single_eval_pos)
 
     @staticmethod
     def _get_normalized_values(config, configuration_space):

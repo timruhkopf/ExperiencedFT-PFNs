@@ -156,6 +156,8 @@ def main(cfg: DictConfig):
             context_sizes = [math.floor(i * target_task_context_x.shape[0]) for i in
                              context_sizes]
 
+            logger.info(f'Context sizes: {context_sizes}')
+
             kwargs = {}
 
             if 'inference_kwargs' in cfg.model.keys():

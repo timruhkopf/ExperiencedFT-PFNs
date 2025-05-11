@@ -236,6 +236,9 @@ class MetaTaskPrior:
         X = torch.stack(X, dim=1).to(self.device).float()
         Y = torch.stack(Y, dim=1).to(self.device).float()
 
+        # from src.utils.plot_curve_tensor import plot_curve_tensor
+        # plot_curve_tensor(X, Y, single_eval_pos, idx=1)
+
         return Batch(x=X, y=Y, target_y=Y.clone(), single_eval_pos=single_eval_pos)
 
     def sample_from_task(self, alpha, context_size):
