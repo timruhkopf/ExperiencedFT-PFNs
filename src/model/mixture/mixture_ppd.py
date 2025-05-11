@@ -16,7 +16,8 @@ def _calc_reliability(
         context_x: torch.Tensor,
         context_y: torch.Tensor,
         related_task_data: MyBatch,  # type: ignore
-        criterion: BarDistribution
+        criterion: BarDistribution,
+        peeking:Dict[str, torch.Tensor] = None
 ) -> torch.Tensor:
     """
     Calculate the reliability of the related task with respect to the current task.
@@ -37,6 +38,41 @@ def _calc_reliability(
     task_context_y = related_task_data.y
     padding_mask = related_task_data.padding_mask
     num_related = task_context_x.shape[1]
+
+    if peeking is not None:
+        # The ida behind
+        x, y = peeking['x'], peeking['y']
+        # bootstrap sample without replacement that is at most half the size of the peeking tensor
+        # bootstrapping has the disadvantage, that we can immediately predict based of the
+        # adjacent fidelities and get poor generalization
+        # ids = np.random.choice(
+        #     x.shape[0],
+        #     size=context_x.shape[0] // 2,
+        #     replace=False
+        # )
+        # FT context is somewhat ordered, so the future fidelities are likely to be
+        # later in the context sequence. This gives some of the new tasks context, but
+        # the learning task is still important
+        ids = torch.arange(x.shape[0] // 2).to(x.device)
+        x = x[ids].repeat(1, num_related, 1)
+        y = y[ids].repeat(1, num_related)
+        # reduce the query (context_x) by those ids
+        remaining_ids = np.setdiff1d(
+            np.arange(context_x.shape[0]),
+            ids
+        )
+        context_x = context_x[remaining_ids]
+        context_y = context_y[remaining_ids]
+
+        task_context_x = torch.cat([x, task_context_x], dim=0)
+        task_context_y = torch.cat([y, task_context_y], dim=0)
+
+        # prepend the padding mask
+        padding_mask = torch.cat(
+            [torch.zeros(num_related, x.shape[0], dtype=torch.bool).to(task_context_x.device),
+             padding_mask],
+            dim=1
+        )
 
     logits = model(
         (
@@ -186,7 +222,13 @@ class PFNPPDMixture(AbstractModel):
                 context_x,
                 context_y,
                 self.related_task_data,
-                self.criterion
+                self.criterion,
+                # peeking={
+                # # this was just to check why the reliability scores were so little
+                # # indicative of the actual performance in the first iteration.
+                #     'x': context_x,
+                #     'y': context_y
+                # }
             )
         else:
             # if we have no context points, we must assume all are equally likely
