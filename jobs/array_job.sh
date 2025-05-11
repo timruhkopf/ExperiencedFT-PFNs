@@ -1,50 +1,25 @@
 #!/bin/bash
-#SBATCH --job-name=surrogate_array
-#SBATCH --array=0-7        # 8 tasks, adjust if you add more lines to job_params.txt
-#SBATCH --cpus-per-task=32
-#SBATCH --mem=8G
-#SBATCH --time=48:00:00
-#SBATCH --output=surrogate_array%j.out
-#SBATCH --error=surrogate_array%j.err
-#SBATCH --partition=ai,taurus,amo
-#SBATCH --exclude=ai-n[001-004],ai-n009
-#--partition=ai,tnt,ainlp  --nodes=1  --time=03:00:00  --cpus-per-task=8  --gres=gpu:1  --mem=8GB
 
-#default calling method would therfor be bash --array=0-32 jobs/array_job.sh
+# Usage: array_job.sh <experiment_name> <device> "<model> <benchmark> <split_seed>"
 
-
-#sbatch --partition=ai,tnt --gres=gpu:1 --job-name=distill_array --output=distill%j.out --error=distill%j.err jobs/array_job.sh
 EXPERIMENT_NAME=$1
+DEVICE=$2
+LINE="$3"
 
-# TODO adjust array size by n of lines in job_params.txt times number of intervals
-DEVICE=cpu
-
-SCRIPT_DIR=$BIGWORK/ExperiencedFT-PFNs/jobs
-PARAM_FILE="$SCRIPT_DIR/job_params.txt"
-echo "Using parameter file: $PARAM_FILE"
-
-# Define your interval logic
-INTERVAL_SIZE=25
-INTERVAL_START=0
-INTERVAL_END=200
-
-# Compute number of intervals
-NUM_INTERVALS=$(( (INTERVAL_END - INTERVAL_START) / INTERVAL_SIZE ))
-
-# Number of parameter combos
-NUM_PARAMS=$(wc -l < "$PARAM_FILE")
-
-# Map SLURM_ARRAY_TASK_ID to param combo and interval
-PARAM_IDX=$(( SLURM_ARRAY_TASK_ID / NUM_INTERVALS ))
-INTERVAL_IDX=$(( SLURM_ARRAY_TASK_ID % NUM_INTERVALS ))
-
-# Read parameter line
-LINE=$(sed -n "$((PARAM_IDX + 1))p" "$PARAM_FILE")
+# Parse parameters from the line
 MODEL=$(echo $LINE | awk '{print $1}')
 BENCHMARK=$(echo $LINE | awk '{print $2}')
 SPLIT_SEED=$(echo $LINE | awk '{print $3}')
 
-# Compute interval bounds
+INTERVAL_SIZE=25
+INTERVAL_START=0
+INTERVAL_END=200
+
+NUM_INTERVALS=$(( (INTERVAL_END - INTERVAL_START) / INTERVAL_SIZE ))
+
+# SLURM_ARRAY_TASK_ID is 0-based, corresponds to interval index
+INTERVAL_IDX=$SLURM_ARRAY_TASK_ID
+
 START=$(( INTERVAL_START + INTERVAL_IDX * INTERVAL_SIZE ))
 END=$(( START + INTERVAL_SIZE ))
 
@@ -52,6 +27,7 @@ echo "MODEL: $MODEL"
 echo "BENCHMARK: $BENCHMARK"
 echo "SPLIT_SEED: $SPLIT_SEED"
 echo "ALLOCATION_SEEDS: [$START,$END]"
+echo "DEVICE: $DEVICE"
 
 bash jobs/start_hydra.sh \
   experiment_name=$EXPERIMENT_NAME \
@@ -62,6 +38,7 @@ bash jobs/start_hydra.sh \
   allocation_seeds="[$START,$END]" \
   ~fold \
   ~target_idx
+
 wait
 
 
