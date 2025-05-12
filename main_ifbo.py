@@ -197,8 +197,8 @@ def main(cfg: DictConfig):
 
             if bench_is_tabular:  # declared in parent scope
                 # IMPORTANT to handle tabular benchmarks to query using only IDs
-                if "tabular" in cfg.benchmark.name:
-                    config = int(config["id"])
+                # if "tabular" in cfg.benchmark.name:
+                config = int(config["id"])
                 # TODO: handle other tabular benchmarks
 
             full_trajectory = benchmark.trajectory(config)
@@ -358,7 +358,8 @@ def main(cfg: DictConfig):
             #  the benchmark instance as info
 
 
-            searcher_path=Path(__file__).parent / 'ifBO_icml2024' / 'src' / 'pfns_hpo' / 'pfns_hpoconfigs' / "algorithm",
+            searcher_path=Path(__file__).parent / 'ifBO_icml2024' / 'src' / 'pfns_hpo' /
+                          'pfns_hpo'/ 'configs' / "algorithm",
             overwrite_working_directory=OVERWRITE,
             pre_load_hooks=[set_grid_table_space],  # crucial in allowing tabular grid access
             post_run_summary=True,  # important for efficient plotting

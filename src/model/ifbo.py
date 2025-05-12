@@ -58,18 +58,53 @@ class MyBaseModel(BaseModel):
         self.model.eval()
 
 class MyPFN_MODEL(MyBaseModel, pfns4hpo.PFN_MODEL):
-    pass
+    def forward(self, x_train, y_train, x_test):
+        if x_train.shape[0] == 0:
+            x_test[:, 0] = 0
+        elif x_train[:, 0].min() == 0:
+            x_train[:, 0] += 1
+            x_test[:, 0] += 1
 
-class MyPFNSurrogate(PFN_SURROGATE):
+            # reserve id=0 to curves that are not in x_train
+            # set to 0 for all id in x_test[:, 0] that is not x_train[:, 0]
+            x_test[:, 0] = torch.where(
+                torch.isin(x_test[:, 0], x_train[:, 0]),
+                x_test[:, 0],
+                torch.zeros_like(x_test[:, 0]),
+            )
+
+        single_eval_pos = x_train.shape[0]
+        batch_size = 2000
+        n_batches = (x_test.shape[0] + batch_size - 1) // batch_size
+
+        results = []
+        for i in range(n_batches):
+            start = i * batch_size
+            end = min((i + 1) * batch_size, x_test.shape[0])
+            x_batch = torch.cat([x_train, x_test[start:end]], dim=0).unsqueeze(1)
+            y_batch = y_train.unsqueeze(1)
+            result = self.model((x_batch, y_batch), single_eval_pos=single_eval_pos)
+            results.append(result)
+
+        final_result = torch.cat(results, dim=0)
+        return final_result
+
+
+class MyPFN_SURROGATE(PFN_SURROGATE):
+
+
     def __init__(
-            self,
-            pipeline_space: SearchSpace,
-            logger=None,
-            surrogate_model_fit_args: dict = None,
-            model_name: str = None,
-            minimize: bool = True,
-            **kwargs,  # pylint: disable=unused-argument
-    ):
+                self,
+                pipeline_space: SearchSpace,
+                logger=None,
+                surrogate_model_fit_args: dict = None,
+                model_name: str = None,
+                minimize: bool = True,
+                *args,
+                **kwargs,  # pylint: disable=unused-argument
+        ):
+
+
         self.minimize = minimize
         if model_name is None:
             self.model_name = kwargs['surrogate_model_args']['model_name']
@@ -108,6 +143,50 @@ class MyPFNSurrogate(PFN_SURROGATE):
 
         self.min_fidelity = pipeline_space.fidelity.lower
         self.max_fidelity = pipeline_space.fidelity.upper
+
+
+# overwrite the mapping to get rid of magic path
+from neps.optimizers.bayesian_optimization.models import \
+    SurrogateModelMapping
+
+MySurrogateModelMapping = SurrogateModelMapping
+MySurrogateModelMapping.update({'pfn': MyPFN_SURROGATE})
+
+
+
+class MyFreezeThawModel(FreezeThawModel):
+
+    def __init__(
+            self,
+            pipeline_space,
+            surrogate_model: str = "deep_gp",
+            surrogate_model_args: dict = None,
+    ):
+        self.observed_configs = None
+        self.pipeline_space = pipeline_space
+        self.surrogate_model_name = surrogate_model
+        self.surrogate_model_args = (
+            surrogate_model_args if surrogate_model_args is not None else {}
+        )
+        if self.surrogate_model_name in ["deep_gp", "pfn"]:
+            self.surrogate_model_args.update({"pipeline_space": pipeline_space})
+        elif self.surrogate_model_name == "dpl":
+            self.surrogate_model_args.update(
+                {"pipeline_space": self.pipeline_space,
+                 "observed_data": self.observed_configs}
+            )
+
+        # instantiate the surrogate model
+        self.surrogate_model = instance_from_map(
+            MySurrogateModelMapping,
+            self.surrogate_model_name,
+            name="surrogate model",
+            kwargs=self.surrogate_model_args,
+        )
+
+
+class MyPFNSurrogate(MyFreezeThawModel, PFNSurrogate):
+    pass
 
 
 class IFBO(MFEIBO):

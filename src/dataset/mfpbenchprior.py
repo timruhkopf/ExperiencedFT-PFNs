@@ -52,29 +52,44 @@ PD1_IDS = [
 TASKSET_IDS = [
     {"task_id": "FixedTextRNNClassification_imdb_patch128_LSTM128_avg_bs64", "optimizer": "adam4p"},
     {"task_id": "FixedTextRNNClassification_imdb_patch128_LSTM128_bs64", "optimizer": "adam4p"},
-    {"task_id": "FixedTextRNNClassification_imdb_patch128_LSTM128_embed128_bs64", "optimizer": "adam4p"},
+    {"task_id": "FixedTextRNNClassification_imdb_patch128_LSTM128_embed128_bs64",
+     "optimizer": "adam4p"},
     {"task_id": "FixedTextRNNClassification_imdb_patch32_GRU128_bs128", "optimizer": "adam4p"},
     {"task_id": "FixedTextRNNClassification_imdb_patch32_GRU64_avg_bs128", "optimizer": "adam4p"},
-    {"task_id": "FixedTextRNNClassification_imdb_patch32_IRNN64_relu_avg_bs128", "optimizer": "adam4p"},
-    {"task_id": "FixedTextRNNClassification_imdb_patch32_IRNN64_relu_last_bs128", "optimizer": "adam4p"},
-    {"task_id": "FixedTextRNNClassification_imdb_patch32_LSTM128_E128_bs128", "optimizer": "adam4p"},
+    {"task_id": "FixedTextRNNClassification_imdb_patch32_IRNN64_relu_avg_bs128",
+     "optimizer": "adam4p"},
+    {"task_id": "FixedTextRNNClassification_imdb_patch32_IRNN64_relu_last_bs128",
+     "optimizer": "adam4p"},
+    {"task_id": "FixedTextRNNClassification_imdb_patch32_LSTM128_E128_bs128",
+     "optimizer": "adam4p"},
     {"task_id": "FixedTextRNNClassification_imdb_patch32_LSTM128_bs128", "optimizer": "adam4p"},
-    {"task_id": "FixedTextRNNClassification_imdb_patch32_VRNN128_tanh_bs128", "optimizer": "adam4p"},
-    {"task_id": "FixedTextRNNClassification_imdb_patch32_VRNN64_relu_avg_bs128", "optimizer": "adam4p"},
-    {"task_id": "FixedTextRNNClassification_imdb_patch32_VRNN64_tanh_avg_bs128", "optimizer": "adam4p"},
+    {"task_id": "FixedTextRNNClassification_imdb_patch32_VRNN128_tanh_bs128",
+     "optimizer": "adam4p"},
+    {"task_id": "FixedTextRNNClassification_imdb_patch32_VRNN64_relu_avg_bs128",
+     "optimizer": "adam4p"},
+    {"task_id": "FixedTextRNNClassification_imdb_patch32_VRNN64_tanh_avg_bs128",
+     "optimizer": "adam4p"},
     {"task_id": "FixedTextRNNClassification_imdb_patch128_LSTM128_avg_bs64", "optimizer": "adam8p"},
     {"task_id": "FixedTextRNNClassification_imdb_patch128_LSTM128_bs64", "optimizer": "adam8p"},
-    {"task_id": "FixedTextRNNClassification_imdb_patch128_LSTM128_embed128_bs64", "optimizer": "adam8p"},
+    {"task_id": "FixedTextRNNClassification_imdb_patch128_LSTM128_embed128_bs64",
+     "optimizer": "adam8p"},
     {"task_id": "FixedTextRNNClassification_imdb_patch32_GRU128_bs128", "optimizer": "adam8p"},
     {"task_id": "FixedTextRNNClassification_imdb_patch32_GRU64_avg_bs128", "optimizer": "adam8p"},
-    {"task_id": "FixedTextRNNClassification_imdb_patch32_IRNN64_relu_avg_bs128", "optimizer": "adam8p"},
-    {"task_id": "FixedTextRNNClassification_imdb_patch32_IRNN64_relu_last_bs128", "optimizer": "adam8p"},
-    {"task_id": "FixedTextRNNClassification_imdb_patch32_LSTM128_E128_bs128", "optimizer": "adam8p"},
+    {"task_id": "FixedTextRNNClassification_imdb_patch32_IRNN64_relu_avg_bs128",
+     "optimizer": "adam8p"},
+    {"task_id": "FixedTextRNNClassification_imdb_patch32_IRNN64_relu_last_bs128",
+     "optimizer": "adam8p"},
+    {"task_id": "FixedTextRNNClassification_imdb_patch32_LSTM128_E128_bs128",
+     "optimizer": "adam8p"},
     {"task_id": "FixedTextRNNClassification_imdb_patch32_LSTM128_bs128", "optimizer": "adam8p"},
-    {"task_id": "FixedTextRNNClassification_imdb_patch32_VRNN128_tanh_bs128", "optimizer": "adam8p"},
-    {"task_id": "FixedTextRNNClassification_imdb_patch32_VRNN64_relu_avg_bs128", "optimizer": "adam8p"},
-    {"task_id": "FixedTextRNNClassification_imdb_patch32_VRNN64_tanh_avg_bs128", "optimizer": "adam8p"},
+    {"task_id": "FixedTextRNNClassification_imdb_patch32_VRNN128_tanh_bs128",
+     "optimizer": "adam8p"},
+    {"task_id": "FixedTextRNNClassification_imdb_patch32_VRNN64_relu_avg_bs128",
+     "optimizer": "adam8p"},
+    {"task_id": "FixedTextRNNClassification_imdb_patch32_VRNN64_tanh_avg_bs128",
+     "optimizer": "adam8p"},
 ]
+
 
 # for debugging purposes
 def setup_debug_logger():
@@ -141,7 +156,7 @@ class MFBenchPrior(TabularBenchmark):
 
             if train_ids != self.train_ids:
                 self.related = [{"task_id": LCBENCH_IDS[task]}
-                           for task in train_ids]
+                                for task in train_ids]
 
 
 
@@ -211,12 +226,8 @@ class MFBenchPrior(TabularBenchmark):
         elif 'target_benchmark' in self.__dict__.keys():
             return self.__dict__['target_benchmark'].__dict__[name]
 
-
-
-
-    def trajectory(self, config): # -> what type?
-        raise NotImplementedError()
-
+    def trajectory(self, config):  # -> what type?
+        return self.target_benchmark.trajectory(config)
 
     def __len__(self):
         return len(
@@ -227,7 +238,8 @@ class MFBenchPrior(TabularBenchmark):
             }[self.name]
         )
 
-    def sample_dirichlet(self, ncurves: int, max_fidelities: int, alpha: float = None, eps: float = 10 ** -9,
+    def sample_dirichlet(self, ncurves: int, max_fidelities: int, alpha: float = None,
+                         eps: float = 10 ** -9,
                          single_eval_pos: int = 500):
         """
         Sample a Dirichlet distribution and compute token-to-curve associations with
@@ -355,7 +367,7 @@ class MFBenchPrior(TabularBenchmark):
                 single_eval_pos + len(unique_curves))])
         num_unique_curves = len(unique_curves)
         id_curve[single_eval_pos: single_eval_pos +
-                 num_unique_curves] = unique_curves[:nbiud]
+                                  num_unique_curves] = unique_curves[:nbiud]
         end_pos = min(single_eval_pos + num_unique_curves, self.seq_len)
         epoch[single_eval_pos:end_pos] = max_fidelities
 
@@ -363,7 +375,7 @@ class MFBenchPrior(TabularBenchmark):
         offset = min([int(_) for _ in benchmark.configs.keys()])
 
         updated_space = False
-        
+
         for ordering, config_id, fidelity in zip(
                 id_curve, original_id[id_curve.astype(int) - 1], epoch
         ):
@@ -373,15 +385,14 @@ class MFBenchPrior(TabularBenchmark):
                 _config_id = str(config_id + offset)
                 tmp = []
                 tmp = tmp + [ordering, fidelity]
-                
+
                 config = benchmark.configs[_config_id]
-                
+
                 if self.name == "taskset_tabular":
                     optimizer_name = benchmark.name.split("-")[1].split("_")[0]
-                    
+
                     config = benchmark.configs[_config_id]
-                    
-                    
+
                     if optimizer_name == "adam4p":
                         if not updated_space:
                             updated_space = True
@@ -414,31 +425,29 @@ class MFBenchPrior(TabularBenchmark):
                                     ),
                                 ],
                             )
-                            
+
                         config = benchmark.configs[_config_id].as_dict()
                         default_values = {
                             "l1": 1e-7,
                             "l2": 1e-7,
                             "linear_decay": 1e-8,
-                            "exponential_decay": 1e-6,}
+                            "exponential_decay": 1e-6, }
                         config.update(default_values)
-                        
+
                     elif optimizer_name == "adam8p":
-                        pass # do nothing, we don't need to update the space
-                    
+                        pass  # do nothing, we don't need to update the space
+
                     else:
                         raise ValueError(
                             f"Optimizer {optimizer_name} is currently not supported"
                         )
-                    
-                    
-                
+
                 tmp = tmp + self._get_normalized_values(
                     config=config, configuration_space=benchmark.space
                 )
                 tmp = tmp + \
-                    [benchmark.query(
-                        config=_config_id, at=fidelity).error]
+                      [benchmark.query(
+                          config=_config_id, at=fidelity).error]
             task_data.append(tmp)
 
         task_data = np.array(task_data).astype(np.float32)
@@ -450,7 +459,7 @@ class MFBenchPrior(TabularBenchmark):
 
         epoch = torch.from_numpy(epoch).to(
             torch.int64) / max_fidelities  # normalize to [0,1] same as https://github.com/automl/ifBO/blob/988e48ef4d9036d3670c32042906604321747823/src/section5.1/evaluate_pfn.py#L22
-        
+
         x = torch.cat([torch.stack([id_curve, epoch], dim=1), config], dim=1)
         y = curve_val
 
@@ -500,7 +509,6 @@ class MFBenchPrior(TabularBenchmark):
 
         return x, labels
 
-
     @staticmethod
     def _plot_data(x, y, num_configs, n_fidelities):
 
@@ -539,14 +547,13 @@ class MFBenchPrior(TabularBenchmark):
         ncurves = len(benchmark.configs)
         max_fidelities = benchmark.end
 
-
         cutoff_per_curve, epochs_per_curve, ordering, n_levels = self.sample_dirichlet(
             ncurves=ncurves,
             max_fidelities=max_fidelities,
             alpha=alpha,
             single_eval_pos=context_size,
         )
-        
+
         x, y = self._interpret_dirichlet_sample(
             ordering=ordering,
             epochs_per_curve=epochs_per_curve,
@@ -557,7 +564,6 @@ class MFBenchPrior(TabularBenchmark):
         )
 
         return x, y
-
 
     def sample_batch(self, alphas: Optional[Union[List[float], float]] = None,
                      single_eval_pos=None, target_task=0, train_ids=None, **kwargs):
@@ -626,7 +632,7 @@ class MFBenchPrior(TabularBenchmark):
         # from src.utils.plot_curve_tensor import plot_curve_tensor
         # plot_curve_tensor(X, -(Y-1), single_eval_pos, idx=0)
 
-        return Batch(x=X, y=-(Y-1), target_y=Y.clone(), single_eval_pos=single_eval_pos)
+        return Batch(x=X, y=-(Y - 1), target_y=Y.clone(), single_eval_pos=single_eval_pos)
 
     @staticmethod
     def _get_normalized_values(config, configuration_space):
@@ -655,7 +661,7 @@ class MFBenchPrior(TabularBenchmark):
             dict_values = config
         else:
             dict_values = config.as_dict()
-        
+
         dict_values = dict((hp, dict_values[hp]) for hp in list_hp_names)
 
         neps_cfg = SearchSpace(
@@ -680,15 +686,15 @@ class MFBenchPrior(TabularBenchmark):
 
     @staticmethod
     def _process_taskset_mfpbench_with_step_0_prior(
-        benchmark: TaskSetTabularBenchmark,
-        loss_name_at_step_0_to_normalize_with: str = "valid1_loss",
-        metrics_to_normalize_and_clamp: tuple[str, ...] = (
-            "train_loss",
-            "valid1_loss",
-            "valid2_loss",
-            "test_loss",
-        ),
-        drop_step_0: bool = True,
+            benchmark: TaskSetTabularBenchmark,
+            loss_name_at_step_0_to_normalize_with: str = "valid1_loss",
+            metrics_to_normalize_and_clamp: tuple[str, ...] = (
+                    "train_loss",
+                    "valid1_loss",
+                    "valid2_loss",
+                    "test_loss",
+            ),
+            drop_step_0: bool = True,
     ) -> TaskSetTabularBenchmark:
         """Normalize metrics of benchmark with the step 0 median huerisitc.
 
@@ -784,7 +790,6 @@ class MFBenchPrior(TabularBenchmark):
         return benchmark
 
 
-
 def detokenize_batch(batch: Batch):
     """
     Since detokenize only works for batch sizes of 1, we need to detokenize the batch
@@ -822,7 +827,7 @@ if __name__ == '__main__':
     )
     lcbench_task_prior.collect_task_split(
         target_id=0,
-        train_ids=[1, 2, 3, 4, 5 , 6, 7, 8]
+        train_ids=[1, 2, 3, 4, 5, 6, 7, 8]
     )
 
     pd1bench_task_prior = MFBenchPrior(
