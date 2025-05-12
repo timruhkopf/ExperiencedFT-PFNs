@@ -61,6 +61,7 @@ def constrain(x: torch.Tensor, temp):
 
 
 class DistillContext(AbstractModel):
+    __name__ = "DistillContext"
     def __init__(self,
                  model: Union[FTPFN, TransformerModel],
                  optimizer: partial,

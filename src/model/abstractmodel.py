@@ -26,6 +26,19 @@ class AbstractModel:
                 'context_y': y,
                 'query_x': x[single_eval_pos:]
             }
+        elif set(kwargs.keys()) == {'x_train', 'y_train', 'x_test'}:
+            # during ifbo deployment
+            # curve id encoder will struggle with index positions longer then the
+            # sequence length --> so we just replace them here. They don't have any meaning anyways!
+            mask = kwargs['x_test'][:, 0] >= 1000
+            kwargs['x_test'][mask, 0] = torch.tensor(999.)
+
+            kwargs = {
+                'context_x': kwargs['x_train'].unsqueeze(1),
+                'context_y': kwargs['y_train'].unsqueeze(1),
+            'query_x': kwargs['x_test'].unsqueeze(1)
+            }
+
 
         if 'single_eval_pos' in kwargs:
             del kwargs['single_eval_pos']

@@ -184,9 +184,74 @@ class MyFreezeThawModel(FreezeThawModel):
             kwargs=self.surrogate_model_args,
         )
 
+    def set_state(
+        self,
+        pipeline_space,
+        surrogate_model_args,
+        **kwargs,  # pylint: disable=unused-argument
+    ):
+        self.pipeline_space = pipeline_space
+        self.surrogate_model_args = (
+            surrogate_model_args if surrogate_model_args is not None else {}
+        )
+        if self.surrogate_model_name == "dpl":
+            self.surrogate_model_args.update(
+                {"pipeline_space": self.pipeline_space,
+                 "observed_data": self.observed_configs}
+            )
+            self.surrogate_model = instance_from_map(
+                SurrogateModelMapping,
+                self.surrogate_model_name,
+                name="surrogate model",
+                kwargs=self.surrogate_model_args,
+            )
+
+        # only to handle tabular spaces
+        if self.pipeline_space.has_tabular:
+            if self.surrogate_model_name in ["deep_gp", "pfn"]:
+                self.surrogate_model_args.update(
+                    {"pipeline_space": self.pipeline_space.raw_tabular_space}
+                )
+            elif self.surrogate_model_name == "dpl":
+                self.surrogate_model_args.update(
+                    {"pipeline_space": self.pipeline_space,
+                    "observed_data": self.observed_configs}
+                )
+            # instantiate the surrogate model, again, with the new pipeline space
+            if self.surrogate_model_name in ['pfn', 'deep_gp', 'dpl']:
+                self.surrogate_model = instance_from_map(
+                    SurrogateModelMapping,
+                    self.surrogate_model_name,
+                    name="surrogate model",
+                    kwargs=self.surrogate_model_args,
+                )
+            # else:
+            #     # skip reinstantiation for custom models
+            #     self.pipeline_space = self.surrogate_model_args['pipeline_space']
+        elif self.surrogate_model_name == "dpl":
+            self.surrogate_model_args.update(
+                {"pipeline_space": self.pipeline_space,
+                 "observed_data": self.observed_configs}
+            )
+            self.surrogate_model = instance_from_map(
+                SurrogateModelMapping,
+                self.surrogate_model_name,
+                name="surrogate model",
+                kwargs=self.surrogate_model_args,
+            )
+
 
 class MyPFNSurrogate(MyFreezeThawModel, PFNSurrogate):
-    pass
+
+    def _predict(self, test_x, test_lcs):
+        # assert self.surrogate_model_name == "pfn" # killed the assert here
+        test_x = self.preprocess_test_set(test_x)
+        return self.surrogate_model.predict(self.train_x, self.train_y, test_x)
+
+    def _fit(self, *args):  # pylint: disable=unused-argument
+        # assert self.surrogate_model_name == "pfn" # killed the assert here
+        self.preprocess_training_set()
+        self.surrogate_model.fit(self.train_x, self.train_y)
 
 
 class IFBO(MFEIBO):
@@ -264,7 +329,10 @@ class IFBO(MFEIBO):
         self.sample_default_first = sample_default_first
         self.sample_default_at_target = sample_default_at_target
 
-        self.surrogate_model_name = surrogate_model
+        if isinstance(surrogate_model, str):
+            self.surrogate_model_name = surrogate_model
+        else:
+            self.surrogate_model_name = surrogate_model.__name__
 
         self.use_priors = use_priors
         self.total_fevals: int = 0
@@ -288,19 +356,23 @@ class IFBO(MFEIBO):
         self._prep_model_args(self.hp_kernels, self.graph_kernels, pipeline_space)
 
         # TODO: Better solution than branching based on the surrogate name is needed
-        if surrogate_model in ["deep_gp", "gp", "dpl"]:
-            model_policy = FreezeThawModel
-        elif surrogate_model == "pfn":
-            model_policy = MyPFNSurrogate
-        else:
-            raise ValueError("Invalid model option selected!")
+        if isinstance(surrogate_model, str):
+            if surrogate_model in ["deep_gp", "gp", "dpl"]:
+                model_policy = FreezeThawModel
+            elif surrogate_model == "pfn":
+                model_policy = MyPFNSurrogate
+            else:
+                raise ValueError("Invalid model option selected!")
 
-        # The surrogate model is initalized here
-        self.model_policy = model_policy(
-            pipeline_space=pipeline_space,
-            surrogate_model=surrogate_model,
-            surrogate_model_args=self.surrogate_model_args,
-        )
+            # The surrogate model is initalized here
+            self.model_policy = model_policy(
+                pipeline_space=pipeline_space,
+                surrogate_model=surrogate_model,
+                surrogate_model_args=self.surrogate_model_args,
+            )
+        else:
+            self.model_policy = surrogate_model
+
         self.acquisition_args = {} if acquisition_args is None else acquisition_args
         self.acquisition_args.update(
             {
@@ -330,28 +402,3 @@ class IFBO(MFEIBO):
 
         self.evaluation_data = EvaluationData()
 
-
-class IFBO_mixture(MFEIBO):
-    def __init__(
-            self,
-            pipeline_space,
-            max_cost_total,
-            acquisition,
-            acquisition_args,
-            acquisition_sampler,
-            acquisition_sampler_args,
-            surrogate_model,
-            surrogate_model_args,
-            model_name,
-            checkpointing,
-            root_directory,
-            initial_design_fraction,
-            initial_design_size,
-            initial_design_budget,
-            loss_value_on_error,
-            cost_value_on_error,
-            ignore_errors):
-        pass
-
-        # TODO instantiate the PFN surrogate model
-        # TODO in some method pass it optionally the benchmerk data

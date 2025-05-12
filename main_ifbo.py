@@ -339,6 +339,46 @@ def main(cfg: DictConfig):
                 message = f"The pipeline_space has invalid type: {type(pipeline_space)}"
                 raise TypeError(message) from e
 
+
+        # # quickly fix the config (should the algorithm.searcher.surrogate_model not be str)
+        # if not isinstance(cfg.algorithm.searcher.surrogate_model, str):
+        #     # issue originates from default move over from the surrogate model configs
+        #     # searcher_config = cfg.algorithm.searcher
+        #
+        #     surrogate_model = hydra.utils.instantiate(
+        #         cfg.algorithm.surrogate_model.cls,
+        #         logger=file_logger,
+        #         device=device,
+        #         related_task_data=related_task_data
+        #     )
+        #
+        #     searcher = hydra.utils.instantiate(
+        #         cfg.algorithm.searcher,
+        #         pipeline_space=pipeline_space,
+        #         # surrogate_model=surrogate_model
+        #     )
+        # else:
+        if cfg.algorithm.searcher.surrogate_model not in ['pfn', ]:
+            searcher =  cfg.algorithm.name
+        else:
+
+            searcher = hydra.utils.instantiate(
+                cfg.algorithm.searcher,
+                pipeline_space=pipeline_space,
+                # surrogate_model=surrogate_model
+            )
+
+            surrogate_model = hydra.utils.instantiate(
+                cfg.algorithm.surrogate_model.cls,
+                logger=file_logger,
+                device=device,
+                related_task_data=related_task_data
+            )
+
+
+            searcher.model_policy.surrogate_model.nn = surrogate_model
+            searcher.model_policy.surrogate_model_name = surrogate_model.__name__
+
         # -----------------------------------------------------------------------
         neps.run(
             run_pipeline=run_pipeline,
@@ -350,9 +390,7 @@ def main(cfg: DictConfig):
             max_evaluations_total=max_evaluations_total,
 
             # FIXME: backward compat: hasattr(cfg.algorithm, 'searcher') for
-            searcher=hydra.utils.instantiate(cfg.algorithm.searcher, pipeline_space=pipeline_space) \
-            if hasattr(cfg.algorithm, 'searcher') and  '_target_' in \
-               cfg.algorithm.searcher.keys() else  cfg.algorithm.name,
+            searcher=searcher,
 
             # FIXME: add in a searcher instantiation (BaseOptimizer subclass), that will also get
             #  the benchmark instance as info

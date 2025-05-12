@@ -92,6 +92,7 @@ def _calc_reliability(
 
 
 class PFNPPDMixture(AbstractModel):
+    __name__ = "PFNPPDMixture"
     def __init__(
             self,
             model: Union[FTPFN, TransformerModel],
@@ -146,9 +147,17 @@ class PFNPPDMixture(AbstractModel):
         :param min_context_size:
         """
 
+
         self.model: TransformerModel = model if isinstance(model, TransformerModel) else model.model
-        self.model = self.model.to(device)
-        self.criterion = criterion if criterion is not None else model.criterion
+
+
+        # if criterion is not None:
+        #     self.criterion = criterion
+        # elif isinstance(model, FTPFN):
+        #     self.criterion = model.model.criterion
+        # elif isinstance(model, TransformerModel):
+        #     self.criterion = model.criterion
+        self.criterion = criterion if criterion is not None else self.model.criterion
         self.logger = logger
         self.device = device
 
