@@ -351,27 +351,28 @@ def main(cfg: DictConfig):
                 # surrogate_model=surrogate_model
             )
 
-            surrogate_model = hydra.utils.instantiate(
-                cfg.algorithm.surrogate_model.cls,
-                logger=file_logger,
-                device=device,
-                related_task_data=related_task_data
-            )
+            if 'surrogate_model' in cfg.algorithm.keys():
+                surrogate_model = hydra.utils.instantiate(
+                    cfg.algorithm.surrogate_model.cls,
+                    logger=file_logger,
+                    device=device,
+                    related_task_data=related_task_data
+                )
 
-            cfgmodel = cfg.algorithm.surrogate_model
+                cfgmodel = cfg.algorithm.surrogate_model
 
-            train_config = dict(
-                query_task_x=target_task_query_x,
-                query_task_y=target_task_query_y
-            )
-            if 'train_call' in cfgmodel.keys():
-                train_config.update(cfgmodel.train_call)
+                train_config = dict(
+                    query_task_x=target_task_query_x,
+                    query_task_y=target_task_query_y
+                )
+                if 'train_call' in cfgmodel.keys():
+                    train_config.update(cfgmodel.train_call)
 
-            # distillation will return a prefix, pfn_mixture won't
-            surrogate_model.train(**train_config)
+                # distillation will return a prefix, pfn_mixture won't
+                surrogate_model.train(**train_config)
 
-            searcher.model_policy.surrogate_model.nn = surrogate_model
-            searcher.model_policy.surrogate_model_name = surrogate_model.__name__
+                searcher.model_policy.surrogate_model.nn = surrogate_model
+                searcher.model_policy.surrogate_model_name = surrogate_model.__name__
 
         # -----------------------------------------------------------------------
         neps_dir = f"neps_root_directory_{target_task}_{train_ids}_{seed}"
