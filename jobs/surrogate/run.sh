@@ -1,7 +1,7 @@
 #!/bin/bash
 # jobs/submit_array.sh
 
-PARAM_FILE="$BIGWORK/ExperiencedFT-PFNs/jobs/job_params.txt"
+PARAM_FILE="$BIGWORK/ExperiencedFT-PFNs/jobs/surrogate/job_params.txt"
 NUM_PARAMS=$(wc -l < "$PARAM_FILE")
 
 INTERVAL_SIZE=25
@@ -45,7 +45,7 @@ for ((i=0; i<$NUM_PARAMS; i++)); do
            --partition=$PARTITION \
            $GRES \
            $EXCLUDE \
-           $BIGWORK/ExperiencedFT-PFNs/jobs/array_job.sh "$EXPERIMENT_NAME" "$DEVICE" "$LINE"
+           $BIGWORK/ExperiencedFT-PFNs/jobs/surrogate/array_job.sh "$EXPERIMENT_NAME" "$DEVICE" "$LINE"
 
 done
 

@@ -29,7 +29,7 @@ echo "SPLIT_SEED: $SPLIT_SEED"
 echo "ALLOCATION_SEEDS: [$START,$END]"
 echo "DEVICE: $DEVICE"
 
-bash jobs/start_hydra.sh \
+bash jobs/surrogate/start_hydra.sh \
   experiment_name=$EXPERIMENT_NAME \
   device=$DEVICE \
   model=$MODEL \

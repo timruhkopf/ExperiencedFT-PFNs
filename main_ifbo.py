@@ -60,18 +60,18 @@ def main(cfg: DictConfig):
     """
 
     import shutil
-
+    logger.info(f'Sweep dir: {Path.cwd()}')
     logger.info(OmegaConf.to_yaml(cfg))
 
     # TODO: for fair experimentation, make this a benchmark property overriding algo
     if hasattr(cfg.benchmark, "api"):
         delattr(cfg.benchmark.api, "step_size")
 
-    # TODO: @TIM make MFPBENCHPRIOR a proper benchmark class and add api to config
-    #  lcbench-126026.yaml
-    #  pd1-tabular-cifar10_wideresnet_256.yaml
-    #  taskset-tabular-nlp-1-4p.yaml
-    #  as example for the benchmark.api
+        # TODO: @TIM make MFPBENCHPRIOR a proper benchmark class and add api to config
+        #  lcbench-126026.yaml
+        #  pd1-tabular-cifar10_wideresnet_256.yaml
+        #  taskset-tabular-nlp-1-4p.yaml
+        #  as example for the benchmark.api
 
         benchmark: Benchmark = hydra.utils.instantiate(cfg.benchmark.api)  # type: ignore
 
@@ -155,10 +155,7 @@ def main(cfg: DictConfig):
 
         with SeededRandomContext(seed):
             config = dict(
-                single_eval_pos=[
-                    500,  # target task length
-                    *np.random.randint(200, 500, len(train_ids)).tolist()
-                ],
+                single_eval_pos=[500] * (len(train_ids) + 1),
                 alphas=[10 ** np.random.uniform(-4, -1) for _ in range(len(train_ids) + 1)],
                 **cfg.benchmark.sample_config if hasattr(cfg.benchmark, 'sample_config') else {}
             )
@@ -210,7 +207,8 @@ def main(cfg: DictConfig):
             max_fidelity_result = full_trajectory[-1]
 
             # best seen till the fidelity specified
-            _result, min_valid_seen, min_test_seen = process_mfpbench_trajectories(trajectory_to_query)
+            _result, min_valid_seen, min_test_seen = process_mfpbench_trajectories(
+                trajectory_to_query)
             # best seen ever for the config till max fidelity
             _, min_valid_ever, min_test_ever = process_mfpbench_trajectories(full_trajectory)
 
@@ -238,7 +236,7 @@ def main(cfg: DictConfig):
                     "learning_curves": _result,
                 },
             }
-        print()
+
         pipeline_space = {
             "search_space": benchmark.space
         }
@@ -344,7 +342,7 @@ def main(cfg: DictConfig):
         # ---------------------------------------------------
 
         if cfg.algorithm.searcher.surrogate_model not in ['pfn', 'dpl', 'deep_gp']:
-            searcher =  cfg.algorithm.name
+            searcher = cfg.algorithm.name
         else:
 
             searcher = hydra.utils.instantiate(
@@ -372,15 +370,15 @@ def main(cfg: DictConfig):
             # distillation will return a prefix, pfn_mixture won't
             surrogate_model.train(**train_config)
 
-
             searcher.model_policy.surrogate_model.nn = surrogate_model
             searcher.model_policy.surrogate_model_name = surrogate_model.__name__
 
         # -----------------------------------------------------------------------
+        neps_dir = f"neps_root_directory_{target_task}_{train_ids}_{seed}"
         neps.run(
             run_pipeline=run_pipeline,
             pipeline_space=pipeline_space,
-            root_directory="neps_root_directory",
+            root_directory=neps_dir,
             # TODO: figure out how to pass runtime budget and if metahyper internally
             #  calculates continuation costs to subtract from optimization budget
             # **budget_args,
@@ -392,9 +390,8 @@ def main(cfg: DictConfig):
             # FIXME: add in a searcher instantiation (BaseOptimizer subclass), that will also get
             #  the benchmark instance as info
 
-
             searcher_path=Path(__file__).parent / 'ifBO_icml2024' / 'src' / 'pfns_hpo' /
-                          'pfns_hpo'/ 'configs' / "algorithm",
+                          'pfns_hpo' / 'configs' / "algorithm",
             overwrite_working_directory=OVERWRITE,
             pre_load_hooks=[set_grid_table_space],  # crucial in allowing tabular grid access
             post_run_summary=True,  # important for efficient plotting
@@ -403,15 +400,18 @@ def main(cfg: DictConfig):
         if "mf" in cfg.algorithm and cfg.algorithm.mf:
             plotter = Plotter3D(
                 algorithm=cfg.algorithm.name,
-                benchmark=cfg.benchmark.name,
+                benchmark=cfg.benchmark.name if 'name' in cfg.benchmark.keys() else
+                cfg.benchmark.meta.name,
                 experiment_group=cfg.experiment_group,
                 seed=cfg.seed
             )
             _df = pd.read_csv(
-                Path().cwd() / "neps_root_directory" / "summary_csv" / "config_data.csv",
+                Path().cwd() / neps_dir / "summary_csv" / "config_data.csv",
                 float_precision="round_trip"
             )
             plotter.plot3D(data=_df, run_path=Path().cwd())
+
+    file_logger.close()
 
 
 if __name__ == '__main__':
