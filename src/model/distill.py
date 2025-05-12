@@ -94,7 +94,7 @@ class DistillContext(AbstractModel):
 
         self.optimizer_partial = optimizer
         self.optimizer = None
-        self.criterion = criterion if criterion is not None else model.criterion
+        self.criterion = criterion if criterion is not None else self.model.criterion
         self.related_task_data = related_task_data
 
         self.logger = logger

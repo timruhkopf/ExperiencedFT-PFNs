@@ -61,6 +61,8 @@ def main(cfg: DictConfig):
 
     import shutil
 
+    logger.info(OmegaConf.to_yaml(cfg))
+
     # TODO: for fair experimentation, make this a benchmark property overriding algo
     if hasattr(cfg.benchmark, "api"):
         delattr(cfg.benchmark.api, "step_size")
@@ -339,26 +341,9 @@ def main(cfg: DictConfig):
                 message = f"The pipeline_space has invalid type: {type(pipeline_space)}"
                 raise TypeError(message) from e
 
+        # ---------------------------------------------------
 
-        # # quickly fix the config (should the algorithm.searcher.surrogate_model not be str)
-        # if not isinstance(cfg.algorithm.searcher.surrogate_model, str):
-        #     # issue originates from default move over from the surrogate model configs
-        #     # searcher_config = cfg.algorithm.searcher
-        #
-        #     surrogate_model = hydra.utils.instantiate(
-        #         cfg.algorithm.surrogate_model.cls,
-        #         logger=file_logger,
-        #         device=device,
-        #         related_task_data=related_task_data
-        #     )
-        #
-        #     searcher = hydra.utils.instantiate(
-        #         cfg.algorithm.searcher,
-        #         pipeline_space=pipeline_space,
-        #         # surrogate_model=surrogate_model
-        #     )
-        # else:
-        if cfg.algorithm.searcher.surrogate_model not in ['pfn', ]:
+        if cfg.algorithm.searcher.surrogate_model not in ['pfn', 'dpl', 'deep_gp']:
             searcher =  cfg.algorithm.name
         else:
 
@@ -374,6 +359,18 @@ def main(cfg: DictConfig):
                 device=device,
                 related_task_data=related_task_data
             )
+
+            cfgmodel = cfg.algorithm.surrogate_model
+
+            train_config = dict(
+                query_task_x=target_task_query_x,
+                query_task_y=target_task_query_y
+            )
+            if 'train_call' in cfgmodel.keys():
+                train_config.update(cfgmodel.train_call)
+
+            # distillation will return a prefix, pfn_mixture won't
+            surrogate_model.train(**train_config)
 
 
             searcher.model_policy.surrogate_model.nn = surrogate_model
