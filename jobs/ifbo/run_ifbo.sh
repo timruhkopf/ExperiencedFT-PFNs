@@ -5,9 +5,8 @@
 #SBATCH --time=48:00:00
 #SBATCH --output=%x_%A_%a.out
 #SBATCH --error=%x_%A_%a.err
-#SBATCH --partition=ai,tnt
 #SBATCH --gres=gpu:1
-#SBATCH --array=0-35
+#SBATCH --array=0-26
 
 
 #for split in range(3):
@@ -43,3 +42,6 @@ $BIGWORK/ExperiencedFT-PFNs/jobs/ifbo/start_hydra_ifbo.sh \
     benchmark=$BENCH \
     +algorithm=$MODEL \
     split_seed=$SPLIT_SEED
+
+
+#sbatch --array=0-26 jobs/ifbo/run_ifbo.sh ifbo-execution
