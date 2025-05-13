@@ -10,3 +10,15 @@ pfn_argmin sanity_same 42
 pfn_argmin lcbench 42
 pfn_argmin pd1 42
 pfn_argmin taskset 42
+distill sanity_same 43
+distill lcbench 43
+distill pd1 43
+distill taskset 43
+pfn_softmax sanity_same 43
+pfn_softmax lcbench 43
+pfn_softmax pd1 43
+pfn_softmax taskset 43
+pfn_argmin sanity_same 43
+pfn_argmin lcbench 43
+pfn_argmin pd1 43
+pfn_argmin taskset 43
