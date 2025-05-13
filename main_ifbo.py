@@ -180,7 +180,7 @@ def main(cfg: DictConfig):
                 padding_mask = related_task_data.padding_mask
                 n_related_tasks = related_task_data.x.shape[1]
 
-                for k in ['x', 'y', 'query_x', 'query_y']:
+                for k in ['x', 'y', 'query_x', 'query_y', 'padding_mask']:
                     if hasattr(related_task_data, k) and isinstance(
                             related_task_data.__getattribute__(k), torch.Tensor):
                         related_task_data.__setattr__(k,related_task_data.__getattribute__(k).to(device))

@@ -17,7 +17,7 @@ def _calc_reliability(
         context_y: torch.Tensor,
         related_task_data: MyBatch,  # type: ignore
         criterion: BarDistribution,
-        peeking:Dict[str, torch.Tensor] = None
+        peeking: Dict[str, torch.Tensor] = None
 ) -> torch.Tensor:
     """
     Calculate the reliability of the related task with respect to the current task.
@@ -93,15 +93,16 @@ def _calc_reliability(
 
 class PFNPPDMixture(AbstractModel):
     __name__ = "PFNPPDMixture"
+
     def __init__(
             self,
             model: Union[FTPFN, TransformerModel],
-            logger:BufferedFileLogger,
+            logger: BufferedFileLogger,
             device,
             related_task_data: MyBatch,
             decay_fn: Callable,
             mixture_fn: Callable,
-            reliability_fn: Callable=_calc_reliability,
+            reliability_fn: Callable = _calc_reliability,
             criterion=None,
             min_context_size: int = 10,
 
@@ -147,9 +148,7 @@ class PFNPPDMixture(AbstractModel):
         :param min_context_size:
         """
 
-
         self.model: TransformerModel = model if isinstance(model, TransformerModel) else model.model
-
 
         # if criterion is not None:
         #     self.criterion = criterion
@@ -191,7 +190,6 @@ class PFNPPDMixture(AbstractModel):
 
         return logits
 
-
     @torch.no_grad()
     def _forward(self, context_x, context_y, query_x, *args, **kwargs) -> (
             torch.Tensor):
@@ -224,6 +222,9 @@ class PFNPPDMixture(AbstractModel):
             self.criterion.num_bars
         )
 
+        context_x = context_x.to(self.device)
+        context_y = context_y.to(self.device)
+
         if context_size >= self.min_context_size:
             # calculate the reliability scores for the related tasks
             reliability_scores = self.reliability_fn(
@@ -241,8 +242,9 @@ class PFNPPDMixture(AbstractModel):
             )
         else:
             # if we have no context points, we must assume all are equally likely
-            reliability_scores = -torch.log(torch.ones(len(self.related_task_data))).to(
-                context_x.device)
+            reliability_scores = -torch.log(torch.ones(len(self.related_task_data)))
+
+        reliability_scores = reliability_scores.to(self.device)
 
         # 0 idx is reserved for the current task
         for i, score in enumerate(reliability_scores):
@@ -274,20 +276,6 @@ class PFNPPDMixture(AbstractModel):
         # TODO check the device of each tensor and if not on the device as the model, move it (
         # inplace)
 
-        def move_to_device(tensor, device):
-            if tensor.device != device:
-                return tensor.to(device)
-            return tensor
-
-        def move_all_to_device(tensors, device):
-            return [move_to_device(t, device) for t in tensors]
-
-        context_x, query_x, task_context_x, task_context_y, padding_mask = move_all_to_device(
-            [context_x, query_x, self.related_task_data.x, self.related_task_data.y,
-             self.related_task_data.padding_mask],
-            self.device
-        )
-
         related_logits = self.model(
             (
                 torch.cat([task_context_x, query_x.repeat(1, num_related, 1)], dim=0),
@@ -317,8 +305,6 @@ class PFNPPDMixture(AbstractModel):
         )
 
         return mixture_logits
-
-
 
 
 # def calc_logits_mixture(
