@@ -4,9 +4,6 @@
 #SBATCH --error=start_hydra%j.err
 
 #SBATCH --nodes=1
-#SBATCH --partition=ai,taurus,amo
-#SBATCH --exclude=ai-n[001-004],ai-n009
-
 #SBATCH --time=48:00:00
 #SBATCH --cpus-per-task=8
 
@@ -19,9 +16,22 @@ echo 'activating conda'
 
 REPONAME=ExperiencedFT-PFNs
 
-conda activate $BIGWORK/envs/eft-pfn2
+# on kisski:
+module load Miniforge3
+conda activate /mnt/home/truhkopf/.conda/envs/ft-pfn
+
+BIGWORK=~
 export PYTHONPATH=$BIGWORK/$REPONAME/src:$PYTHONPATH
 export PYTHONPATH=$BIGWORK/$REPONAME/ifBO_main:$PYTHONPATH
+
+#HYDRA_FULL_ERROR=1; python $REPONAME/main_ifbo.py benchmark=lcbench device=cuda +algorithm=ifbo ~fold
+#python
+#torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+#
+#conda activate $BIGWORK/envs/eft-pfn2
+#export PYTHONPATH=$BIGWORK/$REPONAME/src:$PYTHONPATH
+#export PYTHONPATH=$BIGWORK/$REPONAME/ifBO_main:$PYTHONPATH
 
 
 export CUBLAS_WORKSPACE_CONFIG=:4096:8
@@ -92,4 +102,7 @@ wait
 #watch -n 1 nvidia-smi
 
 #salloc --partition=ai  --nodes=1  --time=02:00:00  --cpus-per-task=8  --gres=gpu:1  --mem=8GB
+
+#srun --pty bash # on kisski connect to the job
+
 #HYDRA_FULL_ERROR=1 python main.py smactuner.epochs=1 smactuner='al' scheduler='sh' +budgets=[0.0001,0.0002,0.0003] n_init_cfgs=2 dataset='cifar10' smactuner.batch_size=512 smactuner.track_scores=False seed=1 al_method='DCOM' dataset.path='/bigwork/nhwpruht/AdaptiveMFSimple/data' +pretrain_epochs=1

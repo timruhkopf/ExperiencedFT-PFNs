@@ -8,7 +8,7 @@ version = "0.4.1"
 description = "In-Context Distillation for warm starting FTPFN
 authors = [
     { name="Tim Ruhkopf", email="timruhkopf@gmail.com" },
-    { name="Dang Hung Do"}
+    { name="Dang Hung Do"},
     { name="Marius Lindauer"}
 ]
 readme = "README.md"
@@ -73,7 +73,6 @@ dependencies = [
 
 
     # torch with gpu support
-]
 
 [project.optional-dependencies]
 dev = [

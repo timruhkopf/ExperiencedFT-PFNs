@@ -34,6 +34,9 @@ SPLIT_SEED=$(echo $LINE | awk '{print $3}')
 JOB_NAME="${MODEL}_${BENCH}"
 
 # Call your actual job script
+
+# TODO at least once:
+#chmod +x /bigwork/nhwpruht/ExperiencedFT-PFNs/jobs/ifbo/start_hydra_ifbo.sh
 $BIGWORK/ExperiencedFT-PFNs/jobs/ifbo/start_hydra_ifbo.sh \
     experiment_name=$EXPERIMENT_NAME \
     device=cuda \

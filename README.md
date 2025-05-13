@@ -32,6 +32,10 @@ pip install -e .
 git clone git@github.com:automl/ifBO.git ifBO_icml2024
 git checkout icml-2024
 pip install -U ifBO_icml24
+pip install -U ifBO_icml2024/src/neps_lcpfn_hpo
+pip install -U ifBO_icml2024/src/mf-prior-bench
+pip install -U ifBO_icml2024/src/PFNs4HPO
+
 # collect the padding changes
 
 git clone git@github.com:automl/ifBO.git ifBO_main
