@@ -23,6 +23,7 @@ conda activate /mnt/home/truhkopf/.conda/envs/ft-pfn
 BIGWORK=~
 export PYTHONPATH=$BIGWORK/$REPONAME/src:$PYTHONPATH
 export PYTHONPATH=$BIGWORK/$REPONAME/ifBO_main:$PYTHONPATH
+export PYTHONPATH=$BIGWORK/$REPONAME/ifBO_icml2024:$PYTHONPATH
 
 #HYDRA_FULL_ERROR=1; python $REPONAME/main_ifbo.py benchmark=lcbench device=cuda +algorithm=ifbo ~fold
 #python

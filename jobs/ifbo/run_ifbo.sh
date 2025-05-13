@@ -18,7 +18,11 @@
 
 # Arguments
 EXPERIMENT_NAME=$1
-$BIGWORK=~ # Path to your big work directory
+if [[ $HOME == /mnt/home* ]]; then
+  # if we are on kisski
+    BIGWORK=$HOME
+fi
+
 
 # File with parameter lines
 PARAM_FILE="$BIGWORK/ExperiencedFT-PFNs/jobs/ifbo/job_params.txt"

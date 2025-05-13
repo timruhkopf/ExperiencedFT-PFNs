@@ -3,6 +3,8 @@ import time
 import logging
 import warnings
 from itertools import product
+
+from neps.search_spaces.parameter import Parameter
 from tqdm import tqdm
 from typing import Any, List
 
@@ -314,7 +316,9 @@ def main(cfg: DictConfig):
                     space: CS.ConfigurationSpace = benchmark.space,
             ) -> Any:
                 # both table and space are required to handle tabular spaces
-                obj.pipeline_space.set_custom_grid_space(table, space)
+                hps = list(set(space.keys()).intersection(set(table.columns)))
+
+                obj.pipeline_space.set_custom_grid_space(table[hps], space)
                 if SET_BOUNDS_FROM_TABLE_FLAG:
                     obj = set_bounds_from_table(obj, table, space)
                 return obj
