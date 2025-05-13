@@ -10,7 +10,7 @@
 
 
 #for split in range(3):
-#    for algo in ['ifbo', 'ifbo-pfnargmin', 'ifbo-pfn_softmax', 'ifbo-distill']:
+#    for algo in ['ifbo', 'ifbo-pfnargmin', 'ifbo-pfn-softmax', 'ifbo-distill']:
 #        for bench in ['lcbench', 'taskset', 'pd1']:
 #
 #            print( f"{bench} {algo} {split}")
