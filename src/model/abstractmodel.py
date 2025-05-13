@@ -39,6 +39,10 @@ class AbstractModel:
             'query_x': kwargs['x_test'].unsqueeze(1)
             }
 
+            device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+            kwargs = {k: v.to(device) for k, v in kwargs.items()}
+
 
         if 'single_eval_pos' in kwargs:
             del kwargs['single_eval_pos']

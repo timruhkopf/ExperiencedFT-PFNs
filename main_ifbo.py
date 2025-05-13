@@ -178,6 +178,8 @@ def main(cfg: DictConfig):
                 padding_mask = related_task_data.padding_mask
                 n_related_tasks = related_task_data.x.shape[1]
 
+                related_task_data = {k: v.to(device) for k, v in related_task_data.items()}
+
         # --------------------------------------------------------------------------
 
         # CRUCIAL check to determine if the benchmark is tabular (list of configs)
