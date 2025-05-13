@@ -285,7 +285,7 @@ class PFNPPDMixture(AbstractModel):
         context_x, query_x, task_context_x, task_context_y, padding_mask = move_all_to_device(
             [context_x, query_x, self.related_task_data.x, self.related_task_data.y,
              self.related_task_data.padding_mask],
-            self.model.device
+            self.device
         )
 
         related_logits = self.model(
