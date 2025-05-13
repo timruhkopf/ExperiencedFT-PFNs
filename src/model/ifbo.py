@@ -51,7 +51,7 @@ class MyBaseModel(BaseModel):
         with torch.serialization.safe_globals([ifbo.transformer.TransformerModel]):
             # (FUCK YOU GUYS with your absolute magic path name)
             self.model = torch.load(
-                path, map_location="cpu",
+                path, map_location=torch.device('cuda' if torch.cuda.is_available() else 'cpu'),
                 weights_only=False
             )
 

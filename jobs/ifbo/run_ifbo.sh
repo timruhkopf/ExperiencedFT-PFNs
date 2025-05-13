@@ -18,6 +18,7 @@
 
 # Arguments
 EXPERIMENT_NAME=$1
+$BIGWORK=~ # Path to your big work directory
 
 # File with parameter lines
 PARAM_FILE="$BIGWORK/ExperiencedFT-PFNs/jobs/ifbo/job_params.txt"
