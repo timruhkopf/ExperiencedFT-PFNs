@@ -153,7 +153,7 @@ def main(cfg: DictConfig):
                 # FIXME if for compat. reasons in debugging
                 benchmark.collect_task_split(target_id=target_task, train_ids=train_ids)
 
-        with SeededRandomContext(seed):
+        with (SeededRandomContext(seed)):
             config = dict(
                 single_eval_pos=[500] * (len(train_ids) + 1),
                 alphas=[10 ** np.random.uniform(-4, -1) for _ in range(len(train_ids) + 1)],
@@ -178,7 +178,12 @@ def main(cfg: DictConfig):
                 padding_mask = related_task_data.padding_mask
                 n_related_tasks = related_task_data.x.shape[1]
 
-                related_task_data = {k: v.to(device) for k, v in related_task_data.items()}
+                for k in ['x', 'y', 'query_x', 'query_y']:
+                    if hasattr(related_task_data, k) and isinstance(
+                            related_task_data.__getattribute__(k), torch.Tensor):
+                        related_task_data.__setattr__(k,related_task_data.__getattribute__(k).to(device))
+
+
 
         # --------------------------------------------------------------------------
 
