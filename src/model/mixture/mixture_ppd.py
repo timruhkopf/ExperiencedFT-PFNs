@@ -271,6 +271,23 @@ class PFNPPDMixture(AbstractModel):
         padding_mask = self.related_task_data.padding_mask
         num_related = task_context_x.shape[1]
 
+        # TODO check the device of each tensor and if not on the device as the model, move it (
+        # inplace)
+
+        def move_to_device(tensor, device):
+            if tensor.device != device:
+                return tensor.to(device)
+            return tensor
+
+        def move_all_to_device(tensors, device):
+            return [move_to_device(t, device) for t in tensors]
+
+        context_x, query_x, task_context_x, task_context_y, padding_mask = move_all_to_device(
+            [context_x, query_x, self.related_task_data.x, self.related_task_data.y,
+             self.related_task_data.padding_mask],
+            self.model.device
+        )
+
         related_logits = self.model(
             (
                 torch.cat([task_context_x, query_x.repeat(1, num_related, 1)], dim=0),
