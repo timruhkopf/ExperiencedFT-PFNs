@@ -99,6 +99,9 @@ python $BIGWORK/$REPONAME/src/utils/read_data.py \
 
 wait
 
+# scp -r nhwpruht@transfer.cluster.uni-hannover.de:/bigwork/nhwpruht/ExperiencedFT-PFNs/output/surrogate_new_seeds/joint_results.csv /home/ruhkopf/PycharmProjects/ExperiencedFT-PFNs/luis_results/surrogate_joint_results.csv
+
+
 
 #watch -n 1 nvidia-smi
 
