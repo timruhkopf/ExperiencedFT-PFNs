@@ -13,7 +13,7 @@ allocation_seeds: [42, 43] # refers to the budget sizes and budget allocations o
 device: 'cpu'
 #k_folds: 5
 fold_size: 5
-fold: 0
+#fold: 0
 
 repo_root: ${resolve_path:''}
 experiment_name: base

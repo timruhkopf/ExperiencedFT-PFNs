@@ -69,7 +69,7 @@ def main(cfg: DictConfig):
     if hasattr(cfg.benchmark, "api"):
         delattr(cfg.benchmark.api, "step_size")
 
-        # TODO: @TIM make MFPBENCHPRIOR a proper benchmark class and add api to config
+        # TODO:  make MFPBENCHPRIOR a proper benchmark class and add api to config
         #  lcbench-126026.yaml
         #  pd1-tabular-cifar10_wideresnet_256.yaml
         #  taskset-tabular-nlp-1-4p.yaml
@@ -281,7 +281,7 @@ def main(cfg: DictConfig):
             # extracting and processing the tabular data and raw space
             #
             if hasattr(benchmark, 'sample_batch'):
-                _table = preprocess_tabular(benchmark.target_benchmark.name, benchmark.table)
+                _table = preprocess_tabular(cfg.benchmark.meta.name, benchmark.table)
             else:
                 _table = preprocess_tabular(cfg.benchmark.name, benchmark.table)
             # updates the pipeline_space to be only config IDs mapping to tabular data
@@ -316,9 +316,10 @@ def main(cfg: DictConfig):
                     space: CS.ConfigurationSpace = benchmark.space,
             ) -> Any:
                 # both table and space are required to handle tabular spaces
-                hps = list(set(space.keys()).intersection(set(table.columns)))
+                # hps = list(set(space.keys()).intersection(set(table.columns)))
 
-                obj.pipeline_space.set_custom_grid_space(table[hps], space)
+                # obj.pipeline_space.set_custom_grid_space(table[hps], space)
+                obj.pipeline_space.set_custom_grid_space(table, space)
                 if SET_BOUNDS_FROM_TABLE_FLAG:
                     obj = set_bounds_from_table(obj, table, space)
                 return obj
@@ -386,7 +387,7 @@ def main(cfg: DictConfig):
                 searcher.model_policy.surrogate_model_name = surrogate_model.__name__
 
         # -----------------------------------------------------------------------
-        neps_dir = f"neps_root_directory_{target_task}_{train_ids}_{seed}"
+        neps_dir = f"neps_root_directory_{target_task}_{train_ids}_{cfg.split_seed}_{seed}"
         neps.run(
             run_pipeline=run_pipeline,
             pipeline_space=pipeline_space,

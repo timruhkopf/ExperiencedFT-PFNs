@@ -10,7 +10,7 @@
 
 
 #for split in range(3):
-#    for algo in ['ifbo', 'ifbo-pfnargmin', 'ifbo-pfn-softmax', 'ifbo-distill']:
+#    for algo in ['ifbo', 'ifbo-pfnargmin', 'ifbo-pfnsoftmax', 'ifbo-distill']:
 #        for bench in ['lcbench', 'taskset', 'pd1']:
 #
 #            print( f"{bench} {algo} {split}")
@@ -50,4 +50,13 @@ $BIGWORK/ExperiencedFT-PFNs/jobs/ifbo/start_hydra_ifbo.sh \
     ~fold
 
 
+
+#for i in {0..8}; do
+#  echo "===== Last 50 lines of ifbo_array_380079_${i}.err ====="
+#  tail -n 50 "ifbo_array_380079_${i}.err"
+#  echo
+#done
+
 #sbatch --array=0-26 jobs/ifbo/run_ifbo.sh ifbo-execution
+#
+#experiment_name=ifbo-pfnsoftmax benchmark=pd1 +algorithm=ifbo-pfnsoftmax split_seed=0
