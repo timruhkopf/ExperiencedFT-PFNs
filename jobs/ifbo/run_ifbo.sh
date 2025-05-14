@@ -46,7 +46,8 @@ $BIGWORK/ExperiencedFT-PFNs/jobs/ifbo/start_hydra_ifbo.sh \
     device=cuda \
     benchmark=$BENCH \
     +algorithm=$MODEL \
-    split_seed=$SPLIT_SEED
+    split_seed=$SPLIT_SEED \
+    ~fold
 
 
 #sbatch --array=0-26 jobs/ifbo/run_ifbo.sh ifbo-execution
