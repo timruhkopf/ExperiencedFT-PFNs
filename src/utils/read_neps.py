@@ -97,3 +97,5 @@ def parse_and_save(
 
 if __name__ == '__main__':
     fire.Fire(parse_and_save)
+
+# python src/utils/read_neps.py /mnt/home/truhkopf/ExperiencedFT-PFNs/outputs/2025-05-13 --pattern all_losses_and_configs.txt --csv /mnt/home/truhkopf/ExperiencedFT-PFNs/neps_output1.csv --hydra_keys "[\"experiment_name\", \"benchmark.meta.name\", \"algorithm.name\", \"algorithm.surrogate_model.meta.name\"]"
