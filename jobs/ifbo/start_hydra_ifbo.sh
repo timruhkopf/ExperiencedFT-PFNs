@@ -89,15 +89,17 @@ wait
 
 echo "Hydra output directory: $HYDRA_DIR"
 
-echo "Running read_data:"
-DIR=$BIGWORK/$REPONAME/$HYDRA_DIR
-python $BIGWORK/$REPONAME/src/utils/read_data.py \
-  --root_dir $DIR \
-  --file_pattern "results.csv" \
-  --keys "[\"experiment_name\",\"model.meta.name\",\"benchmark.meta.name\"]" \
-  - to_csv $DIR/joint_results.csv
+#
+#commit_hash=$(git log -1 --pretty=format:"%h")
+#echo "Running read_data:"
+#DIR=$BIGWORK/$REPONAME/$HYDRA_DIR
+#python $BIGWORK/$REPONAME/src/utils/read_neps.py \
+#  --root_dir $DIR \
+#  --file_pattern "all_losses_and_configs.txt" \
+#  --keys "[\"experiment_name\",\"model.meta.name\",\"benchmark.meta.name\"]" \
+#  - to_csv $DIR/joint_results_$commit_hash.csv
 
-wait
+#wait
 
 # scp -r nhwpruht@transfer.cluster.uni-hannover.de:/bigwork/nhwpruht/ExperiencedFT-PFNs/output/surrogate_new_seeds/joint_results.csv /home/ruhkopf/PycharmProjects/ExperiencedFT-PFNs/luis_results/surrogate_joint_results.csv
 

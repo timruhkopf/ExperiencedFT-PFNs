@@ -17,7 +17,6 @@
 
 
 # Arguments
-EXPERIMENT_NAME=$1
 if [[ $HOME == /mnt/home* ]]; then
   # if we are on kisski
     BIGWORK=$HOME
@@ -43,11 +42,11 @@ JOB_NAME="${MODEL}_${BENCH}"
 chmod +x $BIGWORK/ExperiencedFT-PFNs/jobs/ifbo/start_hydra_ifbo.sh
 
 $BIGWORK/ExperiencedFT-PFNs/jobs/ifbo/start_hydra_ifbo.sh \
-    experiment_name=$EXPERIMENT_NAME \
     device=cuda \
     benchmark=$BENCH \
     +algorithm=$MODEL \
     split_seed=$SPLIT_SEED \
+    $@
 
 
 
