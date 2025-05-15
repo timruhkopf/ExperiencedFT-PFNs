@@ -15,6 +15,27 @@
 #
 #            print( f"{bench} {algo} {split}")
 
+# File with parameter lines
+PARAM_FILE="$BIGWORK/ExperiencedFT-PFNs/jobs/ifbo/job_params.txt"
+
+# Count the number of lines in the parameter file
+NUM_LINES=$(wc -l < "$PARAM_FILE")
+
+# Extract the array range from SLURM_ARRAY_TASK_ID and SLURM_ARRAY_TASK_COUNT
+# SLURM_ARRAY_TASK_COUNT is available in recent SLURM versions and gives the total number of array tasks
+if [[ -z "$SLURM_ARRAY_TASK_COUNT" ]]; then
+  # Fallback: try to infer from the array range (e.g., 0-26 means 27 tasks)
+  ARRAY_COUNT=$(( $(echo "$SLURM_ARRAY_TASK_MAX" - "$SLURM_ARRAY_TASK_MIN" + 1 | bc) ))
+else
+  ARRAY_COUNT="$SLURM_ARRAY_TASK_COUNT"
+fi
+
+if [[ "$NUM_LINES" -ne "$ARRAY_COUNT" ]]; then
+  echo "ERROR: Number of lines in \$PARAM_FILE ($NUM_LINES) does not match number of array jobs ($ARRAY_COUNT)."
+  echo "Aborting."
+  exit 1
+fi
+
 
 # Arguments
 if [[ $HOME == /mnt/home* ]]; then
