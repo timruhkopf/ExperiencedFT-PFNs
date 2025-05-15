@@ -10,12 +10,14 @@ import fire
 import yaml
 from omegaconf import DictConfig, OmegaConf
 
+
 def find_files_recursive(root_dir, pattern):
     matches = []
     for dirpath, _, filenames in os.walk(root_dir):
         for filename in fnmatch.filter(filenames, pattern):
             matches.append(os.path.join(dirpath, filename))
     return matches
+
 
 def find_hydra_config_dir(filepath: str) -> Path:
     path = Path(filepath).parent
@@ -26,19 +28,22 @@ def find_hydra_config_dir(filepath: str) -> Path:
         path = path.parent
     raise FileNotFoundError(f"No .hydra/config.yaml found for {filepath}")
 
+
 def config_parser(config_path: Path, keys: List[str]) -> dict:
     new_config = {}
     with open(config_path / "hydra.yaml", 'r') as hydra_file:
         hydra_config = yaml.safe_load(hydra_file)
     hydra_config = DictConfig(hydra_config)
     if 'search_space' in hydra_config.hydra.sweeper:
-        keys = keys + list(OmegaConf.select(hydra_config, 'hydra.sweeper.search_space.hyperparameters').keys())
+        keys = keys + list(
+            OmegaConf.select(hydra_config, 'hydra.sweeper.search_space.hyperparameters').keys())
     with open(config_path / "config.yaml", 'r') as config_file:
         config = yaml.safe_load(config_file)
     config = DictConfig(config)
     for key in keys:
         new_config[key] = OmegaConf.select(config, key)
     return new_config
+
 
 def parse_loss_config_file(filepath, hydra_config: Dict):
     with open(filepath, "r") as f:
@@ -61,6 +66,7 @@ def parse_loss_config_file(filepath, hydra_config: Dict):
         rows.append(row)
     return pd.DataFrame(rows)
 
+
 def group_files_by_hydra(files: List[str]) -> Dict[Path, List[str]]:
     groups = {}
     for f in files:
@@ -71,14 +77,15 @@ def group_files_by_hydra(files: List[str]) -> Dict[Path, List[str]]:
             continue
     return groups
 
+
 def parse_and_save(
-    root_dir,
-    csv,
-    hydra_keys: List[str],
-    pattern="all_losses_and_configs.txt",
-    workers=4
+        root_dir,
+        keys: List[str],
+        csv=None,
+        file_pattern="all_losses_and_configs.txt",
+        workers=4
 ):
-    files = find_files_recursive(root_dir, pattern)
+    files = find_files_recursive(root_dir, file_pattern)
     if not files:
         print("No files found.")
         return
@@ -86,14 +93,17 @@ def parse_and_save(
     grouped = group_files_by_hydra(files)
     all_dfs = []
     for hydra_dir, group_files in grouped.items():
-        hydra_config = config_parser(hydra_dir, hydra_keys.copy())
+        hydra_config = config_parser(hydra_dir, keys.copy())
         parse_func = partial(parse_loss_config_file, hydra_config=hydra_config)
         with Pool(workers) as pool:
             dfs = pool.map(parse_func, group_files)
         all_dfs.extend(dfs)
     df = pd.concat(all_dfs, ignore_index=True) if all_dfs else pd.DataFrame()
-    df.to_csv(csv, index=False)
-    print(f"Saved {len(df)} rows to {csv}")
+    if csv is not None:
+        df.to_csv(csv, index=False)
+        print(f"Saved {len(df)} rows to {csv}")
+    return df
+
 
 if __name__ == '__main__':
     fire.Fire(parse_and_save)

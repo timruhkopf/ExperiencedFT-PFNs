@@ -159,13 +159,12 @@ def main(cfg: DictConfig):
             config = dict(
                 single_eval_pos=[500] * (len(train_ids) + 1),
                 alphas=[10 ** np.random.uniform(-4, -1) for _ in range(len(train_ids) + 1)],
-                **cfg.benchmark.sample_config if hasattr(cfg.benchmark, 'sample_config') else {}
+                **cfg.benchmark.sample_config if hasattr(cfg.benchmark, 'sample_config') else {},
+                flip= cfg.flip if 'flip' in cfg.keys() else False,
             )
             # sample the dirichlet distributed data
             if hasattr(benchmark, 'sample_batch'):
                 batch = benchmark.sample_batch(**config)
-                if 'flip' in cfg.keys() and not cfg.flip:
-                    batch.y = -(1-batch.y) # comes already pre-flipped from the dataset
 
                 # parse the batch ---------------------------------------------
                 padded_batch = parse_batch_for_padded_train_data(batch, target_idx=0)
@@ -181,6 +180,10 @@ def main(cfg: DictConfig):
                 target_task_query_y = task_data.query_y
                 padding_mask = related_task_data.padding_mask
                 n_related_tasks = related_task_data.x.shape[1]
+
+                # from src.utils.plot_curve_tensor import plot_curve_tensor
+                # plot_curve_tensor(related_task_data.x, related_task_data.y, idx=1,
+                #                   single_eval_pos=[500] * (len(train_ids)))
 
                 for k in ['x', 'y', 'query_x', 'query_y', 'padding_mask']:
                     if hasattr(related_task_data, k) and isinstance(

@@ -60,7 +60,7 @@ def plot_anytime_performance(agg_df):
 
 if __name__ == '__main__':
     file = Path(
-        '/home/ruhkopf/PycharmProjects/ExperiencedFT-PFNs/kisski_results/2025-05-14_results.csv')
+        '/home/ruhkopf/PycharmProjects/ExperiencedFT-PFNs/kisski_results/joint_results_bdd5b01.csv')
     df = pd.read_csv(file)
 
     df['benchmark.meta.name'].unique()

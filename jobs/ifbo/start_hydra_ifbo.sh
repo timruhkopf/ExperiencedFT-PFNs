@@ -90,20 +90,21 @@ wait
 echo "Hydra output directory: $HYDRA_DIR"
 
 #
-#commit_hash=$(git log -1 --pretty=format:"%h")
-#echo "Running read_data:"
-#DIR=$BIGWORK/$REPONAME/$HYDRA_DIR
-#python $BIGWORK/$REPONAME/src/utils/read_neps.py \
-#  --root_dir $DIR \
-#  --file_pattern "all_losses_and_configs.txt" \
-#  --keys "[\"experiment_name\",\"model.meta.name\",\"benchmark.meta.name\"]" \
-#  - to_csv $DIR/joint_results_$commit_hash.csv
+commit_hash=$(git log -1 --pretty=format:"%h")
+echo "Running read_data:"
+DIR=$BIGWORK/$REPONAME/$HYDRA_DIR
+python $BIGWORK/$REPONAME/src/utils/read_neps.py \
+  --root_dir $DIR \
+  --file_pattern "all_losses_and_configs.txt" \
+  --keys "[\"experiment_name\",\"algorithm.surrogate_model.meta.name\",\"benchmark.meta.name\",\"split_seed\"]" \
+  --csv $DIR/joint_results_$commit_hash.csv
+
 
 #wait
 
 # scp -r nhwpruht@transfer.cluster.uni-hannover.de:/bigwork/nhwpruht/ExperiencedFT-PFNs/output/surrogate_new_seeds/joint_results.csv /home/ruhkopf/PycharmProjects/ExperiencedFT-PFNs/luis_results/surrogate_joint_results.csv
 
-
+sbatch jobs/ifbo/run_ifbo.sh +fold=0 +flip=False +target_idx=0 experiment_group=unflipped nepsnevals=200
 
 #watch -n 1 nvidia-smi
 
@@ -114,4 +115,4 @@ echo "Hydra output directory: $HYDRA_DIR"
 #HYDRA_FULL_ERROR=1 python main.py smactuner.epochs=1 smactuner='al' scheduler='sh' +budgets=[0.0001,0.0002,0.0003] n_init_cfgs=2 dataset='cifar10' smactuner.batch_size=512 smactuner.track_scores=False seed=1 al_method='DCOM' dataset.path='/bigwork/nhwpruht/AdaptiveMFSimple/data' +pretrain_epochs=1
 
 
-#scp -r truhkopf@kisski01.cluster.uni-hannover.de:/mnt/home/truhkopf/ExperiencedFT-PFNs/2025-05-14_results.csv .
+#scp -r truhkopf@kisski01.cluster.uni-hannover.de:/mnt/home/truhkopf/ExperiencedFT-PFNs/results/test/joint_results_bdd5b01.csv .
