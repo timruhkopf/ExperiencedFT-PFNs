@@ -33,8 +33,10 @@ df = pd.read_csv('/home/ruhkopf/PycharmProjects/ExperiencedFT-PFNs/luis_results'
                  '/surrogate_joint_results.csv', engine='pyarrow')
 df1 = pd.read_csv('/home/ruhkopf/PycharmProjects/ExperiencedFT-PFNs/luis_results/joint_results'
                   '.csv',)
+df2 = pd.read_csv('/home/ruhkopf/PycharmProjects/ExperiencedFT-PFNs/luis_results'
+                  '/joint_results_hung.csv')
 
-df = pd.concat([df, df1], axis=0)
+df = pd.concat([df, df1, df2], axis=0)
 
 df = df.drop(columns=['Unnamed: 0'])
 
@@ -72,19 +74,10 @@ dedup_df = (
 non_dedup_df = filtered_df[~filtered_df['metric'].isin(dedup_metrics)]
 filtered_df_dedup = pd.concat([dedup_df, non_dedup_df], ignore_index=True)
 
-
-#
-# filtered_df_dedup.to_csv('/home/ruhkopf/PycharmProjects/ExperiencedFT-PFNs/luis_results/surrogate_joint_results_dedup.csv')
-# filtered_df_dedup = pd.read_csv('/home/ruhkopf/PycharmProjects/ExperiencedFT-PFNs/luis_results/surrogate_joint_results_dedup.csv')
 filtered_df_dedup['rank'] = (
     filtered_df_dedup.groupby(group_cols)['value']
     .rank(method='min', ascending=True)
 )
-
-
-
-# # lower values
-# filtered_df['rank'] = filtered_df.groupby(group_cols)['value'].rank(method='min', ascending=True)
 
 
 agg_df = (
