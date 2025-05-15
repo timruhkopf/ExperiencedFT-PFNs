@@ -164,6 +164,8 @@ def main(cfg: DictConfig):
             # sample the dirichlet distributed data
             if hasattr(benchmark, 'sample_batch'):
                 batch = benchmark.sample_batch(**config)
+                if 'flip' in cfg.keys() and not cfg.flip:
+                    batch.y = -(1-batch.y) # comes already pre-flipped from the dataset
 
                 # parse the batch ---------------------------------------------
                 padded_batch = parse_batch_for_padded_train_data(batch, target_idx=0)
@@ -210,6 +212,12 @@ def main(cfg: DictConfig):
                 # TODO: handle other tabular benchmarks
 
             full_trajectory = benchmark.trajectory(config)
+
+            if 'flip' in cfg.keys() and cfg.flip:
+                for r in full_trajectory:
+                    r.valid_error_rate.value = -(1-r.valid_error_rate.value )
+                    r.test_error_rate.value = -(1-r.test_error_rate.value )
+
             trajectory_to_query = [r for r in full_trajectory if r.fidelity <= fidelity]
 
             result = trajectory_to_query[-1]
@@ -264,10 +272,15 @@ def main(cfg: DictConfig):
             logger.info(f"Using fidelity space: \n {fidelity_param}")
         logger.info(f"Using search space: \n {pipeline_space}")
 
-        if "mf" in cfg.algorithm and cfg.algorithm.mf:
-            max_evaluations_total = NEPS_MF_MAX_EVALS if cfg.algorithm.sh_based else NEPS_MF_EI_MAX_EVALS
+        if 'nepsnevals' in cfg.keys():
+            max_evaluations_total = cfg.nepsnevals
+        elif "mf" in cfg.algorithm and cfg.algorithm.mf:
+            max_evaluations_total = NEPS_MF_MAX_EVALS if cfg.algorithm.sh_based else (
+                NEPS_MF_EI_MAX_EVALS)
         else:
             max_evaluations_total = NEPS_SF_MAX_EVALS
+
+
 
         # placeholder pre_load hook
         def set_grid_table_space(

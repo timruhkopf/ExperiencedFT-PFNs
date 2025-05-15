@@ -110,3 +110,6 @@ wait
 #srun --pty bash # on kisski connect to the job
 
 #HYDRA_FULL_ERROR=1 python main.py smactuner.epochs=1 smactuner='al' scheduler='sh' +budgets=[0.0001,0.0002,0.0003] n_init_cfgs=2 dataset='cifar10' smactuner.batch_size=512 smactuner.track_scores=False seed=1 al_method='DCOM' dataset.path='/bigwork/nhwpruht/AdaptiveMFSimple/data' +pretrain_epochs=1
+
+
+#scp -r truhkopf@kisski01.cluster.uni-hannover.de:/mnt/home/truhkopf/ExperiencedFT-PFNs/2025-05-14_results.csv .

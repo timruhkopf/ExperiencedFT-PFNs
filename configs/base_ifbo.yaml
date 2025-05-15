@@ -21,13 +21,13 @@ commit_hash: ${git_commit:''}
 slurm_id: 999
 
 
-experiment_group: test_${now:%Y-%m-%d-%H-%M-%S}
+experiment_group: test
 #experiment_name: benchmark=${benchmark.name}/algorithm=${algorithm.name}/seed=${seed}
 seed: 2
 n_workers: 1
-#
-#hydra:
-#  run:
-#    dir: results/${experiment_group}/${experiment_name}
-#  job:
-#    chdir: true
+
+hydra:
+  run:
+    dir: results/${experiment_group}/${experiment_name}/${now:%Y-%m-%d-%H-%M-%S}
+  job:
+    chdir: true
