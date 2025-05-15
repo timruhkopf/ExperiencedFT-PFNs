@@ -1,11 +1,11 @@
 lcbench ifbo 0
-taskset ifbo 0
-pd1 ifbo 0
 lcbench ifbo-pfnsoftmax 0
-taskset ifbo-pfnsoftmax 0
-pd1 ifbo-pfnsoftmax 0
 lcbench ifbo-pfnargmin 0
+taskset ifbo 0
+taskset ifbo-pfnsoftmax 0
 taskset ifbo-pfnargmin 0
+pd1 ifbo 0
+pd1 ifbo-pfnsoftmax 0
 pd1 ifbo-pfnargmin 0
 lcbench ifbo 1
 taskset ifbo 1
