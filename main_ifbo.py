@@ -213,10 +213,9 @@ def main(cfg: DictConfig):
 
             full_trajectory = benchmark.trajectory(config)
 
+            flip= False
             if 'flip' in cfg.keys() and cfg.flip:
-                for r in full_trajectory:
-                    r.valid_error_rate.value = -(1-r.valid_error_rate.value )
-                    r.test_error_rate.value = -(1-r.test_error_rate.value )
+               flip = True
 
             trajectory_to_query = [r for r in full_trajectory if r.fidelity <= fidelity]
 
@@ -232,12 +231,12 @@ def main(cfg: DictConfig):
             end = time.time()
 
             return {
-                "loss": result.error,
+                "loss": result.error if not flip else 1-result.error,
                 "cost": result.cost,
                 "info_dict": {
                     "cost": result.cost,
-                    "val_score": result.val_score,
-                    "test_score": result.test_score,
+                    "val_score": result.val_score if flip else 1-result.val_score,
+                    "test_score": result.test_score if flip else 1-result.test_score,
                     "fidelity": result.fidelity,
                     "continuation_fidelity": None,
                     "start_time": start,
