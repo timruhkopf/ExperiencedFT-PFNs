@@ -6,7 +6,7 @@
 #SBATCH --output=%x_%A_%a.out
 #SBATCH --error=%x_%A_%a.err
 #SBATCH --gres=gpu:1
-#SBATCH --array=0-26
+#SBATCH --array=0-25
 
 
 #for split in range(3):
@@ -14,6 +14,13 @@
 #        for bench in ['lcbench', 'taskset', 'pd1']:
 #
 #            print( f"{bench} {algo} {split}")
+
+# Arguments
+if [[ $HOME == /mnt/home* ]]; then
+  # if we are on kisski
+    BIGWORK=$HOME
+fi
+
 
 # File with parameter lines
 PARAM_FILE="$BIGWORK/ExperiencedFT-PFNs/jobs/ifbo/job_params.txt"
@@ -37,11 +44,6 @@ if [[ "$NUM_LINES" -ne "$ARRAY_COUNT" ]]; then
 fi
 
 
-# Arguments
-if [[ $HOME == /mnt/home* ]]; then
-  # if we are on kisski
-    BIGWORK=$HOME
-fi
 
 
 # File with parameter lines

@@ -6,9 +6,9 @@ NUM_PARAMS=$(wc -l < "$PARAM_FILE")
 
 INTERVAL_SIZE=25
 INTERVAL_START=0
-INTERVAL_END=200
+INTERVAL_END=100
 NUM_INTERVALS=$(( (INTERVAL_END - INTERVAL_START) / INTERVAL_SIZE ))
-EXPERIMENT_NAME=$1
+
 
 TOTAL_TASKS=$((NUM_PARAMS * NUM_INTERVALS))
 
@@ -19,21 +19,21 @@ for ((i=0; i<$NUM_PARAMS; i++)); do
     SPLIT_SEED=$(echo $LINE | awk '{print $3}')
 
     JOB_NAME="${MODEL}_${BENCH}_${SPLIT_SEED}"
-    if [[ "$MODEL" == "distill" ]]; then
-        PARTITION="ai,tnt"
-        GRES="--gres=gpu:1"
-        EXCLUDE=""
-        TIME="--time=48:00:00"
-        DEVICE="cuda"
-        CPUS=8
-    else
-        PARTITION="ai,taurus,amo"
-        GRES=""
-        EXCLUDE="--exclude=ai-n[001-004],ai-n009"
-        TIME="--time=20:00:00"
-        DEVICE="cpu"
-        CPUS=32
-    fi
+#    if [[ "$MODEL" == "distill" ]]; then
+#        PARTITION="ai,tnt"
+#        GRES="--gres=gpu:1"
+#        EXCLUDE=""
+#        TIME="--time=48:00:00"
+#        DEVICE="cuda"
+#        CPUS=8
+#    else
+    PARTITION="ai,taurus,amo"
+    GRES=""
+    EXCLUDE="--exclude=ai-n[001-004],ai-n009"
+    TIME="--time=20:00:00"
+    DEVICE="cpu"
+    CPUS=32
+#    fi
 
     sbatch --job-name=$JOB_NAME \
            --array=0-$((NUM_INTERVALS-1)) \
@@ -45,7 +45,7 @@ for ((i=0; i<$NUM_PARAMS; i++)); do
            --partition=$PARTITION \
            $GRES \
            $EXCLUDE \
-           $BIGWORK/ExperiencedFT-PFNs/jobs/surrogate/array_job.sh "$EXPERIMENT_NAME" "$DEVICE" "$LINE"
+           $BIGWORK/ExperiencedFT-PFNs/jobs/surrogate/array_job.sh  "$DEVICE" "$LINE" $@
 
 done
 

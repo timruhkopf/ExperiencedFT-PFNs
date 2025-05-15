@@ -101,10 +101,14 @@ def main(cfg: DictConfig):
                     *np.random.randint(200, 500, len(train_ids)).tolist()
                 ],
                 alphas=[10 ** np.random.uniform(-4, -1) for _ in range(len(train_ids) + 1)],
-                **cfg.benchmark.sample_config if hasattr(cfg.benchmark, 'sample_config') else {}
+                **cfg.benchmark.sample_config if hasattr(cfg.benchmark, 'sample_config') else {},
+                flip=cfg.flip if 'flip' in cfg.keys() else False,
             )
             # sample the dirichlet distributed data
             batch = benchmark.sample_batch(**config)
+
+            from src.utils.plot_curve_tensor import plot_curve_tensor
+            plot_curve_tensor(batch.x, batch.y, batch.single_eval_pos, idx=0, )
 
             # parse the batch ---------------------------------------------
             padded_batch = parse_batch_for_padded_train_data(batch, target_idx=0)
