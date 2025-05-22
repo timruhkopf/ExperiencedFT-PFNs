@@ -55,8 +55,7 @@ class PFNPriorImputation(AbstractModel):
     __name__ = "PFNPriorImputation"
 
     def __init__(self, model, criterion, logger, decay_fn, mixture_fn,
-                 reliability_fn, related_task_data, min_context_size, imputation_mode='mean',
-                 device=None):
+                 reliability_fn, related_task_data, min_context_size, device=None):
         self.model: TransformerModel = model if isinstance(model, TransformerModel) else model.model
 
         # if criterion is not None:
@@ -74,7 +73,6 @@ class PFNPriorImputation(AbstractModel):
         self.reliability_fn = reliability_fn
         self.decay_fn = decay_fn
         self.min_context_size = min_context_size
-        self.imputation_mode = imputation_mode
 
         self.mixture_fn = mixture_fn
 
@@ -136,28 +134,7 @@ class PFNPriorImputation(AbstractModel):
             src_key_padding_mask=padding_mask
         )
 
-        if self.imputation_mode == 'median':
-            imputations = self.criterion.median(imputed_logits)
-        elif self.imputation_mode == 'mean':
-            imputations = self.criterion.mean(imputed_logits)
-        elif self.imputation_mode == 'sample':
-            # Sample indices from the categorical distributions
-            # Shape: (T, n_related_tasks, 1)
-            probs = imputed_logits.softmax(-1)
-            bins = self.criterion.self.borders
-
-            # to get the sample at the middle of the bins, we can calculate the middle points
-            bucket_middle = (bins[:, :-1] +  self.criterion.bucket_widths) / 2
-
-            sampled_indices = torch.multinomial(probs, 1)
-
-            # Remove the last dimension for direct indexing
-            # Shape: (T, n_related_tasks)
-            sampled_indices = sampled_indices.squeeze(-1)
-
-            # Gather the corresponding bin values
-            # Shape: (T, n_related_tasks, num_bars) if bins is 2D, else (T, n_related_tasks)
-            imputations = bucket_middle[sampled_indices]
+        imputations = self.criterion.median(imputed_logits)
 
         # prior logits under the imputed data points --------------------------
         prior_logits = self.model(
