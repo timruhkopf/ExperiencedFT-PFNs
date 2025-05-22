@@ -233,6 +233,18 @@ def main(cfg: DictConfig):
 
             end = time.time()
 
+            # df = benchmark.table
+            # import matplotlib.pyplot as plt
+            # # Assume your DataFrame is called df with MultiIndex (id, epoch)
+            # # and a column named 'val_accuracy'
+            # for id_value, group in df.groupby(level='id'):
+            #     group = group.reset_index()
+            #     plt.plot(group['epoch'], group['val_accuracy'], label=f'id={id_value}')
+            # plt.xlabel('epoch')
+            # plt.ylabel('val_accuracy')
+            # plt.legend()
+            # plt.show()
+
             return {
                 "loss": result.error if not flip else 1-result.error,
                 "cost": result.cost,
