@@ -190,7 +190,6 @@ class PFNPPDMixture(AbstractModel):
 
         return logits
 
-    @torch.no_grad()
     def _forward(self, context_x, context_y, query_x, *args, **kwargs) -> (
             torch.Tensor):
         """
@@ -355,8 +354,6 @@ class PFNPPDMixture(AbstractModel):
 #     # Weighted combination using broadcasting
 #     return logits.unsqueeze(1)  # [B, 1, C]
 
-def __call__(self, *args, **kwargs):
-    return self.forward(*args, **kwargs)
 
 
 if __name__ == '__main__':

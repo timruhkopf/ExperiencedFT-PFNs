@@ -432,7 +432,6 @@ class DistillContext(AbstractModel):
 
         return losses_per_task
 
-    @torch.no_grad()
     def _forward(self, context_x, context_y, query_x, src_key_padding_mask=None,):
         """
         Performs the forward pass of the model, taking query points, query labels, distilled
