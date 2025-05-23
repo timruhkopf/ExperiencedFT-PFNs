@@ -83,15 +83,31 @@ class PFNPriorImputation(AbstractModel):
         # TODO: distill the related tasks once (optionally)
 
     def _forward(self, context_x, context_y, query_x, *args, **kwargs) -> torch.Tensor:
-        context_size = context_x.shape[0]
-        T, n_related_tasks, num_bars = (
-            query_x.shape[0],
-            len(self.related_task_data),
-            self.criterion.num_bars
-        )
 
         context_x = context_x.to(self.device)
         context_y = context_y.to(self.device)
+
+        # Target task logits ---------------------------------------------------
+        target_logits = self.model(
+            (
+                torch.cat([context_x, query_x], dim=0),
+                context_y
+            ),
+            single_eval_pos=context_x.shape[0],
+            src_key_padding_mask=None
+        )
+
+        return target_logits
+
+    def calculate_reliability(self, x_train, y_train, minimize=False):
+        context_size = x_train.shape[0]
+
+        context_x = x_train.to(self.device)
+        context_y = y_train.to(self.device)
+
+        related_task_data = self.related_task_data
+        if minimize:
+            related_task_data.y = (1 - related_task_data.y)
 
         # fixme: cache these values when we move to optimizing the acquisition function
         if context_size >= self.min_context_size:
@@ -100,7 +116,7 @@ class PFNPriorImputation(AbstractModel):
                 self.model,
                 context_x,
                 context_y,
-                self.related_task_data,
+                related_task_data,
                 self.criterion,
                 # peeking={
                 # # this was just to check why the reliability scores were so little
@@ -123,18 +139,21 @@ class PFNPriorImputation(AbstractModel):
                 i,  # task index
             )
 
+        return reliability_scores
+
+    def impute(self, x_train: torch.Tensor, task_context_x, task_context_y, padding_mask) -> (
+            torch.Tensor):
+        """
+        Impute the y values for the training data from the target task under the prior context.
+        """
         # related ppd for current query points
-        task_context_x = self.related_task_data.x
-        task_context_y = self.related_task_data.y
-        padding_mask = self.related_task_data.padding_mask
         num_related = task_context_x.shape[1]
 
         # impute the observed data points --------------------------------------
         # TODO Cache these values, when we optimize over the acquisition function?
-        # TODO move the imputation into a separate function.
         imputed_logits = self.model(
             (
-                torch.cat([task_context_x, context_x.repeat(1, num_related, 1)], dim=0),
+                torch.cat([task_context_x, x_train.repeat(1, num_related, 1)], dim=0),
                 torch.cat([task_context_y, ], dim=0)
             ),
             single_eval_pos=task_context_x.shape[0],
@@ -142,19 +161,21 @@ class PFNPriorImputation(AbstractModel):
         )
 
         if self.imputation_mode == 'median':
-            imputations = self.criterion.median(imputed_logits)
+            imputed_y = self.criterion.median(imputed_logits)
         elif self.imputation_mode == 'mean':
-            imputations = self.criterion.mean(imputed_logits)
+            imputed_y = self.criterion.mean(imputed_logits)
         elif self.imputation_mode == 'sample':
             # Sample indices from the categorical distributions
             # Shape: (T, n_related_tasks, 1)
             probs = imputed_logits.softmax(-1)
-            bins = self.criterion.self.borders
+            bins = self.criterion.borders
 
             # to get the sample at the middle of the bins, we can calculate the middle points
-            bucket_middle = (bins[:, :-1] +  self.criterion.bucket_widths) / 2
+            bucket_middle = (bins[:-1] + bins[:-1] + self.criterion.bucket_widths) / 2
 
-            sampled_indices = torch.multinomial(probs, 1)
+            sampled_indices = torch.stack([
+                torch.multinomial(probs[:, i, :], 1) for i in range(probs.shape[1])
+            ], dim=1)
 
             # Remove the last dimension for direct indexing
             # Shape: (T, n_related_tasks)
@@ -162,35 +183,84 @@ class PFNPriorImputation(AbstractModel):
 
             # Gather the corresponding bin values
             # Shape: (T, n_related_tasks, num_bars) if bins is 2D, else (T, n_related_tasks)
-            imputations = bucket_middle[sampled_indices]
+            imputed_y = bucket_middle[sampled_indices]
         else:
             raise ValueError(f"Unknown imputation mode: {self.imputation_mode}")
 
-        # prior logits under the imputed data points --------------------------
-        prior_logits = self.model(
-            (
-                torch.cat([task_context_x, context_x.repeat(1, num_related, 1), query_x.repeat(1, num_related, 1)], dim=0),
-                torch.cat([task_context_y, imputations, ], dim=0)
-            ),
-            single_eval_pos=task_context_x.shape[0] + context_x.shape[0],
-            src_key_padding_mask=padding_mask
-        )
-
-        # Target task logits ---------------------------------------------------
-        target_logits = self.model(
-            (
-                torch.cat([context_x, query_x], dim=0),
-                context_y
-            ),
-            single_eval_pos=context_x.shape[0],
-            src_key_padding_mask=None
-        )
+        return imputed_y
 
     @torch.no_grad()
-    def get_pi(self, x_test, inc, x_train=None, y_train=None):
+    def get_pi(self, x_test, inc, x_train=None, y_train=None, minimize=True):
+        """
+        Get the Probability of Improvement (PI) acquisition function for the
+        query points under the target task and the related tasks.
+
+        1. Impute the y values for the training data from the target task under the prior context.
+        2. Calculate the prior logits for the imputed data points and the test (query) points, then
+        calculate the acquisition values for the query points under the imputed prior.
+        3. Calculate the acquisition values for the query points under the target task.
+        4. Weigh the acquisition values by the reliability scores and prior decay.
+
+        :param x_test: The query points for which to calculate the acquisition function.
+        :param inc: The current best observed value (incumbent) for the target task.
+        :param x_train: The training data points for the target task.
+        :param y_train: The training labels for the target task.
+        """
+        # 1.
+        related_context_x = self.related_task_data.x
+        related_context_y = self.related_task_data.y
+        padding_mask = self.related_task_data.padding_mask
+        num_related = related_context_x.shape[1]
+
+        if minimize:
+            related_context_y = (1 - related_context_y)
+
+        imputed_y = self.impute(
+            x_train.unsqueeze(1).to(self.device),
+            related_context_x,
+            related_context_y,
+            padding_mask=padding_mask
+        )
+
+        # prior logits under the imputed data points --------------------------
+
+        # 2.
+        # TODO key-value-cache here on related tasks and incremental x_train
+        prior_logits = self.model(
+            (
+                torch.cat([
+                    related_context_x,
+                    x_train.unsqueeze(1).repeat(1, num_related, 1),
+                    x_test.unsqueeze(1).repeat(1, num_related, 1)
+                ], dim=0),
+                torch.cat([related_context_y, imputed_y, ], dim=0)
+            ),
+            single_eval_pos=related_context_x.shape[0] + x_train.shape[0],
+            src_key_padding_mask=torch.cat([
+                padding_mask,
+                torch.zeros(num_related, x_train.shape[0], dtype=torch.bool).to(self.device)
+            ], dim=1)
+        )
+
+        B = prior_logits.shape[1]
+        scores_related = torch.stack([
+            self.criterion.pi(prior_logits[:, b, :].squeeze(1), best_f=inc)
+            for b in range(B)
+        ], dim=0)
+
+        # 3
+        target_logits = self.forward(x_train=x_train, y_train=y_train, x_test=x_test)
+        scores = self.model.criterion.pi(target_logits.squeeze(1), best_f=inc)
+
+        # 4.
+        scores = self.mixture_fn(
+            scores,
+            scores_related,
+            reliability_scores=self.calculate_reliability(x_train.unsqueeze(1), y_train, minimize=minimize),
+            alpha=self.decay_fn(x_train.shape[0])
+        )
 
 
-        logits = self.forward(x_train=x_train, y_train=y_train, x_test=x_test)  # torch.Size([
-        # x_train.shape[0], 1, 10000])
-        scores = self.model.criterion.pi(logits.squeeze(), best_f=inc)
+        scores = torch.clamp(scores, 0+1e-6, 1)
+
         return scores

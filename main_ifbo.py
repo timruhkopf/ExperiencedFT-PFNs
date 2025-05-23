@@ -160,7 +160,6 @@ def main(cfg: DictConfig):
                 single_eval_pos=[500] * (len(train_ids) + 1),
                 alphas=[10 ** np.random.uniform(-4, -1) for _ in range(len(train_ids) + 1)],
                 **cfg.benchmark.sample_config if hasattr(cfg.benchmark, 'sample_config') else {},
-                flip= cfg.flip if 'flip' in cfg.keys() else False,
             )
             # sample the dirichlet distributed data
             if hasattr(benchmark, 'sample_batch'):
@@ -216,9 +215,7 @@ def main(cfg: DictConfig):
 
             full_trajectory = benchmark.trajectory(config)
 
-            flip= False
-            if 'flip' in cfg.keys() and cfg.flip:
-               flip = True
+
 
             trajectory_to_query = [r for r in full_trajectory if r.fidelity <= fidelity]
 
@@ -246,12 +243,12 @@ def main(cfg: DictConfig):
             # plt.show()
 
             return {
-                "loss": result.error if not flip else 1-result.error,
+                "loss": result.error,
                 "cost": result.cost,
                 "info_dict": {
                     "cost": result.cost,
-                    "val_score": result.val_score if flip else 1-result.val_score,
-                    "test_score": result.test_score if flip else 1-result.test_score,
+                    "val_score": result.val_score,
+                    "test_score": result.test_score,
                     "fidelity": result.fidelity,
                     "continuation_fidelity": None,
                     "start_time": start,

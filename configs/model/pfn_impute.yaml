@@ -5,7 +5,7 @@ meta:
   name: 'pfn_softmax'
 
 cls:
-  _target_: src.model.pfnimputation.PFNPriorImputation
+  _target_: src.model.imputation.pfnimputation.PFNPriorImputation
 
   model:
     _target_:  ifbo.surrogate.FTPFN
@@ -21,15 +21,13 @@ cls:
 
 
   criterion: Null
-  min_context_size: 0
+  min_context_size: 10
   # related_task_data
 
 
   mixture_fn:
     _partial_: True
-    _target_:  src.model.mixture.mixing.softmax_mixture
-    temperature: 1.0
+    _target_:  src.model.imputation.mixing.acq_mixture
 
 
-inference_kwargs:
-  temperature: 1.0
+

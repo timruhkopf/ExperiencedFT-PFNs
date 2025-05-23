@@ -190,7 +190,7 @@ class PFNPPDMixture(AbstractModel):
 
         return logits
 
-    def _forward(self, context_x, context_y, query_x, *args, **kwargs) -> (
+    def _forward(self, context_x, context_y, query_x, minimize=False, *args, **kwargs) -> (
             torch.Tensor):
         """
         Posterior Predictive Mixture based on the reliability of the related tasks
@@ -224,13 +224,17 @@ class PFNPPDMixture(AbstractModel):
         context_x = context_x.to(self.device)
         context_y = context_y.to(self.device)
 
+        related_task_data = self.related_task_data
+        if minimize:
+            related_task_data.y = 1 - related_task_data.y
+
         if context_size >= self.min_context_size:
             # calculate the reliability scores for the related tasks
             reliability_scores = self.reliability_fn(
                 self.model,
                 context_x,
                 context_y,
-                self.related_task_data,
+                related_task_data,
                 self.criterion,
                 # peeking={
                 # # this was just to check why the reliability scores were so little
@@ -267,13 +271,11 @@ class PFNPPDMixture(AbstractModel):
         # (2) Collect the PPD logits on the target task's query
 
         # related ppd for current query points
-        task_context_x = self.related_task_data.x
-        task_context_y = self.related_task_data.y
-        padding_mask = self.related_task_data.padding_mask
+        task_context_x = related_task_data.x
+        task_context_y = related_task_data.y
+        padding_mask = related_task_data.padding_mask
         num_related = task_context_x.shape[1]
 
-        # TODO check the device of each tensor and if not on the device as the model, move it (
-        # inplace)
 
         related_logits = self.model(
             (
@@ -304,6 +306,14 @@ class PFNPPDMixture(AbstractModel):
         )
 
         return mixture_logits
+
+    @torch.no_grad()
+    def get_pi(self, x_test, inc, x_train=None, y_train=None, minimize=True):
+
+        logits = self(x_train=x_train, y_train=y_train, x_test=x_test, minimize=minimize)
+        # torch.Size([x_train.shape[0], 1, 10000])
+        scores = self.criterion.pi(logits.squeeze(), best_f=inc)
+        return scores
 
 
 # def calc_logits_mixture(

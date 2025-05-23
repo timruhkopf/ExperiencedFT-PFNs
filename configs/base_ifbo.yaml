@@ -19,7 +19,6 @@ repo_root: ${resolve_path:''}
 experiment_name: base
 commit_hash: ${git_commit:''}
 slurm_id: 999
-flip: True
 
 
 experiment_group: test

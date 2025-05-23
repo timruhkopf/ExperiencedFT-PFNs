@@ -26,7 +26,7 @@ class AbstractModel:
                 'context_y': y,
                 'query_x': x[single_eval_pos:]
             }
-        elif set(kwargs.keys()) == {'x_train', 'y_train', 'x_test'}:
+        elif  {'x_train', 'y_train', 'x_test'}.issubset(set(kwargs.keys())):
             # during ifbo deployment
             # curve id encoder will struggle with index positions longer then the
             # sequence length --> so we just replace them here. They don't have any meaning anyways!

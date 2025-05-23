@@ -568,7 +568,7 @@ class MFBenchPrior(TabularBenchmark):
         return x, y
 
     def sample_batch(self, alphas: Optional[Union[List[float], float]] = None,
-                     single_eval_pos=None, target_task=0, train_ids=None, flip=False, **kwargs, ):
+                     single_eval_pos=None, target_task=0, train_ids=None, **kwargs, ):
         """
         Generates a batch of data sampled from multiple tasks.
 
@@ -629,14 +629,7 @@ class MFBenchPrior(TabularBenchmark):
         X = torch.stack(X, dim=1).to(self.device).float()
         Y = torch.stack(Y, dim=1).to(self.device).float()
 
-        # flip the curves to be increasing (lcbench, pd1, taskset)
-
-        # from src.utils.plot_curve_tensor import plot_curve_tensor
-        # plot_curve_tensor(X, -(Y-1), single_eval_pos, idx=0)
-        if flip:
-            return Batch(x=X, y=1- Y, target_y=1- Y.clone(), single_eval_pos=single_eval_pos)
-        else:
-            return Batch(x=X, y=Y, target_y=Y.clone(), single_eval_pos=single_eval_pos)
+        return Batch(x=X, y=Y, target_y=Y.clone(), single_eval_pos=single_eval_pos)
 
     @staticmethod
     def _get_normalized_values(config, configuration_space):
