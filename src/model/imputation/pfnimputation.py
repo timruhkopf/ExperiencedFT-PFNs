@@ -4,6 +4,10 @@ from ifbo.transformer import TransformerModel
 from model.abstractmodel import AbstractModel
 from model.mixture.mixture_ppd import _calc_reliability
 
+import logging
+
+log = logging.getLogger(__name__)
+
 
 class PFNPriorImputation(AbstractModel):
     """
@@ -128,7 +132,8 @@ class PFNPriorImputation(AbstractModel):
             )
         else:
             # if we have no context points, we must assume all are equally likely
-            reliability_scores = -torch.log(torch.ones(len(self.related_task_data)))
+            reliability_scores = -torch.log(torch.ones(len(self.related_task_data),
+                                                       device=self.device))
 
         # 0 idx is reserved for the current task
         for i, score in enumerate(reliability_scores):
@@ -214,6 +219,7 @@ class PFNPriorImputation(AbstractModel):
         num_related = related_context_x.shape[1]
         x_test = x_test.to(self.device)
         x_train = x_train.to(self.device)
+        y_train = y_train.to(self.device)
         inc = inc.to(self.device)
 
         if minimize:
@@ -256,11 +262,16 @@ class PFNPriorImputation(AbstractModel):
         target_logits = self.forward(x_train=x_train, y_train=y_train, x_test=x_test)
         scores = self.model.criterion.pi(target_logits.squeeze(1), best_f=inc)
 
+        log.info(f"Devices: {self.device}, Scores: {scores.device}, Scores related:"
+                 f" {scores_related.device}, "
+                 f"x_train: {x_train.device}, y_train: {y_train.device}, x_test: {x_test.device}, "
+                 f"model: {str(next(self.model.parameters()).device)}")
+
         # 4.
         scores = self.mixture_fn(
             scores,
             scores_related,
-            reliability_scores=self.calculate_reliability(x_train.unsqueeze(1), y_train, minimize=minimize),
+            reliability_scores=self.calculate_reliability(x_train.unsqueeze(1), y_train, minimize=minimize).to(self.device),
             alpha=self.decay_fn(x_train.shape[0])
         )
 
