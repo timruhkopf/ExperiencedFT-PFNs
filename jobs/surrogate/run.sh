@@ -2,7 +2,7 @@
 # jobs/submit_array.sh
 
 PARAM_FILE="$BIGWORK/ExperiencedFT-PFNs/jobs/surrogate/job_params.txt"
-NUM_PARAMS=$(wc -l < "$PARAM_FILE")
+NUM_LINES=$(grep -cve '^\s*$' "$PARAM_FILE")
 
 INTERVAL_SIZE=25
 INTERVAL_START=0

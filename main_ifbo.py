@@ -411,7 +411,8 @@ def main(cfg: DictConfig):
                 searcher.model_policy.surrogate_model_name = surrogate_model.__name__
 
         # -----------------------------------------------------------------------
-        neps_dir = f"neps_root_directory_{target_task}_{train_ids}_{cfg.split_seed}_{seed}"
+        neps_dir = Path.cwd() / (f"neps_root_directory_{target_task}_{train_ids.__str__()}"
+                                 f"_{cfg.split_seed}_{seed}")
         neps.run(
             run_pipeline=run_pipeline,
             pipeline_space=pipeline_space,

@@ -6,9 +6,9 @@
 #SBATCH --output=%x_%A_%a.out
 #SBATCH --error=%x_%A_%a.err
 #SBATCH --gres=gpu:1
-#SBATCH --array=0-25
 
 
+#  sbatch --array=0-11 jobs/ifbo/run_ifbo.sh experiment_name=pfn-acq-1st-attempt  +fold=0 +target_idx=0
 #for split in range(3):
 #    for algo in ['ifbo', 'ifbo-pfnargmin', 'ifbo-pfnsoftmax', 'ifbo-distill']:
 #        for bench in ['lcbench', 'taskset', 'pd1']:
@@ -25,8 +25,8 @@ fi
 # File with parameter lines
 PARAM_FILE="$BIGWORK/ExperiencedFT-PFNs/jobs/ifbo/job_params.txt"
 
-# Count the number of lines in the parameter file
-NUM_LINES=$(wc -l < "$PARAM_FILE")
+# Count the number of lines in the parameter file, filtering new lines
+NUM_LINES=$(grep -cve '^\s*$' "$PARAM_FILE")
 
 # Extract the array range from SLURM_ARRAY_TASK_ID and SLURM_ARRAY_TASK_COUNT
 # SLURM_ARRAY_TASK_COUNT is available in recent SLURM versions and gives the total number of array tasks
@@ -71,6 +71,14 @@ $BIGWORK/ExperiencedFT-PFNs/jobs/ifbo/start_hydra_ifbo.sh \
     split_seed=$SPLIT_SEED \
     $@
 
+
+# $BIGWORK/ExperiencedFT-PFNs/jobs/ifbo/start_hydra_ifbo.sh \
+#  device=cuda \
+#   benchmark=$BENCH \
+#    +algorithm=$MODEL \
+#     split_seed=$SPLIT_SEED \
+#     +fold=0 \
+#      +target_idx=0
 
 
 

@@ -104,11 +104,11 @@ python $BIGWORK/$REPONAME/src/utils/read_neps.py \
 
 # scp -r nhwpruht@transfer.cluster.uni-hannover.de:/bigwork/nhwpruht/ExperiencedFT-PFNs/output/surrogate_new_seeds/joint_results.csv /home/ruhkopf/PycharmProjects/ExperiencedFT-PFNs/luis_results/surrogate_joint_results.csv
 
-sbatch jobs/ifbo/run_ifbo.sh +fold=0 +flip=False +target_idx=0 experiment_group=unflipped nepsnevals=200
+#sbatch jobs/ifbo/run_ifbo.sh +fold=0 +flip=False +target_idx=0 experiment_group=unflipped nepsnevals=200
 
 #watch -n 1 nvidia-smi
 
-#salloc --partition=ai  --nodes=1  --time=02:00:00  --cpus-per-task=8  --gres=gpu:1  --mem=8GB
+# salloc --nodes=1 --time=02:00:00 --cpus-per-task=8 --gres=gpu:1 --mem=8GB srun --pty bash #  forces GPU visible allocation on salloc
 
 #srun --pty bash # on kisski connect to the job
 

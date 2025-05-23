@@ -86,6 +86,7 @@ class PFNPriorImputation(AbstractModel):
 
         context_x = context_x.to(self.device)
         context_y = context_y.to(self.device)
+        query_x = query_x.to(self.device)
 
         # Target task logits ---------------------------------------------------
         target_logits = self.model(
@@ -211,12 +212,15 @@ class PFNPriorImputation(AbstractModel):
         related_context_y = self.related_task_data.y
         padding_mask = self.related_task_data.padding_mask
         num_related = related_context_x.shape[1]
+        x_test = x_test.to(self.device)
+        x_train = x_train.to(self.device)
+        inc = inc.to(self.device)
 
         if minimize:
             related_context_y = (1 - related_context_y)
 
         imputed_y = self.impute(
-            x_train.unsqueeze(1).to(self.device),
+            x_train.unsqueeze(1),
             related_context_x,
             related_context_y,
             padding_mask=padding_mask
