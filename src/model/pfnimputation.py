@@ -2,6 +2,7 @@ import torch
 
 from ifbo.transformer import TransformerModel
 from model.abstractmodel import AbstractModel
+from model.mixture.mixture_ppd import _calc_reliability
 
 
 class PFNPriorImputation(AbstractModel):
@@ -55,7 +56,8 @@ class PFNPriorImputation(AbstractModel):
     __name__ = "PFNPriorImputation"
 
     def __init__(self, model, criterion, logger, decay_fn, mixture_fn,
-                 reliability_fn, related_task_data, min_context_size, imputation_mode='mean',
+                 related_task_data, min_context_size, imputation_mode='mean',
+                 reliability_fn=_calc_reliability,
                  device=None):
         self.model: TransformerModel = model if isinstance(model, TransformerModel) else model.model
 
@@ -77,6 +79,8 @@ class PFNPriorImputation(AbstractModel):
         self.imputation_mode = imputation_mode
 
         self.mixture_fn = mixture_fn
+
+        # TODO: distill the related tasks once (optionally)
 
     def _forward(self, context_x, context_y, query_x, *args, **kwargs) -> torch.Tensor:
         context_size = context_x.shape[0]
@@ -127,6 +131,7 @@ class PFNPriorImputation(AbstractModel):
 
         # impute the observed data points --------------------------------------
         # TODO Cache these values, when we optimize over the acquisition function?
+        # TODO move the imputation into a separate function.
         imputed_logits = self.model(
             (
                 torch.cat([task_context_x, context_x.repeat(1, num_related, 1)], dim=0),
@@ -158,6 +163,8 @@ class PFNPriorImputation(AbstractModel):
             # Gather the corresponding bin values
             # Shape: (T, n_related_tasks, num_bars) if bins is 2D, else (T, n_related_tasks)
             imputations = bucket_middle[sampled_indices]
+        else:
+            raise ValueError(f"Unknown imputation mode: {self.imputation_mode}")
 
         # prior logits under the imputed data points --------------------------
         prior_logits = self.model(
@@ -178,3 +185,12 @@ class PFNPriorImputation(AbstractModel):
             single_eval_pos=context_x.shape[0],
             src_key_padding_mask=None
         )
+
+    @torch.no_grad()
+    def get_pi(self, x_test, inc, x_train=None, y_train=None):
+
+
+        logits = self.forward(x_train=x_train, y_train=y_train, x_test=x_test)  # torch.Size([
+        # x_train.shape[0], 1, 10000])
+        scores = self.model.criterion.pi(logits.squeeze(), best_f=inc)
+        return scores

@@ -1,0 +1,35 @@
+# @package model
+
+
+meta:
+  name: 'pfn_softmax'
+
+cls:
+  _target_: src.model.pfnimputation.PFNPriorImputation
+
+  model:
+    _target_:  ifbo.surrogate.FTPFN
+    version: "0.0.1"
+    device: ${device}
+    target_path: ${repo_root}/data/.model
+
+  decay_fn:
+    _partial_: True
+    _target_: src.model.mixture.decay.constant_exponential
+    lambda_: 0.005
+    constant: 100
+
+
+  criterion: Null
+  min_context_size: 0
+  # related_task_data
+
+
+  mixture_fn:
+    _partial_: True
+    _target_:  src.model.mixture.mixing.softmax_mixture
+    temperature: 1.0
+
+
+inference_kwargs:
+  temperature: 1.0
