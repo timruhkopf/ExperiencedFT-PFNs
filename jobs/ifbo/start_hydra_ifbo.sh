@@ -11,9 +11,6 @@
 
 commit_hash=$(git log -1 --pretty=format:"%h")
 
-module load Miniforge3
-echo 'activating conda'
-
 REPONAME=ExperiencedFT-PFNs
 
 # on kisski:

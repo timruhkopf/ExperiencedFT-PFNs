@@ -139,8 +139,8 @@ def main(cfg: DictConfig):
     # select the target task and the split of context tasks
     # TODO for loop over the alpha repetitions of the context tasks
     allocation_seeds = range(*cfg.allocation_seeds)
-    for train_ids, target_task, seed in tqdm(
-            product(folds, test_ids, allocation_seeds),
+    for fold, (train_ids, target_task, seed) in tqdm(
+            enumerate(product(folds, test_ids, allocation_seeds)),
             total=len(test_ids) * len(folds) * len(allocation_seeds)
     ):
         logger.info(f"Running task: target_task={target_task}, train_ids={train_ids}, seed={seed}")
@@ -411,7 +411,7 @@ def main(cfg: DictConfig):
                 searcher.model_policy.surrogate_model_name = surrogate_model.__name__
 
         # -----------------------------------------------------------------------
-        neps_dir = Path.cwd() / (f"neps_root_directory_{target_task}_{train_ids.__str__()}"
+        neps_dir = Path.cwd() / (f"neps_root_directory_{target_task}_{fold}"
                                  f"_{cfg.split_seed}_{seed}")
         neps.run(
             run_pipeline=run_pipeline,
@@ -444,7 +444,7 @@ def main(cfg: DictConfig):
                 seed=cfg.seed
             )
             _df = pd.read_csv(
-                Path().cwd() / neps_dir / "summary_csv" / "config_data.csv",
+                neps_dir / "summary_csv" / "config_data.csv",
                 float_precision="round_trip"
             )
             plotter.plot3D(data=_df, run_path=Path().cwd())

@@ -69,6 +69,7 @@ $BIGWORK/ExperiencedFT-PFNs/jobs/ifbo/start_hydra_ifbo.sh \
     benchmark=$BENCH \
     +algorithm=$MODEL \
     split_seed=$SPLIT_SEED \
+    device=cuda \
     $@
 
 
