@@ -157,7 +157,7 @@ class PFNPriorImputation(AbstractModel):
 
         # impute the observed data points --------------------------------------
         # TODO Cache these values, when we optimize over the acquisition function?
-        imputed_logits = self.forward(
+        imputed_logits = self.model(
             (
                 torch.cat([task_context_x, x_train.repeat(1, num_related, 1)], dim=0),
                 torch.cat([task_context_y, ], dim=0)
@@ -236,7 +236,7 @@ class PFNPriorImputation(AbstractModel):
 
         # 2.
         # TODO key-value-cache here on related tasks and incremental x_train
-        prior_logits = self.forward(
+        prior_logits = self.model(
             (
                 torch.cat([
                     related_context_x,
@@ -259,23 +259,27 @@ class PFNPriorImputation(AbstractModel):
         ], dim=0)
 
         # 3
-        target_logits = self.forward(x_train=x_train, y_train=y_train, x_test=x_test)
-        scores = self.model.criterion.pi(target_logits.squeeze(1), best_f=inc)
+        target_logits = self.model(
+            (
+                torch.cat([x_train.unsqueeze(1), x_test.unsqueeze(1)], dim=0),
+                y_train.unsqueeze(1)
+            ),
+            single_eval_pos=x_train.shape[0],
 
-        log.info(f"Devices: {self.device}, Scores: {scores.device}, Scores related:"
-                 f" {scores_related.device}, "
-                 f"x_train: {x_train.device}, y_train: {y_train.device}, x_test: {x_test.device}, "
-                 f"model: {str(next(self.model.parameters()).device)}")
+        )
+        scores = self.model.criterion.pi(target_logits.squeeze(1), best_f=inc)
 
         # 4.
         scores = self.mixture_fn(
             scores,
             scores_related,
-            reliability_scores=self.calculate_reliability(x_train.unsqueeze(1), y_train, minimize=minimize).to(self.device),
+            reliability_scores=self.calculate_reliability(
+                x_train.unsqueeze(1), y_train,
+                minimize=minimize
+            ).to(self.device),
             alpha=self.decay_fn(x_train.shape[0])
         )
 
-
-        scores = torch.clamp(scores, 0+1e-6, 1)
+        scores = torch.clamp(scores, 0 + 1e-6, 1)
 
         return scores

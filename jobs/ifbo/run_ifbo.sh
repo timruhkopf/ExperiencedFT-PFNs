@@ -5,7 +5,7 @@
 #SBATCH --time=48:00:00
 #SBATCH --output=%x_%A_%a.out
 #SBATCH --error=%x_%A_%a.err
-#SBATCH --gres=gpu:1
+
 
 
 #  sbatch --array=0-11 jobs/ifbo/run_ifbo.sh experiment_name=pfn-acq-1st-attempt  +fold=0 +target_idx=0
@@ -65,11 +65,9 @@ JOB_NAME="${MODEL}_${BENCH}"
 chmod +x $BIGWORK/ExperiencedFT-PFNs/jobs/ifbo/start_hydra_ifbo.sh
 
 $BIGWORK/ExperiencedFT-PFNs/jobs/ifbo/start_hydra_ifbo.sh \
-    device=cuda \
     benchmark=$BENCH \
     +algorithm=$MODEL \
     split_seed=$SPLIT_SEED \
-    device=cuda \
     $@
 
 
