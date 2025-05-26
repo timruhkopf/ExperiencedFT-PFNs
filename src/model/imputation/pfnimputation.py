@@ -258,7 +258,10 @@ class PFNPriorImputation(AbstractModel):
             for b in range(B)
         ], dim=0)
 
-        # 3
+        assert not torch.any(x_train > 999.)
+        assert not torch.any(x_test > 999.)
+        # 3 # FIXME: with proper stacking, the prior and target logits could be calculated in one go
+        #      this implementation here is just to keep the code simple and readable for debugging
         target_logits = self.model(
             (
                 torch.cat([x_train.unsqueeze(1), x_test.unsqueeze(1)], dim=0),
@@ -274,12 +277,9 @@ class PFNPriorImputation(AbstractModel):
             scores,
             scores_related,
             reliability_scores=self.calculate_reliability(
-                x_train.unsqueeze(1), y_train,
+                x_train.unsqueeze(1), y_train.unsqueeze(1),
                 minimize=minimize
             ).to(self.device),
             alpha=self.decay_fn(x_train.shape[0])
         )
-
-        scores = torch.clamp(scores, 0 + 1e-6, 1)
-
         return scores

@@ -1,3 +1,6 @@
+import torch
+
+
 def acq_mixture(target_scores, related_scores, reliability_scores, alpha=1):
     """
     Mixes the target and related scores based on their reliability scores.
@@ -19,4 +22,4 @@ def acq_mixture(target_scores, related_scores, reliability_scores, alpha=1):
     weighted_related = (related_scores * weights.reshape(1, -1, 1)).sum(axis=1, keepdims=True)
     mixed_scores = alpha * target_scores + (1 - alpha) * weighted_related
 
-    return mixed_scores.squeeze()
+    return torch.clamp(mixed_scores.squeeze(), 0 + 1e-6, 1)
