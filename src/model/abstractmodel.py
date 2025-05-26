@@ -30,6 +30,9 @@ class AbstractModel:
             # during ifbo deployment
             # curve id encoder will struggle with index positions longer then the
             # sequence length --> so we just replace them here. They don't have any meaning anyways!
+            mask = kwargs['x_train'][:, 0] >= 1000
+            kwargs['x_train'][mask, 0] = torch.tensor(999.)
+
             mask = kwargs['x_test'][:, 0] >= 1000
             kwargs['x_test'][mask, 0] = torch.tensor(999.)
 
