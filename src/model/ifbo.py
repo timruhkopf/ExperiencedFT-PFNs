@@ -160,7 +160,7 @@ class MyPFN_SURROGATE(PFN_SURROGATE):
             )
 
         else:
-            return super().get_pi(
+            return super(MyPFN_SURROGATE, self).get_pi(
                 x_test=x_test,
                 inc=inc,
                 x_train=x_train,
