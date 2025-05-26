@@ -157,7 +157,7 @@ class PFNPriorImputation(AbstractModel):
 
         # impute the observed data points --------------------------------------
         # TODO Cache these values, when we optimize over the acquisition function?
-        imputed_logits = self.model(
+        imputed_logits = self.forward(
             (
                 torch.cat([task_context_x, x_train.repeat(1, num_related, 1)], dim=0),
                 torch.cat([task_context_y, ], dim=0)
@@ -236,7 +236,7 @@ class PFNPriorImputation(AbstractModel):
 
         # 2.
         # TODO key-value-cache here on related tasks and incremental x_train
-        prior_logits = self.model(
+        prior_logits = self.forward(
             (
                 torch.cat([
                     related_context_x,
