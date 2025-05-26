@@ -21,6 +21,10 @@ class AbstractModel:
             args = args[0]
             x, y = args
             single_eval_pos = kwargs['single_eval_pos']
+
+            mask = x[:, 0] >= 1000
+            x[mask, 0] = torch.tensor(999.)
+
             kwargs = {
                 'context_x': x[:single_eval_pos],
                 'context_y': y,
