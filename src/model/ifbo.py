@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 import time
 
@@ -49,14 +50,32 @@ from src.model.imputation.pfnimputation import PFNPriorImputation
 class MyBaseModel(BaseModel):
     def __init__(self, path):
         torch.nn.Module.__init__(self)
-        import ifbo
 
-        with torch.serialization.safe_globals([ifbo.transformer.TransformerModel]):
-            # (FUCK YOU GUYS with your absolute magic path name)
-            self.model = torch.load(
+        import importlib.util
+        import sys
+
+        # fixme: make this in reference to this file
+        spec = importlib.util.spec_from_file_location("ifbo", f"{Path(path).parents[2]}/ifBO_main/ifbo/__init__.py")
+        ifbo = importlib.util.module_from_spec(spec)
+        sys.modules["ifbo"] = ifbo
+        spec.loader.exec_module(ifbo)
+
+        self.model = torch.load(
                 path, map_location=torch.device('cuda' if torch.cuda.is_available() else 'cpu'),
                 weights_only=False
             )
+
+        # import ifBO_icml2024
+        #
+        #
+        #
+        # with torch.serialization.safe_globals([
+        #     ifBO_icml2024.src.PFNs4HPO.pfns4hpo.transformer.TransformerModel]):
+        #     # (FUCK YOU GUYS with your absolute magic path name)
+        #     self.model = torch.load(
+        #         path, map_location=torch.device('cuda' if torch.cuda.is_available() else 'cpu'),
+        #         weights_only=False
+        #     )
 
         self.model.eval()
 

@@ -15,9 +15,16 @@ REPONAME=ExperiencedFT-PFNs
 
 # on kisski:
 module load Miniforge3
-conda activate /mnt/home/truhkopf/.conda/envs/ft-pfn
 
-BIGWORK=~
+if [[ $HOME == /mnt/home* ]]; then
+    conda activate $HOME/.conda/envs/ft-pfn
+    # if we are on kisski
+    BIGWORK=~
+else
+
+  conda activate $BIGWORK/envs/eft-pfn2
+fi
+
 export PYTHONPATH=$BIGWORK/$REPONAME/src:$PYTHONPATH
 export PYTHONPATH=$BIGWORK/$REPONAME/ifBO_main:$PYTHONPATH
 export PYTHONPATH=$BIGWORK/$REPONAME/ifBO_icml2024:$PYTHONPATH

@@ -26,8 +26,10 @@ experiment_group: test
 seed: 2
 n_workers: 1
 
+name_key: ${oc.select:algorithm.surrogate_model.meta.name,${algorithm.name}}_${benchmark.meta.name}_seed_${seed}
+
 hydra:
   run:
-    dir: results/${experiment_group}/${experiment_name}/${now:%Y-%m-%d-%H-%M-%S}
+    dir: results/${experiment_group}/${experiment_name}/${now:%Y-%m-%d-%H-%M-%S}_${name_key}
   job:
     chdir: true

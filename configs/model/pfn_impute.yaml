@@ -2,7 +2,7 @@
 
 
 meta:
-  name: 'pfn_softmax'
+  name: 'pfn_impute'
 
 cls:
   _target_: src.model.imputation.pfnimputation.PFNPriorImputation

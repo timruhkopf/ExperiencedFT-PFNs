@@ -62,9 +62,9 @@ JOB_NAME="${MODEL}_${BENCH}"
 # Call your actual job script
 
 # TODO at least once:
-chmod +x $BIGWORK/ExperiencedFT-PFNs/jobs/ifbo/start_hydra_ifbo.sh
+#chmod +x $BIGWORK/ExperiencedFT-PFNs/jobs/ifbo/start_hydra_ifbo.sh
 
-$BIGWORK/ExperiencedFT-PFNs/jobs/ifbo/start_hydra_ifbo.sh \
+bash $BIGWORK/ExperiencedFT-PFNs/jobs/ifbo/start_hydra_ifbo.sh \
     benchmark=$BENCH \
     +algorithm=$MODEL \
     split_seed=$SPLIT_SEED \
