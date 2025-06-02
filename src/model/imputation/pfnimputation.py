@@ -222,10 +222,13 @@ class PFNPriorImputation(AbstractModel):
         y_train = y_train.to(self.device)
         inc = inc.to(self.device)
 
-        assert not torch.any(x_train > 999.)
+
         if torch.any(x_test > 999.):
             log.warning(f"Query points x_test contain values > 999: {x_test[x_test > 999.]}")
             x_test = torch.clamp(x_test, max=999.)
+        if torch.any(x_train > 999.):
+            log.warning(f"Training points x_train contain values > 999: {x_train[x_train > 999.]}")
+            x_train = torch.clamp(x_train, max=999.)
 
         if minimize:
             related_context_y = (1 - related_context_y)
