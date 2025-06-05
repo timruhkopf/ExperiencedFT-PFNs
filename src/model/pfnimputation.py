@@ -2,7 +2,7 @@ import torch
 
 from ifbo.transformer import TransformerModel
 from src.model.abstractmodel import AbstractModel
-from src.model.mixture.mixture_ppd import _calc_reliability
+from src.model.calc_reliability import _calc_reliability
 
 import logging
 

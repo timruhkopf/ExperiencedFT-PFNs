@@ -43,8 +43,8 @@ from neps.search_spaces.search_space import (
 
 import logging
 
-from src.model.mixture.mixture_ppd import PFNPPDMixture
-from src.model.imputation.pfnimputation import PFNPriorImputation
+from src.model.mixture_ppd import PFNPPDMixture
+from src.model.pfnimputation import PFNPriorImputation
 
 
 class MyBaseModel(BaseModel):
