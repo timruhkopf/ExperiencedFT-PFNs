@@ -15,9 +15,9 @@ def acq_mixture(target_scores, related_scores, reliability_scores, alpha=1):
 
     # min-max normalize the scores; for related scores, we normalize across the first axis
     target_scores = (target_scores - target_scores.min()) / (target_scores.max() - target_scores.min())
-    related_scores = (related_scores - related_scores.min(axis=1, keepdims=True)[0]) / (
-        related_scores.max(axis=1, keepdims=True)[0] - related_scores.min(axis=1, keepdims=True)[0]
-    )
+    # related_scores = (related_scores - related_scores.min(axis=1, keepdims=True)[0]) / (
+    #     related_scores.max(axis=1, keepdims=True)[0] - related_scores.min(axis=1, keepdims=True)[0]
+    # )
 
     weighted_related = (related_scores * weights.reshape(1, -1, 1)).sum(axis=1, keepdims=True)
     mixed_scores = alpha * target_scores + (1 - alpha) * weighted_related
