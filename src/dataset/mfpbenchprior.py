@@ -3,7 +3,7 @@ from typing import Optional, Union, List, Dict
 import numpy as np
 import torch
 from mfpbench import TabularBenchmark
-
+from synthetic_bm import SyntheticBenchmark
 from ifbo.utils import detokenize
 from ifbo import Batch
 from neps.search_spaces.search_space import pipeline_space_from_configspace
@@ -126,93 +126,109 @@ class MFBenchPrior(TabularBenchmark):
 
     def __init__(self,
                  name: str,
-                 data_path,
+                 data_path = None,
                  seq_len=1000,
                  mfb_kwargs: Dict = None,
-                 device="cpu"):
+                 device="cpu",
+                 **kwargs):
         self.name = name
         self.data_path = data_path
         self.seq_len = seq_len
         self.mfb_kwargs = mfb_kwargs
         self.seq_len = seq_len
         self.device = device
+        
+        # for synthetic benchmarks
+        self.n_layers = kwargs.get('n_layers', None)
+        self.n_related_tasks = kwargs.get('n_related_tasks', 6)
+        self.reset_kwargs = kwargs.get('reset_kwargs', {})
 
     def collect_task_split(
             self,
             target_id: [int],
             train_ids: List[int],
     ):
-        if not hasattr(self, 'train_ids'):
-            # lazy load the train_ids (which takes time
-            self.target_id = None
-            self.train_ids = None
-
-        if self.name == "lcbench_tabular":
-            default_mfb_kwargs = {"name": self.name, "preload": True, "prior": None,
-                                  "remove_constants": True, "seed": True,
-                                  "value_metric": "val_balanced_accuracy",
-                                  "value_metric_test": "test_balanced_accuracy"}
-            target = {"task_id": LCBENCH_IDS[target_id]}
-
-            if train_ids != self.train_ids:
-                self.related = [{"task_id": LCBENCH_IDS[task]}
-                                for task in train_ids]
-
-
-
-        elif self.name == "pd1_tabular":
-
-            if target_id >= len(PD1_IDS):
-                raise ValueError(
-                    f"task_id {target_id} is out of bounds for PD1_IDS with size {len(PD1_IDS)}")
-            if any(tid >= len(PD1_IDS) for tid in train_ids):
-                raise ValueError(
-                    f"Some related_task_ids are out of bounds for PD1_IDS with size {len(PD1_IDS)}")
-            default_mfb_kwargs = {"name": self.name,
-                                  "preload": True, "prior": None, "seed": True}
-            target = PD1_IDS[target_id]
-            if train_ids != self.train_ids:
-                self.related = [PD1_IDS[task] for task in train_ids]
-        elif self.name == "taskset_tabular":
-            default_mfb_kwargs = {"name": self.name,
-                                  "preload": True, "prior": None, "seed": True}
-            target = TASKSET_IDS[target_id]
-            if train_ids != self.train_ids:
-                self.related = [TASKSET_IDS[task] for task in train_ids]
+        if self.name == "synthetic":
+            self.target_benchmark = SyntheticBenchmark(value_metric="value")
+            
+            self.related_benchmarks = []
+            for _ in range(self.n_related_tasks):
+                related_task = self.target_benchmark.create_related_task(n_layers=self.n_layers, **self.reset_kwargs)
+                self.related_benchmarks.append(related_task)
+                
         else:
-            raise ValueError(
-                "name must be one of lcbench_tabular, pd1_tabular, or taskset")
+            
+            if not hasattr(self, 'train_ids'):
+                # lazy load the train_ids (which takes time
+                self.target_id = None
+                self.train_ids = None
 
-        if self.mfb_kwargs is not None:
-            default_mfb_kwargs.update(self.mfb_kwargs)
-        mfb_kwargs = default_mfb_kwargs
+            if self.name == "lcbench_tabular":
+                default_mfb_kwargs = {"name": self.name, "preload": True, "prior": None,
+                                    "remove_constants": True, "seed": True,
+                                    "value_metric": "val_balanced_accuracy",
+                                    "value_metric_test": "test_balanced_accuracy"}
+                target = {"task_id": LCBENCH_IDS[target_id]}
 
-        target_kwargs = mfb_kwargs.copy()
-        target_kwargs.update(target)
+                if train_ids != self.train_ids:
+                    self.related = [{"task_id": LCBENCH_IDS[task]}
+                                    for task in train_ids]
 
-        self.target_benchmark = mfpbench.get(
-            datadir=self.data_path, **target_kwargs)
 
-        self.related_benchmarks = []
-        for related_task in self.related:
-            related_kwargs = mfb_kwargs.copy()
-            related_kwargs.update(related_task)
-            self.related_benchmarks.append(
-                mfpbench.get(datadir=self.data_path, **related_kwargs))
 
-        if self.name == "taskset_tabular":
-            self.target_benchmark = self._process_taskset_mfpbench_with_step_0_prior(
-                benchmark=self.target_benchmark, drop_step_0=True
-            )
-            self.related_benchmarks = [
-                self._process_taskset_mfpbench_with_step_0_prior(
-                    benchmark=benchmark, drop_step_0=True
+            elif self.name == "pd1_tabular":
+
+                if target_id >= len(PD1_IDS):
+                    raise ValueError(
+                        f"task_id {target_id} is out of bounds for PD1_IDS with size {len(PD1_IDS)}")
+                if any(tid >= len(PD1_IDS) for tid in train_ids):
+                    raise ValueError(
+                        f"Some related_task_ids are out of bounds for PD1_IDS with size {len(PD1_IDS)}")
+                default_mfb_kwargs = {"name": self.name,
+                                    "preload": True, "prior": None, "seed": True}
+                target = PD1_IDS[target_id]
+                if train_ids != self.train_ids:
+                    self.related = [PD1_IDS[task] for task in train_ids]
+            elif self.name == "taskset_tabular":
+                default_mfb_kwargs = {"name": self.name,
+                                    "preload": True, "prior": None, "seed": True}
+                target = TASKSET_IDS[target_id]
+                if train_ids != self.train_ids:
+                    self.related = [TASKSET_IDS[task] for task in train_ids]
+            else:
+                raise ValueError(
+                    "name must be one of lcbench_tabular, pd1_tabular, or taskset")
+
+            if self.mfb_kwargs is not None:
+                default_mfb_kwargs.update(self.mfb_kwargs)
+            mfb_kwargs = default_mfb_kwargs
+
+            target_kwargs = mfb_kwargs.copy()
+            target_kwargs.update(target)
+
+            self.target_benchmark = mfpbench.get(
+                datadir=self.data_path, **target_kwargs)
+
+            self.related_benchmarks = []
+            for related_task in self.related:
+                related_kwargs = mfb_kwargs.copy()
+                related_kwargs.update(related_task)
+                self.related_benchmarks.append(
+                    mfpbench.get(datadir=self.data_path, **related_kwargs))
+
+            if self.name == "taskset_tabular":
+                self.target_benchmark = self._process_taskset_mfpbench_with_step_0_prior(
+                    benchmark=self.target_benchmark, drop_step_0=True
                 )
-                for benchmark in self.related_benchmarks
-            ]
+                self.related_benchmarks = [
+                    self._process_taskset_mfpbench_with_step_0_prior(
+                        benchmark=benchmark, drop_step_0=True
+                    )
+                    for benchmark in self.related_benchmarks
+                ]
 
-        self.target_id = target_id
-        self.train_ids = train_ids
+            self.target_id = target_id
+            self.train_ids = train_ids
         # self.name = self.name
         # self.fidelity_name = None
         # self.fidelity_range = None

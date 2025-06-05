@@ -1,0 +1,17 @@
+# @package benchmark
+
+meta:
+  name: 'synthetic'
+
+cls:
+  _target_: src.dataset.mfpbenchprior.MFBenchPrior
+  name: synthetic
+  n_layers: 1
+  n_related_tasks: 6
+  reset_kwargs:
+    init_std: None,
+    sparseness: None,
+    pre_activation_noise: 0,
+    output_noise: 0
+  
+
