@@ -85,7 +85,7 @@ def plot_per_task_improvement(agg_df):
 
     g.map_dataframe(plot_with_error)
     g.add_legend()
-    g.set_axis_labels("Fidelity (step)", "Improvement over ifbox (lower loss is better)")
+    g.set_axis_labels("Fidelity (step)", "Improvement over ifbo (lower loss is better)")
     g.set_titles(col_template="{col_name}")
     plt.axhline(0, color='gray', linestyle='--', linewidth=1)  # Reference line for no improvement
     plt.show()
@@ -93,18 +93,21 @@ def plot_per_task_improvement(agg_df):
 
 if __name__ == '__main__':
     file = Path(
-        '/home/ruhkopf/PycharmProjects/ExperiencedFT-PFNs/kisski_results/joint_results_bdd5b01.csv')
+        '/home/ruhkopf/PycharmProjects/ExperiencedFT-PFNs/luis_results/pfnimpute-1sttrial'
+        '/joint_results_d51cfa3_sanity_same.csv')
     df = pd.read_csv(file)
     import os
     import re
 
-    # Fill missing algorithm names with 'ifbox'
+    # Fill missing algorithm names with 'ifbo'
     df['algorithm.surrogate_model.meta.name'] = df['algorithm.surrogate_model.meta.name'].fillna(
-        value='ifbox')
+        value='ifbo')
+
+    df = df[df['algorithm.surrogate_model.meta.name'].isin( ['ifbo', 'pfn_impu'])]
 
     def extract_target_train_allocseed(s):
         # Regex: target_idx = digits, train_ids = anything inside brackets, allocation_seed = digits at end
-        m = re.match(r'neps_root_directory_(\d+)_((?:\[.*?\]))_(\d+)_(\d+)$', s) # fixme: this will
+        m = re.match(r'neps_root_directory_(\d+)_(\d+)_(\d+)_(\d+)$', s)
         # have a split_seed before the allocation_seed in the current version!
         if m:
             return pd.Series({
@@ -127,7 +130,7 @@ if __name__ == '__main__':
     df_anytime = compute_anytime_performance(df)
 
     # Compute per-task improvement over ifbox
-    df_improvement = compute_per_task_improvement(df_anytime, baseline_algo='ifbox')
+    df_improvement = compute_per_task_improvement(df_anytime, baseline_algo='ifbo')
 
     # Aggregate improvement statistics
     agg_improvement = aggregate_improvement(df_improvement)
