@@ -5,7 +5,7 @@ meta:
   name: 'pfn_impute'
 
 cls:
-  _target_: src.model.imputation.pfnimputation.PFNPriorImputation
+  _target_: src.model.pfnimputation.PFNPriorImputation
 
   model:
     _target_:  ifbo.surrogate.FTPFN
@@ -15,7 +15,7 @@ cls:
 
   decay_fn:
     _partial_: True
-    _target_: src.model.mixture.decay.constant_exponential
+    _target_: src.model.decay.constant_exponential
     lambda_: 0.005
     constant: 100
 
@@ -27,7 +27,7 @@ cls:
 
   mixture_fn:
     _partial_: True
-    _target_:  src.model.imputation.mixing.acq_mixture
+    _target_:  src.model.mixing.acq_mixture
 
 
 

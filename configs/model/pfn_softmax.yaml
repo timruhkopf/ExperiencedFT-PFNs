@@ -5,7 +5,7 @@ meta:
   name: 'pfn_softmax'
 
 cls:
-  _target_: src.model.mixture.mixture_ppd.PFNPPDMixture
+  _target_: src.model.mixture_ppd.PFNPPDMixture
 
   model:
     _target_:  ifbo.surrogate.FTPFN
@@ -15,7 +15,7 @@ cls:
 
   decay_fn:
     _partial_: True
-    _target_: src.model.mixture.decay.constant_exponential
+    _target_: src.model.decay.constant_exponential
     lambda_: 0.005
     constant: 100
 
@@ -27,7 +27,7 @@ cls:
 
   mixture_fn:
     _partial_: True
-    _target_:  src.model.mixture.mixing.softmax_mixture
+    _target_:  src.model.mixing.softmax_mixture
     temperature: 1.0
 
 
