@@ -88,51 +88,41 @@ def calc_imputed_linalg_reliability(
         src_key_padding_mask=padding_mask
     )
 
-    imputed_y = criterion.median(logits)
+    imputed_y = criterion.median(logits)  # shape [num_points, num_tasks]
 
-    target_fidelity = context_x[:,0, 1]
-    # fixme, if we were to compute the residual sum squared, we can compute the BIC
-    #      resid = y_target - y_proj
-    #     rss = np.sum(resid**2)
-    #     n = len(y_target)
-    #     k = X_design.shape[1]
-    #     bic = n * np.log(rss / n) + k * np.log(n)
-    #     and select the one with the argmin BIC for best fit
-
+    target_fidelity = context_x[:, 0, 1]
     # Build polynomial features for target fidelity & then the design matrix
     x = target_fidelity.reshape(-1, 1)  # Ensure x is column vector
-    degree = 3
+    degree = 0
     x = torch.cat([x ** i for i in range(degree + 1)], dim=1).to(device)  # Polynomial features
     X_design = torch.cat([context_y, x], dim=1).to(device)  # Add context_y as first column
 
-    # Kronecker product for related tasks
-    X_design = torch.kron(torch.eye(num_related, device=device), X_design)
+    # Build block-diagonal design matrix for all tasks
+    X_design_block = torch.block_diag(*[X_design for _ in range(num_related)])  # [num_tasks*num_points, ...][2][5]
 
-    beta = torch.linalg.lstsq(X_design, imputed_y.view(-1)).solution  # y_target needs to be 2D
-    y_proj = X_design @ beta
+    # Reorder imputed_y to match block-diagonal structure: all points for task 0, then task 1, etc.
+    imputed_y_ordered = imputed_y.transpose(0, 1).contiguous().view(-1)  # [num_tasks*num_points]
+
+    beta = torch.linalg.lstsq(X_design_block, imputed_y_ordered).solution
+    y_proj = X_design_block @ beta
     y_proj = y_proj.clamp(0, 1)
 
+    # For plotting and debugging
     if False:
         import numpy as np
         import matplotlib.pyplot as plt
 
-        # Example shapes:
-        # target_fidelity: (num_fidelity,)
-        # imputed_y: (num_fidelity, num_tasks)
-        # y_proj: (num_fidelity * num_tasks,)
-        # target_y: (num_fidelity,)
         target_y = context_y
         num_fidelity = target_fidelity.shape[0]
         num_tasks = imputed_y.shape[1]
 
-        # Reshape y_proj for per-task plotting
-        y_proj_reshaped = y_proj.cpu().numpy().reshape(num_fidelity, num_tasks)
+        # Reshape y_proj for per-task plotting (now correct shape)
+        y_proj_reshaped = y_proj.cpu().numpy().reshape(num_tasks, num_fidelity).T  # shape [num_fidelity, num_tasks]
         imputed_np = imputed_y.cpu().numpy()
         fidelity = target_fidelity.cpu().numpy()
         target_y_np = target_y.cpu().numpy()  # ground truth for target task
 
-        # Create subplots: one per task + one for ground truth
-        fig, axs = plt.subplots(1, num_tasks + 1, figsize=(4*(num_tasks+1), 5), sharey=True)
+        fig, axs = plt.subplots(1, num_tasks + 1, figsize=(4 * (num_tasks + 1), 5), sharey=True)
         fig.suptitle('Per-Task Projection Analysis', fontsize=16)
 
         # Plot ground truth (target task)
@@ -157,7 +147,7 @@ def calc_imputed_linalg_reliability(
             # Error bars
             for xi, yb, ya in zip(x, y_before, y_after):
                 ax.plot([xi, xi], [yb, ya], color='gray', linestyle=':', zorder=2)
-            ax.set_title(f'Related Task {task_idx+1}')
+            ax.set_title(f'Related Task {task_idx + 1}')
             ax.set_xlabel('Fidelity')
             ax.grid(True, alpha=0.3)
             if task_idx == 0:
@@ -166,11 +156,11 @@ def calc_imputed_linalg_reliability(
         plt.tight_layout(rect=[0, 0, 1, 0.95])
         plt.show()
 
-
-
     # y's associated with query for that task
     # target = context_y.repeat(1, num_related)
-    loss = criterion(logits, y_proj.view(-1, logits.shape[1]))
+    # Reshape y_proj to [num_points, num_tasks] for loss computation
+    y_proj_for_loss = y_proj.view(num_tasks, num_fidelity).T  # [num_points, num_tasks]
+    loss = criterion(logits, y_proj_for_loss)
     loss = loss.view(-1, logits.shape[1])  # bar distribution issue
     loss = loss.mean(dim=0)  # mean over the batch
 
