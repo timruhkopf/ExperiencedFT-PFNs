@@ -43,8 +43,8 @@ from neps.search_spaces.search_space import (
 
 import logging
 
-from src.model.mixture.mixture_ppd import PFNPPDMixture
-from src.model.imputation.pfnimputation import PFNPriorImputation
+from src.model.mixture_ppd import PFNPPDMixture
+from src.model.pfnimputation import PFNPriorImputation
 
 
 class MyBaseModel(BaseModel):
@@ -59,6 +59,8 @@ class MyBaseModel(BaseModel):
         ifbo = importlib.util.module_from_spec(spec)
         sys.modules["ifbo"] = ifbo
         spec.loader.exec_module(ifbo)
+
+        #        with torch.serialization.safe_globals([ifbo.transformer.TransformerModel]):
 
         self.model = torch.load(
                 path, map_location=torch.device('cuda' if torch.cuda.is_available() else 'cpu'),

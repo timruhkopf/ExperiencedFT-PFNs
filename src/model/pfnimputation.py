@@ -2,9 +2,11 @@ import torch
 
 from ifbo.transformer import TransformerModel
 from src.model.abstractmodel import AbstractModel
-from src.model.mixture.mixture_ppd import _calc_reliability
+from src.model.calc_reliability import _calc_reliability
 
 import logging
+
+from src.utils.dotdict import DotDict
 
 log = logging.getLogger(__name__)
 
@@ -83,7 +85,7 @@ class PFNPriorImputation(AbstractModel):
         self.imputation_mode = imputation_mode
 
         self.mixture_fn = mixture_fn
-
+        self.call_counter=0
         # TODO: distill the related tasks once (optionally)
 
     def _forward(self, context_x, context_y, query_x, *args, **kwargs) -> torch.Tensor:
@@ -110,9 +112,20 @@ class PFNPriorImputation(AbstractModel):
         context_x = x_train.to(self.device)
         context_y = y_train.to(self.device)
 
-        related_task_data = self.related_task_data
+        related_x = self.related_task_data.x.to(self.device)
+        related_y = self.related_task_data.y.to(self.device)
+        padding_mask = self.related_task_data.padding_mask.to(self.device)
+        single_eval_pos = related_x.shape[0]
+
         if minimize:
-            related_task_data.y = (1 - related_task_data.y)
+            related_y = (1 - related_y)
+
+        related_task_data = DotDict({
+            'x': related_x,
+            'y': related_y,
+            'padding_mask': padding_mask,
+            'single_eval_pos': single_eval_pos
+        })
 
         # fixme: cache these values when we move to optimizing the acquisition function
         if context_size >= self.min_context_size:
@@ -222,7 +235,6 @@ class PFNPriorImputation(AbstractModel):
         y_train = y_train.to(self.device)
         inc = inc.to(self.device)
 
-
         if torch.any(x_test > 999.):
             log.warning(f"Query points x_test contain values > 999: {x_test[x_test > 999.]}")
             x_test = torch.clamp(x_test, max=999.)
@@ -266,7 +278,6 @@ class PFNPriorImputation(AbstractModel):
             for b in range(B)
         ], dim=0)
 
-
         # 3 # FIXME: with proper stacking, the prior and target logits could be calculated in one go
         #      this implementation here is just to keep the code simple and readable for debugging
         target_logits = self.model(
@@ -289,4 +300,5 @@ class PFNPriorImputation(AbstractModel):
             ).to(self.device),
             alpha=self.decay_fn(x_train.shape[0])
         )
+        self.call_counter += 1
         return scores
