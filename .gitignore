@@ -174,3 +174,12 @@ cython_debug/
 .pypirc
 /src/prior_grunwald/
 /results/
+/data/
+/ifBO_icml2024/
+/ifBO_main/
+/src/ifbo
+/src/mf-prior-bench
+/src/neps_lcpfn_hpo
+/src/PFNs4HPO
+/src/pfns_hpo
+

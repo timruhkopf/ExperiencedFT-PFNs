@@ -19,47 +19,54 @@ and try to predict  $$p\left(y | \{(\lambda_j, t_j, .)\}_j ,  \{(\lambda_i', t_i
 
 # Installation
 
-```bash
+```shell
 conda create -n ft-pfn python=3.10
 cd ExperiencedFT-PFNs
 
-root=$(pwd)
-pip install -e .
 
-
-# FIXME: move this install directly to setup.py
-
-git clone git@github.com:automl/ifBO.git ifBO_icml2024
-git checkout icml-2024
-pip install -U ifBO_icml24
-pip install -U ifBO_icml2024/src/neps_lcpfn_hpo
-pip install -U ifBO_icml2024/src/mf-prior-bench
-pip install -U ifBO_icml2024/src/PFNs4HPO
-
-# collect the padding changes
-
-git clone git@github.com:automl/ifBO.git ifBO_main
+git clone git@github.com:timruhkopf/ifBO.git
 git checkout main
-pip install -U ifBO_main
-# collect the padding changes
+mv ifBO ifBO_main
+#pip install -U ifBO
+pip install -e ifBO_main
 
-PYTHONPATH=[...]/ExperiencedFT-PFNs/ifBO_main/ifbo:$PYTHONPATH
-
-
-# LCBench benchmark data: 
-#ExperiencedFT-PFNs/src/ifBO_icml2024$ python -m mfpbench download --benchmark lcbench-tabular
-cd src/ifBO_icml24
-pip install -r requirements.txt
-
-
-
-python -m mfpbench download --benchmark lcbench-tabular  --data-dir $root/ExperiencedFT-PFNs/data/
-python -m mfpbench download --benchmark pd1-tabular  --data-dir $root/ExperiencedFT-PFNs/data/
-python -m mfpbench download --benchmark taskset  --data-dir $root/ExperiencedFT-PFNs/data/
-
-
+./setup.sh
 
 ```
+
+# a potential bug
+in line 100 of 
+ExperiencedFT-PFNs/ifBO_icml2024/src/mf-prior-bench/src/mfpbench/taskset_tabular/processing/process.py
+
+```python
+    df[["optimizer", "config_id"]] = df.apply(
+        lambda row: row.name.split("_seed"),
+        axis=1,
+        result_type="expand",
+    )
+    
+    parsed = df.index.to_series().str.extract(r"^(.*)_seed(\d+)$")
+    parsed.columns = ["optimizer", "config_id"]
+
+    # Identify invalid config_id values
+    invalid_rows = parsed[~parsed["config_id"].str.fullmatch(r"\d+")]
+    if not invalid_rows.empty:
+        print("Invalid rows detected:")
+        print(invalid_rows)
+    # Safe conversion
+    df["optimizer"] = parsed["optimizer"].astype("category")
+    df["config_id"] = pd.to_numeric(parsed["config_id"], errors="coerce").astype("Int32")
+
+```
+
+Then in data folder:
+
+
+```python
+import ifbo
+model = ifbo.surrogate.FTPFN(version="0.0.1")
+```
+
 
 # How to run the Experiments: 
 
