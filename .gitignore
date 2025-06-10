@@ -178,8 +178,11 @@ cython_debug/
 /ifBO_icml2024/
 /ifBO_main/
 /src/ifbo
+/src/mfpbench
+/src/neps-lcpfn-hpo
+/src/pfns-hpo/
+/src/pfns4hpo/
 /src/mf-prior-bench
 /src/neps_lcpfn_hpo
 /src/PFNs4HPO
 /src/pfns_hpo
-

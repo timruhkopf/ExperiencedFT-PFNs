@@ -6,8 +6,6 @@
 #SBATCH --output=%x_%A_%a.out
 #SBATCH --error=%x_%A_%a.err
 
-
-
 #  sbatch --array=0-11 jobs/ifbo/run_ifbo.sh experiment_name=pfn-acq-1st-attempt  +fold=0 +target_idx=0
 #for split in range(3):
 #    for algo in ['ifbo', 'ifbo-pfnargmin', 'ifbo-pfnsoftmax', 'ifbo-distill']:
