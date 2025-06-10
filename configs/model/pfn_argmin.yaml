@@ -1,4 +1,8 @@
 # @package model
+defaults:
+  - /model/decay/exp@cls.decay_fn
+  - /model/mixture/argmin@cls.mixture_fn
+  - /model/reliability/scaled@cls.reliability_fn
 
 meta:
   name: 'pfn_argmin'
@@ -11,16 +15,6 @@ cls:
     version: "0.0.1"
     device: ${device}
     target_path: ${repo_root}/data/.model
-
-  decay_fn:
-    _partial_: True
-    _target_: src.model.decay.constant_exponential
-    lambda_: 0.005
-    constant: 100
-
-  mixture_fn:
-    _partial_: True
-    _target_:  src.model.mixing.argmin
 
   criterion: Null
   min_context_size: 10

@@ -1,0 +1,5 @@
+# @package model.cls.reliability_fn
+
+
+_partial_: True
+_target_: src.model.calc_reliability._calc_reliability

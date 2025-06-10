@@ -1,5 +1,8 @@
 # @package model
-
+defaults:
+  - /model/decay/exp@cls.decay_fn
+  - /model/mixture/acq_pi@cls.mixture_fn
+  - /model/reliability/scaled@cls.reliability_fn
 
 meta:
   name: 'pfn_impute'
@@ -13,21 +16,9 @@ cls:
     device: ${device}
     target_path: ${repo_root}/data/.model
 
-  decay_fn:
-    _partial_: True
-    _target_: src.model.decay.constant_exponential
-    lambda_: 0.005
-    constant: 100
-
-
   criterion: Null
   min_context_size: 10
   # related_task_data
-
-
-  mixture_fn:
-    _partial_: True
-    _target_:  src.model.mixing.acq_mixture
 
 
 
