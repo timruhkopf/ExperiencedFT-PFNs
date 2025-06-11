@@ -13,7 +13,7 @@ def folds_of_size(train_ids, size=5, drop=True):
     """Split train_ids into non overlapping folds of at most size"""
 
     if size <= 0:
-        return train_ids
+        return [train_ids]
 
     if drop:
         n = len(train_ids) // size
