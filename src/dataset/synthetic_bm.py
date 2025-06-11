@@ -30,13 +30,15 @@ class SynstheticConfig(Config):
 @dataclass(frozen=True)
 class SyntheticBenchmarkResult(Result[SynstheticConfig, int]):
     metric_defs: ClassVar[Mapping[str, Metric]] = {
-        "value": Metric(minimize=False, bounds=(0.0, 1.0))
+        "value": Metric(minimize=False, bounds=(0.0, 1.0)),
+        "fid_cost": Metric(minimize=True, bounds=(0.05, 1.0)),
     }
     default_value_metric: ClassVar[str] = "value"
     default_value_metric_test: ClassVar[None] = None
-    default_cost_metric: ClassVar[None] = None
+    default_cost_metric: ClassVar[str] = "fid_cost"
 
     value: Metric.Value
+    fid_cost: Metric.Value
 
 
 C = TypeVar("C", bound=Config)
@@ -68,8 +70,9 @@ class SyntheticBenchmark(Benchmark):
         prior: str | Path | Mapping[str, Any] | None = None,
         perturb_prior: float | None = None,
         value_metric: str | None = None,
+        cost_metric: str | None = None,
     ):
-
+        self.n_configs = 500 # Number of configurations to sample
         self.max_fidelities = 100  # Maximum number of epochs
 
         # sample the dimensionality (i.e. hp space dim)
@@ -108,6 +111,7 @@ class SyntheticBenchmark(Benchmark):
             prior=prior,
             perturb_prior=perturb_prior,
             value_metric=value_metric,
+            cost_metric=cost_metric,
         )
 
     @override
@@ -120,7 +124,11 @@ class SyntheticBenchmark(Benchmark):
 
         curves = self.relation_prior.curves_for_configs(config[np.newaxis, :])
         # what should be the first argument?
-        return {"value": curves(np.array([at/self.max_fidelities]), 0)[0]}
+        return {"value": curves(np.array([at/self.max_fidelities]), 0)[0], "fid_cost": self._fidelity_cost(at)}
+    
+    def _fidelity_cost(self, at: int) -> float:
+        return 0.05 + (1 - 0.05) * (at / self.fidelity_range[1]) ** 2
+        
 
     def create_related_task(self, n_layers, **reset_kwargs):
         if n_layers is None:
@@ -199,9 +207,19 @@ class SyntheticBenchmark(Benchmark):
         elif output_noise == 0:
             bnn.output_noise = 0
 
-
+    @property
+    def configs(self):
+        """Return the list of all possible configurations."""
+        configs = {}
+        for i in range(self.n_configs):
+            config = self.sample()
+            configs[str(i)] = config
+        return configs
+    
+    
+    
 if __name__ == "__main__":
-    benchmark = SyntheticBenchmark(value_metric="value")
+    benchmark = SyntheticBenchmark(value_metric="value", cost_metric="fid_cost")
 
     config = benchmark.sample()
     print(f"Sampled Config: {config}")
@@ -212,7 +230,7 @@ if __name__ == "__main__":
     print(f"Result: {result}")
     print(f"Trajectory: {trajectory}")
     print(f"Max Fidelity: {benchmark.end}")
-
+    print(f"Error: {benchmark.query(config, at=99).error}")
     related_benchmark = benchmark.create_related_task(n_layers=1)
     trajectory_related = related_benchmark.trajectory(
         config, frm=related_benchmark.start, to=related_benchmark.end)

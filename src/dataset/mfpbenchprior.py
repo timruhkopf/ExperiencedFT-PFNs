@@ -140,7 +140,7 @@ class MFBenchPrior(TabularBenchmark):
         
         # for synthetic benchmarks
         self.n_layers = kwargs.get('n_layers', None)
-        self.n_related_tasks = kwargs.get('n_related_tasks', 6)
+        self.total_tasks = kwargs.get('total_tasks', 6)
         self.reset_kwargs = kwargs.get('reset_kwargs', {})
 
     def collect_task_split(
@@ -149,10 +149,10 @@ class MFBenchPrior(TabularBenchmark):
             train_ids: List[int],
     ):
         if self.name == "synthetic":
-            self.target_benchmark = SyntheticBenchmark(value_metric="value")
+            self.target_benchmark = SyntheticBenchmark(value_metric="value", cost_metric="fid_cost")
             
             self.related_benchmarks = []
-            for _ in range(self.n_related_tasks):
+            for _ in range(len(train_ids)):
                 related_task = self.target_benchmark.create_related_task(n_layers=self.n_layers, **self.reset_kwargs)
                 self.related_benchmarks.append(related_task)
                 
@@ -246,14 +246,16 @@ class MFBenchPrior(TabularBenchmark):
         return self.target_benchmark.trajectory(config)
 
     def __len__(self):
-        return len(
-            {
-                'lcbench_tabular': LCBENCH_IDS,
-                'pd1_tabular': PD1_IDS,
-                'taskset_tabular': TASKSET_IDS,
-                'synthetic': list(range(self.n_related_tasks*5))
-            }[self.name]
-        )
+        if self.name == "synthetic":
+            return self.total_tasks
+        else:
+            return len(
+                {
+                    'lcbench_tabular': LCBENCH_IDS,
+                    'pd1_tabular': PD1_IDS,
+                    'taskset_tabular': TASKSET_IDS,
+                }[self.name]
+            )
 
     def sample_dirichlet(self, ncurves: int, max_fidelities: int, alpha: float = None,
                          eps: float = 10 ** -9,
@@ -462,7 +464,11 @@ class MFBenchPrior(TabularBenchmark):
                 tmp = tmp + self._get_normalized_values(
                     config=config, configuration_space=benchmark.space
                 )
-                tmp = tmp + \
+                if self.name == "synthetic":
+                    tmp = tmp + \
+                        [benchmark.query(config=config, at=fidelity).error]
+                else:
+                    tmp = tmp + \
                       [benchmark.query(
                           config=_config_id, at=fidelity).error]
             task_data.append(tmp)
@@ -564,6 +570,7 @@ class MFBenchPrior(TabularBenchmark):
         # self._collect_all_config_data(benchmark, benchmark.end)
 
         ncurves = len(benchmark.configs)
+
         max_fidelities = benchmark.end
 
         cutoff_per_curve, epochs_per_curve, ordering, n_levels = self.sample_dirichlet(
@@ -614,11 +621,13 @@ class MFBenchPrior(TabularBenchmark):
         """
 
         benchmarks = [self.target_benchmark, *self.related_benchmarks]
-
+        print(len(benchmarks), "benchmarks")
+        print(alphas)
         if alphas is None:
             alphas = [10 ** np.random.uniform(-4, -1) for _ in range(len(benchmarks))]
         if isinstance(alphas, float):
             alphas = [alphas] * len(benchmarks)
+        print(len(alphas), "alphas")
         assert len(alphas) == len(benchmarks), \
             "alphas must be a list of the same length as n_task"
 
