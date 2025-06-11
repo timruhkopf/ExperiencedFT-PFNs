@@ -1,0 +1,6 @@
+defaults:
+  - ifbo
+  - /model/pfn_softmax@surrogate_model
+  - /model/reliability/scaled@surrogate_model.cls.reliability_fn
+#  - /model/pfn_softmax@searcher.surrogate_model
+
