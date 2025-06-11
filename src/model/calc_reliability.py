@@ -13,6 +13,7 @@ def _calc_reliability(
         context_y: torch.Tensor,
         related_task_data: MyBatch,  # type: ignore
         criterion: BarDistribution,
+        **kwargs
 ) -> torch.Tensor:
     """
     Calculate the reliability of the related task with respect to the current task.
@@ -57,19 +58,44 @@ def calc_imputed_linalg_reliability(
         context_y: torch.Tensor,
         related_task_data: Dict[str, MyBatch],  # type: ignore
         criterion: BarDistribution,
+        verbose: bool = False,
+        plot_file_path: str = None, # type: ignore
+        degree_fn= lambda x, y: 0
 ) -> torch.Tensor:
     """
-    Calculate the reliability of the related tasks with respect to the current task using imputed linalg.
+    Compute scale-invariant reliability scores for meta-tasks using block-diagonal regression.
 
-    Args:
-        :param model: The model to use for the calculation.
-        :param context_x: The context points of the current task.
-        :param context_y: The context values of the current task.
-        :param related_task_data: The data of the related tasks.
-        :param criterion: The criterion to use for the calculation.
+    Performs per-task imputation followed by independent linear regression in a block-diagonal feature space
+    to estimate task reliability while being invariant to linear scaling of learning curves.
 
-    Returns:
-        A tensor containing the reliability scores for each related task.
+        :param model: Transformer meta-model used for cross-task imputation
+        :type model: TransformerModel
+        :param context_x: Target task's context features (fidelity + hyperparameters),
+                          shape [num_points, num_features]
+        :type context_x: torch.Tensor
+        :param context_y: Target task's observed outputs (e.g., validation accuracy),
+                          shape [num_points, 1]
+        :type context_y: torch.Tensor
+        :param related_task_data: Dictionary of batched meta-task data containing:
+            - x: Context features for each meta-task, shape [num_meta_tasks, num_points, num_features]
+            - y: Context outputs for each meta-task, shape [num_meta_tasks, num_points, 1]
+            - padding_mask: Boolean mask for variable-length contexts
+        :type related_task_data: Dict[str, MyBatch]
+        :param criterion: Distribution object providing:
+            - median(): For deterministic imputation
+            - __call__(): For NLL computation between logits and targets
+        :type criterion: BarDistribution
+        :param verbose: If True, save diagnostic plot to specified path.
+        :param plot_file_path: Output path for diagnostic plot when verbose=True.
+
+    :return: Reliability scores (mean NLL) per meta-task, shape [num_meta_tasks]
+    :rtype: torch.Tensor
+
+    :Notes:
+        - Robust to affine transformations: The regression step makes reliability scores invariant to linear scaling/shifting of learning curves
+        - Block-diagonal design: Uses kronecker product to create independent design matrices while maintaining computational efficiency
+        - Debug plotting: Set internal flag to visualize imputed vs projected values per task (uses Matplotlib)
+        - Time complexity: O((num_meta_tasks * num_points)^3) due to block-diagonal least squares
     """
     device = context_x.device
 
@@ -93,7 +119,7 @@ def calc_imputed_linalg_reliability(
     target_fidelity = context_x[:, 0, 1]
     # Build polynomial features for target fidelity & then the design matrix
     x = target_fidelity.reshape(-1, 1)  # Ensure x is column vector
-    degree = 0
+    degree = degree_fn(context_x, context_y)
     x = torch.cat([x ** i for i in range(degree + 1)], dim=1).to(device)  # Polynomial features
     X_design = torch.cat([context_y, x], dim=1).to(device)  # Add context_y as first column
 
@@ -108,54 +134,20 @@ def calc_imputed_linalg_reliability(
     y_proj = y_proj.clamp(0, 1)
 
     # For plotting and debugging
-    if False:
-        import numpy as np
-        import matplotlib.pyplot as plt
+    if verbose:
+        plot_projections(
+            target_fidelity=target_fidelity,
+            context_x=context_x,
+            context_y=context_y,
+            imputed_y=imputed_y,
+            y_proj=y_proj,
+            plot_file_path=plot_file_path
+        )
 
-        target_y = context_y
-        num_fidelity = target_fidelity.shape[0]
-        num_tasks = imputed_y.shape[1]
+    num_fidelity = target_fidelity.shape[0]
+    num_tasks = imputed_y.shape[1]
 
-        # Reshape y_proj for per-task plotting (now correct shape)
-        y_proj_reshaped = y_proj.cpu().numpy().reshape(num_tasks, num_fidelity).T  # shape [num_fidelity, num_tasks]
-        imputed_np = imputed_y.cpu().numpy()
-        fidelity = target_fidelity.cpu().numpy()
-        target_y_np = target_y.cpu().numpy()  # ground truth for target task
-
-        fig, axs = plt.subplots(1, num_tasks + 1, figsize=(4 * (num_tasks + 1), 5), sharey=True)
-        fig.suptitle('Per-Task Projection Analysis', fontsize=16)
-
-        # Plot ground truth (target task)
-        axs[0].scatter(fidelity, target_y_np, label='Ground Truth')
-        axs[0].set_title('Target Task (Ground Truth)')
-        axs[0].set_xlabel('Fidelity')
-        axs[0].set_ylabel('y value')
-        axs[0].legend()
-        axs[0].grid(True, alpha=0.3)
-
-        # Plot each related/meta task
-        for task_idx in range(num_tasks):
-            ax = axs[task_idx + 1]
-            y_before = imputed_np[:, task_idx]
-            y_after = y_proj_reshaped[:, task_idx]
-            x = fidelity
-
-            # Imputed (before)
-            ax.scatter(x, y_before, color='red', label='Imputed (before)', zorder=3)
-            # Projected (after)
-            ax.scatter(x, y_after, color='blue', marker='s', label='Projected (after)', zorder=3)
-            # Error bars
-            for xi, yb, ya in zip(x, y_before, y_after):
-                ax.plot([xi, xi], [yb, ya], color='gray', linestyle=':', zorder=2)
-            ax.set_title(f'Related Task {task_idx + 1}')
-            ax.set_xlabel('Fidelity')
-            ax.grid(True, alpha=0.3)
-            if task_idx == 0:
-                ax.legend()
-
-        plt.tight_layout(rect=[0, 0, 1, 0.95])
-        plt.show()
-
+    # compute loss
     # y's associated with query for that task
     # target = context_y.repeat(1, num_related)
     # Reshape y_proj to [num_points, num_tasks] for loss computation
@@ -170,3 +162,63 @@ def calc_imputed_linalg_reliability(
 
 
 
+def plot_projections(
+        target_fidelity: torch.Tensor,
+        context_x: torch.Tensor,
+        context_y: torch.Tensor,
+        imputed_y: torch.Tensor,
+        y_proj: torch.Tensor,
+        plot_file_path: str
+):
+    import numpy as np
+    import matplotlib.pyplot as plt
+
+    target_y = context_y
+    num_fidelity = target_fidelity.shape[0]
+    num_tasks = imputed_y.shape[1]
+
+    # Reshape y_proj for per-task plotting (now correct shape)
+    y_proj_reshaped = y_proj.cpu().numpy().reshape(num_tasks,
+                                                   num_fidelity).T  # shape [num_fidelity, num_tasks]
+    imputed_np = imputed_y.cpu().numpy()
+    fidelity = target_fidelity.cpu().numpy()
+    target_y_np = target_y.cpu().numpy()  # ground truth for target task
+
+    fig, axs = plt.subplots(1, num_tasks + 1, figsize=(4 * (num_tasks + 1), 5), sharey=True)
+    fig.suptitle('Per-Task Projection Analysis', fontsize=16)
+
+    # Plot ground truth (target task)
+    axs[0].scatter(fidelity, target_y_np, label='Ground Truth')
+    axs[0].set_title('Target Task (Ground Truth)')
+    axs[0].set_xlabel('Fidelity')
+    axs[0].set_ylabel('y value')
+    axs[0].legend()
+    axs[0].grid(True, alpha=0.3)
+
+    # Plot each related/meta task
+    for task_idx in range(num_tasks):
+        ax = axs[task_idx + 1]
+        y_before = imputed_np[:, task_idx]
+        y_after = y_proj_reshaped[:, task_idx]
+        x = fidelity
+
+        # Imputed (before)
+        ax.scatter(x, y_before, color='red', label='Imputed (before)', zorder=3)
+        # Projected (after)
+        ax.scatter(x, y_after, color='blue', marker='s', label='Projected (after)', zorder=3)
+        # Error bars
+        for xi, yb, ya in zip(x, y_before, y_after):
+            ax.plot([xi, xi], [yb, ya], color='gray', linestyle=':', zorder=2)
+        ax.set_title(f'Related Task {task_idx + 1}')
+        ax.set_xlabel('Fidelity')
+        ax.grid(True, alpha=0.3)
+        if task_idx == 0:
+            ax.legend()
+
+    plt.tight_layout(rect=[0, 0, 1, 0.95])
+    if plot_file_path:
+        plt.savefig(plot_file_path, bbox_inches='tight')
+    else:
+        plt.show()
+
+    plt.close(fig)

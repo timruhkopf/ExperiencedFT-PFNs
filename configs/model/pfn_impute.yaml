@@ -18,6 +18,7 @@ cls:
 
   criterion: Null
   min_context_size: 10
+  verbose: false
   # related_task_data
 
 

@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import torch
 
 from ifbo.transformer import TransformerModel
@@ -64,7 +66,7 @@ class PFNPriorImputation(AbstractModel):
     def __init__(self, model, criterion, logger, decay_fn, mixture_fn,
                  related_task_data, min_context_size, imputation_mode='mean',
                  reliability_fn=_calc_reliability,
-                 device=None):
+                 device=None, verbose=False):
         self.model: TransformerModel = model if isinstance(model, TransformerModel) else model.model
 
         # if criterion is not None:
@@ -86,7 +88,8 @@ class PFNPriorImputation(AbstractModel):
 
         self.mixture_fn = mixture_fn
         self.call_counter=0
-        # TODO: distill the related tasks once (optionally)
+        self.verbose = verbose
+
 
     def _forward(self, context_x, context_y, query_x, *args, **kwargs) -> torch.Tensor:
 
@@ -130,18 +133,15 @@ class PFNPriorImputation(AbstractModel):
         # fixme: cache these values when we move to optimizing the acquisition function
         if context_size >= self.min_context_size:
             # calculate the reliability scores for the related tasks
+            counter = self.call_counter+1-self.min_context_size
             reliability_scores = self.reliability_fn(
                 self.model,
                 context_x,
                 context_y,
                 related_task_data,
                 self.criterion,
-                # peeking={
-                # # this was just to check why the reliability scores were so little
-                # # indicative of the actual performance in the first iteration.
-                #     'x': context_x,
-                #     'y': context_y
-                # }
+                verbose=True if self.verbose and counter < 15 or counter % 100 == 0 else False,
+                plot_file_path=Path().cwd() / f"reliability_scores_{counter}.png"
             )
         else:
             # if we have no context points, we must assume all are equally likely
