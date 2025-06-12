@@ -3,7 +3,7 @@ from typing import Optional, Union, List, Dict
 import numpy as np
 import torch
 from mfpbench import TabularBenchmark
-from synthetic_bm import SyntheticBenchmark
+from src.dataset.synthetic_bm import SyntheticBenchmark
 from ifbo.utils import detokenize
 from ifbo import Batch
 from neps.search_spaces.search_space import pipeline_space_from_configspace
@@ -251,6 +251,7 @@ class MFBenchPrior(TabularBenchmark):
                 'lcbench_tabular': LCBENCH_IDS,
                 'pd1_tabular': PD1_IDS,
                 'taskset_tabular': TASKSET_IDS,
+                'synthetic': list(range(self.n_related_tasks*5))
             }[self.name]
         )
 

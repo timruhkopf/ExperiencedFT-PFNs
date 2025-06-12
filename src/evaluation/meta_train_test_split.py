@@ -20,4 +20,7 @@ def folds_of_size(train_ids, size=5, drop=True):
     else:
         n =  int(math.ceil(len(train_ids) / size))
 
+    if size > n :
+        return [train_ids]
+
     return [train_ids[i*size:(i+1)*size] for i in range(n)]
