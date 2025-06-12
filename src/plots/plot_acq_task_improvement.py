@@ -6,12 +6,15 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 
 
-def compute_anytime_performance(df):
+def compute_anytime_performance(df, minimize=True):
     # Sort by filepath and epoch to ensure correct order
     df = df.sort_values(['filepath', 'epoch'])
     # Compute anytime performance (cumulative min loss) for each run
-    df['anytime_performance'] = df.groupby('filepath')['loss'].cummin()
-    # Add arange ids to the dataframe
+    if minimize:
+        df['anytime_performance'] = df.groupby('filepath')['loss'].cummin()
+    else:
+        df['anytime_performance'] = df.groupby('filepath')['loss'].cummax()
+    # Add arrange ids to the dataframe
     df['step'] = df.groupby('filepath').cumcount()
     return df
 
@@ -43,9 +46,9 @@ def compute_per_task_improvement(df_anytime, baseline_algo='ifbo'):
 
     merged = merged[merged['algorithm.surrogate_model.meta.name'] != baseline_algo]
 
-    # Compute improvement (positive means better than ifbo)
-    merged['improvement_over_ifbo'] = (
-            merged['ifbo_anytime_performance'] - merged['anytime_performance']
+    # Compute improvement (positive means better than baseline)
+    merged['improvement_over_ifbo'] = (merged['anytime_performance']
+            -merged['ifbo_anytime_performance']
     )
     return merged
 
@@ -87,7 +90,7 @@ def plot_per_task_improvement(agg_df, save_path):
 
     g.map_dataframe(plot_with_error)
     g.add_legend()
-    g.set_axis_labels("Fidelity (step)", "Improvement over ifbo (lower loss is better)")
+    g.set_axis_labels("Fidelity (step)", "Improvement over ifbo (lower is better)")
     g.set_titles(col_template="{col_name}")
     plt.axhline(0, color='gray', linestyle='--', linewidth=1)  # Reference line for no improvement
     if save_path:
