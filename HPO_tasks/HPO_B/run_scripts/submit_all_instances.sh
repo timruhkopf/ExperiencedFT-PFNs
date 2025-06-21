@@ -1,5 +1,5 @@
 #!/bin/bash
-search_space_ids=("5527" "5636" "5859" "5860" "5891" "5906" "5965" "5970" "5971" "6766" "6767" "6794" "7607" "7609" "5889") #"4796") #
+search_space_ids=("4796" "5527" "5636" "5859" "5860" "5891" "5906" "5965" "5970" "5971" "6766" "6767" "6794" "7607" "7609" "5889") #) #
 policies=("Random-Search" "GP" "PFNs4BO-HEBO") #"ourPFNs")
 
 
@@ -18,9 +18,9 @@ for ((i=0; i<search_space_ids_length; i++)); do
         # Get the current dataset and policy
         search_space_id="${search_space_ids[i]}"
         policy="${policies[j]}"
-	echo "Running dataset: $search_space_ids, policy: $policy"
+	echo "Running dataset: $search_space_id, policy: $policy"
         # Define the output and error file paths based on input parameters
-        logpath="../results/logs/${search_space_ids}/"
+        logpath="../results/logs/${search_space_id}/"
         mkdir -p "$logpath"
         output_path="${logpath}/job%j_out.txt"
         error_path="${logpath}/job%j_err.txt"
