@@ -15,4 +15,4 @@ policy=$2
 #SBATCH --error=${error_path}
 
 cd ..
-conda run -n project_dmpfn python3 -u main.py  --search_space_id $search_space_id --method $policy
+conda run -n ft-pfn python3 -u main.py  --search_space_id $search_space_id --method $policy

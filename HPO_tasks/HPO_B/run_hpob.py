@@ -15,7 +15,6 @@ def run_optimization_loop(
     assert seed!=None, "Provide a valid initialization. Valid options are: test0, test1, test2, test3, test4."
     try:
         X = np.array(hpob_hdlr.meta_test_data[search_space_id][dataset_id]["X"])
-        print(X)
         y = np.array(hpob_hdlr.meta_test_data[search_space_id][dataset_id]["y"])
     except KeyError:
         print(hpob_hdlr.meta_test_data.keys())
