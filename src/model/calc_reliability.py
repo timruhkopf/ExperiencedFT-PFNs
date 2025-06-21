@@ -107,6 +107,9 @@ def calc_imputed_linalg_reliability(
     y_proj = X_design_block @ beta
     y_proj = y_proj.clamp(0, 1)
 
+    num_tasks = imputed_y.shape[1]
+    num_fidelity = target_fidelity.shape[0]
+
     # For plotting and debugging
     if False:
         import numpy as np

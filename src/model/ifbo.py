@@ -451,4 +451,3 @@ class IFBO(MFEIBO):
 
         # FIXME: overwrite this for the acquisition imputation idea
         return super().get_config_and_ids()
-

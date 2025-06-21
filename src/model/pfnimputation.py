@@ -65,7 +65,11 @@ class PFNPriorImputation(AbstractModel):
                  related_task_data, min_context_size, imputation_mode='mean',
                  reliability_fn=_calc_reliability,
                  device=None):
-        self.model: TransformerModel = model if isinstance(model, TransformerModel) else model.model
+
+        if type(model).__name__ == "ourTransformerBOMethod":
+            self.model = model
+        else:
+            self.model: TransformerModel = model if isinstance(model, TransformerModel) else model.model
 
         # if criterion is not None:
         #     self.criterion = criterion
@@ -74,6 +78,8 @@ class PFNPriorImputation(AbstractModel):
         # elif isinstance(model, TransformerModel):
         #     self.criterion = model.criterion
         self.criterion = criterion if criterion is not None else self.model.criterion
+
+
         self.logger = logger
         self.device = device
 
@@ -149,14 +155,15 @@ class PFNPriorImputation(AbstractModel):
                                                        device=self.device))
 
         # 0 idx is reserved for the current task
-        for i, score in enumerate(reliability_scores):
-            self.logger.add_scalar(
-                "reliability_score",
-                score.item(),
-                -1,  # step
-                context_x.shape[0],
-                i,  # task index
-            )
+        if self.logger is not None:
+            for i, score in enumerate(reliability_scores):
+                self.logger.add_scalar(
+                    "reliability_score",
+                    score.item(),
+                    -1,  # step
+                    context_x.shape[0],
+                    i,  # task index
+                )
 
         return reliability_scores
 

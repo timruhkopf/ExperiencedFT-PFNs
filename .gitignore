@@ -186,3 +186,12 @@ cython_debug/
 /src/neps_lcpfn_hpo
 /src/PFNs4HPO
 /src/pfns_hpo
+/temp/
+HPO_tasks/Trajectories/results
+HPO_tasks/Trajectories/tmp
+HPO_tasks/Trajectories
+HPO_tasks/HPO_B/HPO_B
+HPO_tasks/HPO_B/pfns4bo
+HPO_tasks/HPO_B/results
+HPO_tasks/meta-learning-likelihood-free-bayesian-optimization
+HPO_tasks/HPO_B/tmp
