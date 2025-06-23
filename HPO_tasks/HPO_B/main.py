@@ -18,7 +18,7 @@ if __name__ == "__main__":
     parser.add_argument("--benchmark_name", type=str, default='HPO-B')
     parser.add_argument("--search_space_id", type=str, default='4796')
     parser.add_argument("--method", type=str, default='Random-Search')
-    parser.add_argument("--time_horizon", type=int, default=60)
+    parser.add_argument("--time_horizon", type=int, default=105)
     parser.add_argument("--trials", type=int, default=5)
     parser.add_argument("--device", type=str, default='cpu:0')
     parser.add_argument("--output", type=str, default='./results/')
