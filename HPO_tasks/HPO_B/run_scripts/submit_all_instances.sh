@@ -1,7 +1,7 @@
 #!/bin/bash
 search_space_ids=("5965"  "7609"  "5889"  "6794"  "5859"  "4796"  "7607"  "5636"  "5970") 
-policies=("Random-Search" "GP" "PFNs4BO-HEBO") #"ourPFNs")
-
+#policies=("Random-Search" "GP" "PFNs4BO-HEBO") #"ourPFNs")
+policies=("GP-UCB" "PFNs4BO-BNN") #"ourPFNs")
 
 # Get the length of the array
 search_space_ids_length=${#search_space_ids[@]}

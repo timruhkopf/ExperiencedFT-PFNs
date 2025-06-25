@@ -47,11 +47,19 @@ if __name__ == "__main__":
                 elif method_name == 'GP':
                     from optimizers.botorch import GaussianProcess
                     method = GaussianProcess("EI")
+                elif method_name == 'GP-UCB':
+                    from optimizers.botorch import GaussianProcess
+                    method = GaussianProcess("UCB")
                 elif method_name == 'PFNs4BO-HEBO':
                     import pfns4bo
                     from optimizers.pfns4bo import TransformerBOMethod
                     from pfns4bo.scripts.tune_input_warping import fit_input_warping
                     method = TransformerBOMethod(torch.load( pfns4bo.hebo_plus_model), device=device)
+                elif method_name == 'PFNs4BO-BNN':
+                    import pfns4bo
+                    from optimizers.pfns4bo import TransformerBOMethod
+                    from pfns4bo.scripts.tune_input_warping import fit_input_warping
+                    method = TransformerBOMethod(torch.load( pfns4bo.bnn_model), device=device)
                 elif method_name == "ourPFNs":
                     import pfns4bo
                     from pfns4bo.scripts.acquisition_functions import TransformerBOMethod
