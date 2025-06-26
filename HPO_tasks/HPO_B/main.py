@@ -41,6 +41,10 @@ if __name__ == "__main__":
         for dataset_id in dataset_ids:
             results = []
             for seed in seeds:
+                seed_num = int(''.join(filter(str.isdigit, seed)))
+                torch.manual_seed(seed_num)
+                np.random.seed(seed_num)
+                
                 if method_name == 'Random-Search':
                     from methods.random_search import RandomSearch
                     method = RandomSearch()
@@ -55,18 +59,30 @@ if __name__ == "__main__":
                     from optimizers.pfns4bo import TransformerBOMethod
                     from pfns4bo.scripts.tune_input_warping import fit_input_warping
                     method = TransformerBOMethod(torch.load( pfns4bo.hebo_plus_model), device=device)
+
+                elif method_name == 'PFNs4BO-HEBO-PI':
+                    import pfns4bo
+                    from functools import partial
+                    from optimizers.pfns4bo import TransformerBOMethod, general_acq_function
+                    from pfns4bo.scripts.tune_input_warping import fit_input_warping
+                    custom_acq_function = partial(general_acq_function, acq_function='pi')
+                    method = TransformerBOMethod(torch.load( pfns4bo.hebo_plus_model), device=device,acq_f=custom_acq_function)
+
                 elif method_name == 'PFNs4BO-BNN':
                     import pfns4bo
                     from optimizers.pfns4bo import TransformerBOMethod
                     from pfns4bo.scripts.tune_input_warping import fit_input_warping
                     method = TransformerBOMethod(torch.load( pfns4bo.bnn_model), device=device)
+
                 elif method_name == "ourPFNs":
                     import pfns4bo
                     from pfns4bo.scripts.acquisition_functions import TransformerBOMethod
                     from pfns4bo.scripts.tune_input_warping import fit_input_warping
-                    from our_pfns4bo import ourTransformerBOMethod, get_meta_data
-                    meta_data =  get_meta_data(benchmark_name, hpob_hdlr, search_space_id, dataset_id, dataset_ids,seeds,  seed)
+                    from our_pfns4bo import ourTransformerBOMethod, get_meta_data_from_hpob_hdlr
+                    meta_data =  get_meta_data_from_hpob_hdlr(search_space_id,seeds,  seed)
                     method = ourTransformerBOMethod(torch.load( pfns4bo.hebo_plus_model), meta_data, device=device)
+
+                    
                 elif method_name == 'HEBO':
                     from optimizers.hebo import HeboOptimizer
                     search_space_dim = hpob_hdlr.get_search_space_dim(search_space_id)

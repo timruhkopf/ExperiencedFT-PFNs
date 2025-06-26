@@ -11,6 +11,7 @@ from src.model.calc_reliability import calc_imputed_linalg_reliability
 from src.model.decay import constant_exponential as decay_fn
 from src.model.mixing import argmin as mixture_fn
 from types import SimpleNamespace
+from hpob_handler import HPOBHandler
 import logging
 logger = logging.getLogger(__name__)
 
@@ -120,13 +121,44 @@ class ourTransformerBOMethod(nn.Module):
         )
 
 
+
+
+def get_meta_data_from_hpob_hdlr(search_space_id,seeds,  seed):
+    hpob_hdlr = HPOBHandler(root_dir="./HPO_B/hpob-data/", mode="v3-train-augmented")
+    dataset_ids = hpob_hdlr.get_datasets(search_space_id)
+    meta_data = {}
+    for dataset_id in dataset_ids:
+            X = np.array(hpob_hdlr.meta_test_data[search_space_id][dataset_id]["X"])
+            y = np.array(hpob_hdlr.meta_test_data[search_space_id][dataset_id]["y"])
+            y = hpob_hdlr.normalize(y).squeeze()
+            meta_data[dataset_id] = {
+                "X": X,
+                "y": y,
+                "meta_configurations": None
+            }
+    return meta_data
+
+
 def get_meta_data(benchmark_name, hpob_hdlr, search_space_id, down_stream_dataset_id, dataset_ids,seeds,  seed):
-    method_name = "PFNs4BO-HEBO"
+    meta_data = {}
+    for dataset_id in dataset_ids:
+        if dataset_id != down_stream_dataset_id:
+            X = np.array(hpob_hdlr.meta_test_data[search_space_id][dataset_id]["X"])
+            y = np.array(hpob_hdlr.meta_test_data[search_space_id][dataset_id]["y"])
+            y = hpob_hdlr.normalize(y).squeeze()
+            meta_data[dataset_id] = {
+                "X": X,
+                "y": y,
+            }
+    return meta_data
+
+
+def get_meta_data_of_method_name(benchmark_name, base_method_name, hpob_hdlr, search_space_id, down_stream_dataset_id, dataset_ids,seeds,  seed):
     result_folder = "./results/"
     meta_data = {}
     for dataset_id in dataset_ids:
         if dataset_id != down_stream_dataset_id:
-            df = pd.read_csv(result_folder + benchmark_name + "_" + method_name + "_" + search_space_id +"_"+ dataset_id + ".csv")
+            df = pd.read_csv(result_folder + benchmark_name + "_" + base_method_name + "_" + search_space_id +"_"+ dataset_id + ".csv")
             meta_configurations = df.sort_values(by=['seed', 'iteration'])['configuration'].values.reshape(len(seeds), -1)
             meta_configuration = meta_configurations[seeds.index(seed)]
             
