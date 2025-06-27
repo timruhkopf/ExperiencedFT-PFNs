@@ -273,8 +273,10 @@ class PFNPriorImputation(AbstractModel):
         )
 
         B = prior_logits.shape[1]
+        prior_incumbents = torch.cat([related_context_y, imputed_y, ], dim=0).min(dim=0).values
+        prior_incumbents = prior_incumbents.unsqueeze(1).repeat(1, x_test.shape[0] )
         scores_related = torch.stack([
-            self.criterion.pi(prior_logits[:, b, :].squeeze(1), best_f=inc)
+            self.criterion.pi(prior_logits[:, b, :].squeeze(1), best_f=prior_incumbents[b, :].unsqueeze(1))
             for b in range(B)
         ], dim=0)
 
