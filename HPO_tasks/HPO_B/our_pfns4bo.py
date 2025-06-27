@@ -121,21 +121,27 @@ class ourTransformerBOMethod(nn.Module):
         )
 
 
-
-
-def get_meta_data_from_hpob_hdlr(search_space_id,seeds,  seed):
+def get_meta_data_from_hpob_hdlr(search_space_id,seeds,  seed, time_horizon):
     hpob_hdlr = HPOBHandler(root_dir="./HPO_B/hpob-data/", mode="v3-train-augmented")
     dataset_ids = hpob_hdlr.get_datasets(search_space_id)
     meta_data = {}
     for dataset_id in dataset_ids:
-            X = np.array(hpob_hdlr.meta_test_data[search_space_id][dataset_id]["X"])
-            y = np.array(hpob_hdlr.meta_test_data[search_space_id][dataset_id]["y"])
-            y = hpob_hdlr.normalize(y).squeeze()
-            meta_data[dataset_id] = {
-                "X": X,
-                "y": y,
-                "meta_configurations": None
-            }
+        init_ids = hpob_hdlr.bo_initializations[search_space_id][dataset_id][seed]
+        X = np.array(hpob_hdlr.meta_test_data[search_space_id][dataset_id]["X"])
+        y = np.array(hpob_hdlr.meta_test_data[search_space_id][dataset_id]["y"])
+        y = hpob_hdlr.normalize(y).squeeze()
+
+        rng = np.random.default_rng(seeds.index(seed))
+        all_ids = np.arange(len(X))
+        rest = np.setdiff1d(all_ids, init_ids)
+        meta_configurations = np.concatenate([init_ids, rng.choice(rest, time_horizon - len(init_ids), replace=False)])
+        
+
+        meta_data[dataset_id] = {
+            "X": X[meta_configurations],
+            "y": y[meta_configurations],
+            "meta_configurations": meta_configurations
+        }
     return meta_data
 
 

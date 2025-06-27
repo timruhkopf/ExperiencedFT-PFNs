@@ -79,7 +79,7 @@ if __name__ == "__main__":
                     from pfns4bo.scripts.acquisition_functions import TransformerBOMethod
                     from pfns4bo.scripts.tune_input_warping import fit_input_warping
                     from our_pfns4bo import ourTransformerBOMethod, get_meta_data_from_hpob_hdlr
-                    meta_data =  get_meta_data_from_hpob_hdlr(search_space_id,seeds,  seed)
+                    meta_data =  get_meta_data_from_hpob_hdlr(search_space_id,seeds,  seed, time_horizon)
                     method = ourTransformerBOMethod(torch.load( pfns4bo.hebo_plus_model), meta_data, device=device)
 
                     
