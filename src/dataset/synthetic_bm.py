@@ -73,11 +73,12 @@ class SyntheticBenchmark(Benchmark):
         cost_metric: str | None = None,
     ):
         self.n_configs = 500 # Number of configurations to sample
-        self.max_fidelities = 100  # Maximum number of epochs
+        self.max_fidelities = 50  # Maximum number of epochs
 
         # sample the dimensionality (i.e. hp space dim)
         self.dim_hyperparameters = 6
-
+        self.sampling_seed = seed
+        
         # set up the BNN mapping from the hyperparameter space to the learning curves
         n_curve_param = 23  # Number of parameters for the learning curve basis and their weights
         self.relation_prior = BNNManager.get_instance(
@@ -211,27 +212,45 @@ class SyntheticBenchmark(Benchmark):
     def configs(self):
         """Return the list of all possible configurations."""
         configs = {}
-        for i in range(self.n_configs):
-            config = self.sample()
+        config_list = []
+        if self.sampling_seed is not None:
+            config_list = self.sample(n=self.n_configs, seed=self.sampling_seed)
+        else:
+            config_list = self.sample(n=self.n_configs)
+        for i, config in enumerate(config_list):
             configs[str(i)] = config
         return configs
     
     
     
 if __name__ == "__main__":
-    benchmark = SyntheticBenchmark(value_metric="value", cost_metric="fid_cost")
+    benchmark = SyntheticBenchmark(value_metric="value", cost_metric="fid_cost", seed=42)
 
-    config = benchmark.sample()
+    configs = benchmark.configs
+    print(f"Number of Configs: {len(configs)}")
+    print(f"Configs: {configs}")
+    config = configs["0"]  # Get the first config
     print(f"Sampled Config: {config}")
-    result = benchmark.query(config, at=99)
+    # result = benchmark.query(config, at=49)
     trajectory = benchmark.trajectory(
         config, frm=benchmark.start, to=benchmark.end)
-    print(f"Config: {config}")
-    print(f"Result: {result}")
-    print(f"Trajectory: {trajectory}")
-    print(f"Max Fidelity: {benchmark.end}")
-    print(f"Error: {benchmark.query(config, at=99).error}")
-    related_benchmark = benchmark.create_related_task(n_layers=1)
+    # np_config = np.array([config[f"X_{i}"]
+    #                       for i in range(benchmark.dim_hyperparameters)])
+    # curves = benchmark.relation_prior.curves_for_configs(np_config[np.newaxis, :], noise=False)
+    # print(f"Curves: {curves(np.array([49/benchmark.max_fidelities]), 0)[0]}")
+    # curves = benchmark.relation_prior.curves_for_configs(np_config[np.newaxis, :], noise=False)
+    # print(f"Curves_2: {curves(np.array([49/benchmark.max_fidelities]), 0)[0]}")
+    # print(f"Config: {config}")
+    # print(f"Result: {result}")
+    # print(f"Trajectory: {trajectory}")
+    # print(f"Max Fidelity: {benchmark.end}")
+    # print(f"Error: {benchmark.query(config, at=99).error}")
+    related_benchmark = SyntheticBenchmark(value_metric="value", cost_metric="fid_cost", seed=42)
+    
+    # check if the model of the related benchmark is the same as the original benchmark
+    if benchmark.relation_prior.model is not related_benchmark.relation_prior.model:
+        print("Related benchmark has a different model than the original benchmark.")
+    
     trajectory_related = related_benchmark.trajectory(
         config, frm=related_benchmark.start, to=related_benchmark.end)
     # plot the trajectory

@@ -139,9 +139,11 @@ class MFBenchPrior(TabularBenchmark):
         self.device = device
         
         # for synthetic benchmarks
+        self.bnn_is_fixed = kwargs.get('bnn_is_fixed', True)
         self.n_layers = kwargs.get('n_layers', None)
         self.total_tasks = kwargs.get('total_tasks', 6)
         self.reset_kwargs = kwargs.get('reset_kwargs', {})
+        self.seed = kwargs.get('seed', None)
 
     def collect_task_split(
             self,
@@ -149,12 +151,17 @@ class MFBenchPrior(TabularBenchmark):
             train_ids: List[int],
     ):
         if self.name == "synthetic":
-            self.target_benchmark = SyntheticBenchmark(value_metric="value", cost_metric="fid_cost")
-            
+            self.target_benchmark = SyntheticBenchmark(value_metric="value", cost_metric="fid_cost", seed=self.seed)
             self.related_benchmarks = []
-            for _ in range(len(train_ids)):
-                related_task = self.target_benchmark.create_related_task(n_layers=self.n_layers, **self.reset_kwargs)
-                self.related_benchmarks.append(related_task)
+            for i in range(len(train_ids)):
+                if self.bnn_is_fixed:
+                    if self.seed is not None:
+                        self.related_benchmarks.append(SyntheticBenchmark(value_metric="value", cost_metric="fid_cost", seed=self.seed + i + 1))
+                    else:
+                        self.related_benchmarks.append(SyntheticBenchmark(value_metric="value", cost_metric="fid_cost"))
+                else:
+                    related_task = self.target_benchmark.create_related_task(n_layers=self.n_layers, **self.reset_kwargs)
+                    self.related_benchmarks.append(related_task)
                 
         else:
             
