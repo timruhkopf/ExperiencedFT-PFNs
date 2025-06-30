@@ -1,5 +1,5 @@
 #!/bin/bash
-function_names=("Branin")
+function_names=("Branin" "DropWave" "Levy" "Ackley" "Rastrigin"  "Rosenbrock")
 policies=("Random-Search" "GP-UCB" "PFNs4BO-HEBO") #"ourPFNs")
 # Get the length of the array
 function_names_length=${#function_names[@]}

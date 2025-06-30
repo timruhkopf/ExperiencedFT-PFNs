@@ -10,8 +10,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run synthetic functions.")
     parser.add_argument("--function_name", type=str, default='Branin')
     parser.add_argument("--method", type=str, default='Random-Search')
-    parser.add_argument("--time_horizon", type=int, default=65)
-    parser.add_argument("--trials", type=int, default=16)
+    parser.add_argument("--time_horizon", type=int, default=105)
+    parser.add_argument("--trials", type=int, default=32)
     parser.add_argument("--device", type=str, default='cpu:0')
     parser.add_argument("--output", type=str, default='./results/')
     args = parser.parse_args()
@@ -27,6 +27,28 @@ if __name__ == "__main__":
     if function_name == 'Branin':
         from botorch.test_functions.synthetic import Branin
         func = Branin()
+
+    elif function_name == 'DropWave':
+        from botorch.test_functions.synthetic import DropWave
+        func = DropWave()
+
+    elif function_name == 'Levy':
+        from botorch.test_functions.synthetic import Levy
+        func = Levy()
+
+    elif function_name == 'Ackley':
+        from botorch.test_functions.synthetic import Ackley
+        func = Ackley()
+
+    elif function_name == 'Rastrigin':   
+        from botorch.test_functions.synthetic import Rastrigin
+        func = Rastrigin()
+
+    elif function_name == 'Rosenbrock':  
+        from botorch.test_functions.synthetic import Rosenbrock
+        func = Rosenbrock()
+
+
 
     function_ids ={}
     function_ids["0"]=  ScaledFunctionWrapper(func, y_transform=None, X_transforms=None)
