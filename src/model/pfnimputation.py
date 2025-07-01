@@ -66,7 +66,7 @@ class PFNPriorImputation(AbstractModel):
                  reliability_fn=_calc_reliability,
                  device=None):
 
-        if type(model).__name__ == "ourTransformerBOMethod":
+        if type(model).__name__ == "ourTransformerBOMethod" or type(model).__name__ == "ourPFNs4BO":
             self.model = model
         else:
             self.model: TransformerModel = model if isinstance(model, TransformerModel) else model.model
@@ -86,6 +86,7 @@ class PFNPriorImputation(AbstractModel):
         self.related_task_data = related_task_data
 
         self.reliability_fn = reliability_fn
+        self.reliability_scores = None  # will be set in get_pi
         self.decay_fn = decay_fn
         self.min_context_size = min_context_size
         self.imputation_mode = imputation_mode
@@ -297,14 +298,16 @@ class PFNPriorImputation(AbstractModel):
         )
         scores = self.model.criterion.pi(target_logits.squeeze(1), best_f=inc)
 
+        self.reliability_scores =  self.calculate_reliability(
+                x_train.unsqueeze(1), y_train.unsqueeze(1),
+                minimize=minimize
+            ).to(self.device)
+
         # 4.
         scores = self.mixture_fn(
             scores,
             scores_related,
-            reliability_scores=self.calculate_reliability(
-                x_train.unsqueeze(1), y_train.unsqueeze(1),
-                minimize=minimize
-            ).to(self.device),
+            reliability_scores=self.reliability_scores,
             alpha=self.decay_fn(x_train.shape[0])
         )
         self.call_counter += 1
