@@ -84,6 +84,22 @@ if __name__ == "__main__":
                 import pfns4bo
                 from pfns4bo.scripts.tune_input_warping import fit_input_warping
                 method  = PFNs4BO(torch.load( pfns4bo.hebo_plus_model), bounds=func.bounds)
+
+            elif method_name == "ourPFNs":
+                    meta_data_lists = [
+                        ("Branin", "0", "Random-Search"),
+                        ("Branin", "1", "Random-Search"),
+                        ("Branin", "2", "Random-Search"),
+                        ("Branin", "3", "Random-Search"),
+                        ("Branin", "4", "Random-Search"),
+                        ("Branin", "5", "Random-Search"),
+                    ]
+
+                    import pfns4bo
+                    from pfns4bo.scripts.tune_input_warping import fit_input_warping
+                    from our_pfns4bo import ourPFNs4BO, get_meta_data_of_method_name
+                    meta_data =  get_meta_data_of_method_name(meta_data_lists, seeds,  seed )
+                    method = ourPFNs4BO(torch.load( pfns4bo.hebo_plus_model), meta_data, bounds=func.bounds, device=device)
             else:
                 raise ValueError(f"Unknown method: {method_name}")
 
@@ -93,14 +109,27 @@ if __name__ == "__main__":
                 x = method.suggest()
                 y = func(x)
                 method.observe(x, y)
-                results.append({
-                    "function_name": function_name,
-                    "transform_id": transform_id,
-                    "method": method_name,
-                    "seed": int(''.join(filter(str.isdigit, seed))),
-                    "iteration": ieration, 
-                    "y": float(y),
-                    "x": x 
-                })
+
+                if  method_name == "ourPFNs":
+                    results.append({
+                        "function_name": function_name,
+                        "transform_id": transform_id,
+                        "method": method_name,
+                        "seed": int(''.join(filter(str.isdigit, seed))),
+                        "iteration": ieration, 
+                        "y": float(y),
+                        "x": x ,
+                        "reliability_scores" :method.reliability_scores,
+                    })
+                else:
+                    results.append({
+                        "function_name": function_name,
+                        "transform_id": transform_id,
+                        "method": method_name,
+                        "seed": int(''.join(filter(str.isdigit, seed))),
+                        "iteration": ieration, 
+                        "y": float(y),
+                        "x": x 
+                    })
     df = pd.DataFrame(results)
     df.to_csv(output_dir + function_name + "_" +  method_name   + ".csv", index=False)

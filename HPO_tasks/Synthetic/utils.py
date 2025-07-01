@@ -27,8 +27,6 @@ class ScaledFunctionWrapper:
 
         # Estimate output range using random sampling
         self.y_min, self.y_max = self.estimate_output_bounds(n_samples)
-        print(f"Estimated output bounds: {self.y_min:.4f}, {self.y_max:.4f}")
-
 
     def scale_to_bounds(self, X_unit):
         """Convert inputs from [0, 1]^d to original bounds."""
