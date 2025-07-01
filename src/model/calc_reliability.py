@@ -1,4 +1,5 @@
-from typing import Dict
+from itertools import chain
+from typing import Dict, List
 
 import numpy as np
 import torch
@@ -59,8 +60,8 @@ def calc_imputed_linalg_reliability(
         related_task_data: Dict[str, MyBatch],  # type: ignore
         criterion: BarDistribution,
         verbose: bool = False,
-        plot_file_path: str = None, # type: ignore
-        degree_fn= lambda x, y: 0
+        plot_file_path: str = None,  # type: ignore
+        degree_fn=lambda x, y: 0
 ) -> torch.Tensor:
     """
     Compute scale-invariant reliability scores for meta-tasks using block-diagonal regression.
@@ -99,12 +100,16 @@ def calc_imputed_linalg_reliability(
     """
     device = context_x.device
 
+    # calculate a target task cross-validation score
+    target_nll = calc_target_cv_nll(context_x, context_y, model, criterion, splits=1, random_state=42)
+
     # for task_data in related_task_data:
     task_context_x = related_task_data.x
     task_context_y = related_task_data.y
     padding_mask = related_task_data.padding_mask
     num_related = task_context_x.shape[1]
 
+    # impute target_task y's for conditioned on each related task --------------
     logits = model(
         (
             torch.cat([task_context_x, context_x.repeat(1, num_related, 1)], dim=0),
@@ -113,9 +118,9 @@ def calc_imputed_linalg_reliability(
         single_eval_pos=task_context_x.shape[0],
         src_key_padding_mask=padding_mask
     )
-
     imputed_y = criterion.median(logits)  # shape [num_points, num_tasks]
 
+    # Learn the projection from the related task to the target task ------------
     target_fidelity = context_x[:, 0, 1]
     # Build polynomial features for target fidelity & then the design matrix
     x = target_fidelity.reshape(-1, 1)  # Ensure x is column vector
@@ -147,7 +152,7 @@ def calc_imputed_linalg_reliability(
     num_fidelity = target_fidelity.shape[0]
     num_tasks = imputed_y.shape[1]
 
-    # compute loss
+    # compute the reliability scores (nll) based on the projected y ------------
     # y's associated with query for that task
     # target = context_y.repeat(1, num_related)
     # Reshape y_proj to [num_points, num_tasks] for loss computation
@@ -157,9 +162,6 @@ def calc_imputed_linalg_reliability(
     loss = loss.mean(dim=0)  # mean over the batch
 
     return loss  # reliability scores
-
-
-
 
 
 def plot_projections(
@@ -222,3 +224,104 @@ def plot_projections(
         plt.show()
 
     plt.close(fig)
+
+
+import numpy as np
+import torch
+from collections import defaultdict
+from sklearn.model_selection import KFold  # or GroupKFold for stratification
+from torch.nn.utils.rnn import pad_sequence
+
+
+def build_padded_batch(context_x, context_y, indices_grouped):
+    # Each group is a list of indices for one curve/HP config
+    x_seqs = [context_x[idxs] for idxs in indices_grouped]  # [curve_len, feat_dim]
+    y_seqs = [context_y[idxs] for idxs in indices_grouped]  # [curve_len, ...]
+    padded_x = pad_sequence(x_seqs, batch_first=True)  # [batch, max_len, feat_dim]
+    padded_y = pad_sequence(y_seqs, batch_first=True)  # [batch, max_len, ...]
+    lengths = torch.tensor([len(seq) for seq in x_seqs])
+    max_len = padded_x.shape[1]
+    mask = torch.arange(max_len).expand(len(lengths), max_len) < lengths.unsqueeze(1)
+    return padded_x, padded_y, mask
+
+
+def kfold_hp_split(context_x, context_y, n_splits=5, random_state=42):
+    """
+    Splits data so that all tokens from a given HP config are held out together.
+    Returns context (train) and query (test) sets for the specified fold.
+    """
+    cx = context_x.squeeze(1).cpu().numpy()  # shape: [n_tokens, n_features]
+    n_tokens = cx.shape[0]
+    fidelity_col = 1
+    hp_cols = list(range(2, cx.shape[1]))
+
+    # Group indices by HP configuration
+    curve_indices = defaultdict(list)
+    for i in range(n_tokens):
+        hp_tuple = tuple(cx[i, hp_cols].tolist())
+        curve_indices[hp_tuple].append(i)
+
+    # List of unique HP configs and their associated token indices
+    hp_tuples = list(curve_indices.keys())
+    hp_indices = list(curve_indices.values())
+
+    # KFold split on HP configs
+    kf = KFold(n_splits=n_splits, shuffle=True, random_state=random_state)
+    splits = []
+    train_groups = []
+    test_groups = []
+    for train_hp_idx, test_hp_idx in kf.split(hp_tuples):
+        # Flatten token indices for train/test HPs
+        train_indices = [idx for i in train_hp_idx for idx in hp_indices[i]]
+        test_indices = [idx for i in test_hp_idx for idx in hp_indices[i]]
+        splits.append((np.array(train_indices), np.array(test_indices)))
+
+        # collect the train_groups and test_groups; i.e. collect the learning curve tokens
+        # associated with each HP config
+
+        train_groups.append(list(chain(*[hp_indices[i] for i in train_hp_idx])))
+        test_groups.append(list(chain(*[hp_indices[i] for i in test_hp_idx])))
+
+    # Pad and batch
+    padded_context_x, padded_context_y, context_mask = build_padded_batch(
+        context_x,
+        context_y,
+        train_groups
+    )
+    padded_query_x, padded_query_y, query_mask = build_padded_batch(
+        context_x,
+        context_y,
+        test_groups
+    )
+
+    return padded_context_x, padded_context_y, ~context_mask, \
+        padded_query_x, padded_query_y, ~query_mask
+
+def calc_target_cv_nll(context_x, context_y, model, criterion, splits=5, random_state=42):
+
+    device = context_x.device
+
+    padded_context_x, padded_context_y, context_mask, \
+        padded_query_x, padded_query_y, query_mask = kfold_hp_split(
+        context_x, context_y, n_splits=splits, random_state=random_state
+    )
+
+    # Concatenate context and query for model input
+    all_x = torch.cat([padded_context_x, padded_query_x], dim=1)
+
+    # todo flip batch dimension!
+    all_x = all_x.permute(1, 0, 2, 3)  # [batch_size, seq_len, feature_dim]
+    all_x = all_x.squeeze(2)
+    padded_context_y = padded_context_y.permute(1, 0, 2)
+    padded_context_y = padded_context_y.squeeze(2)
+    all_mask = torch.cat([context_mask, query_mask], dim=1)
+
+    kf_logits = model((all_x.to(device), padded_context_y.to(device)),
+                      single_eval_pos=padded_context_x.shape[1],
+                      src_key_padding_mask=context_mask.to(device))
+
+    # Compute loss on the (unpadded) query set
+    kf_loss = criterion(kf_logits, padded_query_y.squeeze(2).to(device).T)
+    kf_loss = kf_loss[~query_mask.squeeze(1).T.to(device)].mean(dim=0)  # mean over the batch
+
+    return kf_loss
