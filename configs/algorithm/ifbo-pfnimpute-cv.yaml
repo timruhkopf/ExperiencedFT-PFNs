@@ -1,0 +1,5 @@
+defaults:
+  - ifbo
+  - /model/pfn_impute_cv@surrogate_model
+#  - /model/pfn_softmax@searcher.surrogate_model
+

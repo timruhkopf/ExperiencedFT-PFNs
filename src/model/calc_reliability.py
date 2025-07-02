@@ -61,7 +61,7 @@ def calc_imputed_linalg_reliability(
         criterion: BarDistribution,
         verbose: bool = False,
         plot_file_path: str = None,  # type: ignore
-        degree_fn=lambda x, y: 0
+        degree_fn=lambda x, y :0
 ) -> torch.Tensor:
     """
     Compute scale-invariant reliability scores for meta-tasks using block-diagonal regression.
@@ -99,9 +99,7 @@ def calc_imputed_linalg_reliability(
         - Time complexity: O((num_meta_tasks * num_points)^3) due to block-diagonal least squares
     """
     device = context_x.device
-
-    # calculate a target task cross-validation score
-    target_nll = calc_target_cv_nll(context_x, context_y, model, criterion, splits=1, random_state=42)
+    context_x = context_x.unsqueeze(1)
 
     # for task_data in related_task_data:
     task_context_x = related_task_data.x
@@ -125,8 +123,9 @@ def calc_imputed_linalg_reliability(
     # Build polynomial features for target fidelity & then the design matrix
     x = target_fidelity.reshape(-1, 1)  # Ensure x is column vector
     degree = degree_fn(context_x, context_y)
-    x = torch.cat([x ** i for i in range(degree + 1)], dim=1).to(device)  # Polynomial features
-    X_design = torch.cat([context_y, x], dim=1).to(device)  # Add context_y as first column
+    x = torch.cat([x ** i for i in range(degree+1)], dim=1).to(device)  # Polynomial features
+    X_design = torch.cat([context_y.unsqueeze(1), x], dim=1).to(device)  # Add context_y as first
+    # column
 
     # Build block-diagonal design matrix for all tasks
     X_design_block = torch.block_diag(*[X_design for _ in range(num_related)])  # [num_tasks*num_points, ...][2][5]
@@ -308,20 +307,17 @@ def calc_target_cv_nll(context_x, context_y, model, criterion, splits=5, random_
 
     # Concatenate context and query for model input
     all_x = torch.cat([padded_context_x, padded_query_x], dim=1)
+    all_x = all_x.permute(1, 0, 2).to(device) # [batch_size, seq_len, feature_dim]
 
-    # todo flip batch dimension!
-    all_x = all_x.permute(1, 0, 2, 3)  # [batch_size, seq_len, feature_dim]
-    all_x = all_x.squeeze(2)
-    padded_context_y = padded_context_y.permute(1, 0, 2)
-    padded_context_y = padded_context_y.squeeze(2)
-    all_mask = torch.cat([context_mask, query_mask], dim=1)
+    padded_context_y = padded_context_y.permute(1, 0).to(device)
+    padded_query_y = padded_query_y.permute(1, 0).to(device)
 
-    kf_logits = model((all_x.to(device), padded_context_y.to(device)),
+    kf_logits = model((all_x, padded_context_y),
                       single_eval_pos=padded_context_x.shape[1],
                       src_key_padding_mask=context_mask.to(device))
 
     # Compute loss on the (unpadded) query set
-    kf_loss = criterion(kf_logits, padded_query_y.squeeze(2).to(device).T)
-    kf_loss = kf_loss[~query_mask.squeeze(1).T.to(device)].mean(dim=0)  # mean over the batch
+    kf_loss = criterion(kf_logits, padded_query_y)
+    kf_loss = kf_loss[~query_mask.T.to(device)].mean(dim=0)
 
     return kf_loss

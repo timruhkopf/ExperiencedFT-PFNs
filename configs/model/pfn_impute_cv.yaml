@@ -1,11 +1,7 @@
 # @package model
-defaults:
-  - /model/decay/exp@cls.mixture_strategy.decay_fn
-  - /model/mixture/acq_pi@cls.mixture_strategy.mixture_fn
-  - /model/reliability/scaled@cls.mixture_strategy.reliability_fn
 
 meta:
-  name: 'pfn_impute'
+  name: 'pfn_impute-cv'
 
 cls:
   _target_: src.model.pfnimputation.PFNPriorImputation
@@ -17,12 +13,12 @@ cls:
     target_path: ${repo_root}/data/.model
 
   mixture_strategy:
-    _target_: src.model.mixing.DefaultMixtureStrategy
+    _target_: src.model.mixing.CVMixtureStrategy
     _partial_: true
 
   criterion: Null
   min_context_size: 10
-  verbose: false
+  verbose: True
   # related_task_data
 
 

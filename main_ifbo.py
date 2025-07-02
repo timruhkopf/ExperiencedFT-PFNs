@@ -52,6 +52,8 @@ NEPS_SF_MAX_EVALS = 200  # number of total function evaluations for single-fidel
 
 SET_BOUNDS_FROM_TABLE_FLAG = False  # if True, sets search space bounds from table values
 
+import warnings
+warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 @hydra.main(config_path="configs", config_name="base_ifbo", version_base="1.1")
 def main(cfg: DictConfig):
