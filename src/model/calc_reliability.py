@@ -247,7 +247,7 @@ def build_padded_batch(context_x, context_y, indices_grouped):
     return padded_x, padded_y, mask
 
 
-def kfold_hp_split(context_x, context_y, n_splits=5, random_state=42):
+def kfold_hp_split(context_x, context_y, n_splits=5, random_state=42, start_feature_indx = 2):
     """
     Splits data so that all tokens from a given HP config are held out together.
     Returns context (train) and query (test) sets for the specified fold.
@@ -255,7 +255,7 @@ def kfold_hp_split(context_x, context_y, n_splits=5, random_state=42):
     cx = context_x.squeeze(1).cpu().numpy()  # shape: [n_tokens, n_features]
     n_tokens = cx.shape[0]
     fidelity_col = 1
-    hp_cols = list(range(2, cx.shape[1]))
+    hp_cols = list(range(start_feature_indx, cx.shape[1])) 
 
     # Group indices by HP configuration
     curve_indices = defaultdict(list)
@@ -265,6 +265,7 @@ def kfold_hp_split(context_x, context_y, n_splits=5, random_state=42):
 
     # List of unique HP configs and their associated token indices
     hp_tuples = list(curve_indices.keys())
+    print(hp_tuples)
     hp_indices = list(curve_indices.values())
 
     # KFold split on HP configs
@@ -299,13 +300,13 @@ def kfold_hp_split(context_x, context_y, n_splits=5, random_state=42):
     return padded_context_x, padded_context_y, ~context_mask, \
         padded_query_x, padded_query_y, ~query_mask
 
-def calc_target_cv_nll(context_x, context_y, model, criterion, splits=5, random_state=42):
+def calc_target_cv_nll(context_x, context_y, model, criterion, splits=5, random_state=42, start_feature_indx=2):
 
     device = context_x.device
 
     padded_context_x, padded_context_y, context_mask, \
         padded_query_x, padded_query_y, query_mask = kfold_hp_split(
-        context_x, context_y, n_splits=splits, random_state=random_state
+        context_x, context_y, n_splits=splits, random_state=random_state, start_feature_indx=start_feature_indx
     )
 
     # Concatenate context and query for model input

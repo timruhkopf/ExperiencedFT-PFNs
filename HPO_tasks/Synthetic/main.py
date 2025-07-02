@@ -88,9 +88,9 @@ if __name__ == "__main__":
                 method  = PFNs4BO(torch.load( pfns4bo.hebo_plus_model), bounds=func.bounds)
 
             elif  "ourPFNs" in method_name:
-                meta_data_list_index  = int(method_name.split("_")[1])
-                if meta_data_list_index == 0:
-                    meta_data_list = [
+                meta_data_lists_index  = int(method_name.split("_")[1])
+                if meta_data_lists_index == 0:
+                    meta_data_lists = [
                         ("Branin", "0", "Random-Search"),
                         ("Branin", "1", "Random-Search"),
                         ("Branin", "2", "Random-Search"),
@@ -98,8 +98,8 @@ if __name__ == "__main__":
                         ("Branin", "4", "Random-Search"),
                         ("Branin", "5", "Random-Search"),
                     ]
-                elif meta_data_list_index == 1:
-                    meta_data_list = [
+                elif meta_data_lists_index == 1:
+                    meta_data_lists = [
                         ("Ackley", "0", "Random-Search"),
                         ("Ackley", "1", "Random-Search"),
                         ("Ackley", "2", "Random-Search"),
@@ -107,8 +107,8 @@ if __name__ == "__main__":
                         ("Ackley", "4", "Random-Search"),
                         ("Ackley", "5", "Random-Search"),
                     ]
-                elif meta_data_list_index == 2:
-                    meta_data_list = [
+                elif meta_data_lists_index == 2:
+                    meta_data_lists = [
                         ("Ackley", "0", "PFNs4BO-HEBO"),
                         ("Ackley", "1", "PFNs4BO-HEBO"),
                         ("Ackley", "2", "PFNs4BO-HEBO"),
@@ -116,8 +116,8 @@ if __name__ == "__main__":
                         ("Ackley", "4", "PFNs4BO-HEBO"),
                         ("Ackley", "5", "PFNs4BO-HEBO"),
                     ]
-                elif meta_data_list_index == 3:
-                    meta_data_list = [
+                elif meta_data_lists_index == 3:
+                    meta_data_lists = [
                         ("Ackley", "0", "Random-Search"),
                         ("Fixed", "1", "Random-Search"),
                         ("Fixed", "2", "Random-Search"),
@@ -126,8 +126,8 @@ if __name__ == "__main__":
                         ("Fixed", "5", "Random-Search"),
                     ]
 
-                elif meta_data_list_index == 4:
-                    meta_data_list = [
+                elif meta_data_lists_index == 4:
+                    meta_data_lists = [
                         ("Ackley", "0", "Random-Search"),
                         ("Ackley", "0", "PFNs4BO-HEBO"),
                         ("Ackley", "0", "GP-UCB"),
@@ -136,7 +136,7 @@ if __name__ == "__main__":
                 import pfns4bo
                 from pfns4bo.scripts.tune_input_warping import fit_input_warping
                 from our_pfns4bo import ourPFNs4BO, get_meta_data_of_method_name
-                meta_data =  get_meta_data_of_method_name(meta_data_list, seeds,  seed )
+                meta_data =  get_meta_data_of_method_name(meta_data_lists, seeds,  seed )
                 method = ourPFNs4BO(torch.load( pfns4bo.hebo_plus_model), meta_data, bounds=func.bounds, device=device)
             else:
                 raise ValueError(f"Unknown method: {method_name}")
@@ -148,7 +148,7 @@ if __name__ == "__main__":
                 y = func(x)
                 method.observe(x, y)
 
-                if  method_name == "ourPFNs":
+                if  "ourPFNs" in method_name:
                     results.append({
                         "function_name": function_name,
                         "transform_id": transform_id,
@@ -157,9 +157,10 @@ if __name__ == "__main__":
                         "iteration": ieration, 
                         "y": float(y),
                         "x": x ,
-                        "reliability_scores" :method.reliability_scores.tolist(),
+                        "reliability_scores" :method.reliability_scores.cpu().numpy().tolist(),
                         "meta_data_lists": meta_data_lists,
                     })
+                    #print(f"Iteration {ieration} - x: {x}, y: {y}, reliability_scores: {method.reliability_scores}")
                 else:
                     results.append({
                         "function_name": function_name,

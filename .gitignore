@@ -199,3 +199,4 @@ HPO_tasks/Bayesmark/pfns4bo
 HPO_tasks/Bayesmark
 HPO_tasks/Synthetic/pfns4bo
 HPO_tasks/Synthetic/results
+HPO_tasks/Synthetic/logs

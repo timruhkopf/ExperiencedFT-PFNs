@@ -7,9 +7,11 @@ from torch import nn
 import sys
 sys.path.append("../..")
 from src.model.pfnimputation import PFNPriorImputation
-from src.model.calc_reliability import calc_imputed_linalg_reliability
-from src.model.decay import constant_exponential as decay_fn
-from src.model.mixing import argmin as mixture_fn
+from src.model.mixing import CVMixtureStrategy
+
+#from src.model.calc_reliability import calc_imputed_linalg_reliability
+# from src.model.decay import constant_exponential as decay_fn
+# from src.model.mixing import argmin as mixture_fn
 from types import SimpleNamespace
 import contextlib
 import logging
@@ -49,19 +51,17 @@ class ourPFNs4BO(nn.Module):
         self.related_task_data = SimpleNamespace(x=x_task_context, y=y_task_context, padding_mask=padding_mask)
 
         self.pfnimputation = PFNPriorImputation(
-            self,
-            self.criterion, #logger
-            None,
-            decay_fn,
-            mixture_fn,
-            self.related_task_data,
-            min_context_size=1,
-            imputation_mode='mean',
-            reliability_fn=calc_imputed_linalg_reliability,
+            model = self,
+            criterion = self.criterion, #logger
+            logger = None,
+            mixture_strategy = CVMixtureStrategy,
+            related_task_data = self.related_task_data,
+            min_context_size =1,
+            imputation_mode ='mean',
             device=device,
         )
 
-        self.reliability_scores = self.pfnimputation.reliability_scores
+        self.reliability_scores = torch.zeros(len(related_task_data.items())).to(device) 
 
     def observe(self, x, y):
         """Add an observation of x (1D array-like) with target y (float)."""
@@ -121,7 +121,6 @@ class ourPFNs4BO(nn.Module):
                 style = style.to(x_full.device)
             else:
                 style = torch.tensor(style, device=x_full.device).view(1, 1).repeat(x_full.shape[1], 1)
-
         return  self.model(
             (style,
             x_full,

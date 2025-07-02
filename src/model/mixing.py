@@ -1,10 +1,10 @@
 import torch
 
-from model.calc_reliability import calc_target_cv_nll, calc_imputed_linalg_reliability
+from src.model.calc_reliability import calc_target_cv_nll, calc_imputed_linalg_reliability
 
 
 class CVMixtureStrategy:
-    def __init__(self, model, criterion, related_task_data=None, min_num_samples=10, logger=None):
+    def __init__(self, model, criterion, related_task_data=None, min_num_samples=10, logger=None, multi_fidelity=False):
         """This class is a new variant of the MixtureStrategy that consider
         the reliability of related scores in conjunction with cross-valdiated nll scores
         of the target data."""
@@ -13,6 +13,7 @@ class CVMixtureStrategy:
         self.related_task_data = related_task_data
         self.min_num_samples = min_num_samples
         self.logger = logger
+        self.multi_fidelity = multi_fidelity
 
     def __call__(self, x_train, y_train, pi_target, pi_related, minimize):
         # fixme what do we need to do with the minimize flag?
@@ -28,7 +29,8 @@ class CVMixtureStrategy:
                 self.model,
                 self.criterion,
                 splits=5,
-                random_state=42
+                random_state=42,
+                start_feature_indx=2 if self.multi_fidelity else 0,
             ).unsqueeze(0).to(device)
             related_nll = calc_imputed_linalg_reliability(
                 self.model, x_train, y_train,
@@ -56,7 +58,7 @@ class CVMixtureStrategy:
         pi_values = torch.concat([pi_target.unsqueeze(0), pi_related], dim=0)
         weighted_pi = (pi_values * reliability.unsqueeze(1)).sum(dim=0, keepdim=True)
 
-        return weighted_pi
+        return weighted_pi, reliability
 
 
 class DefaultMixtureStrategy:
@@ -77,16 +79,19 @@ class DefaultMixtureStrategy:
 
     def __call__(self, x_train, y_train, pi_target, pi_related, minimize):
         device = x_train.device
+
+        reliability_scores = self.reliability_fn(
+                x_train.unsqueeze(1), y_train.unsqueeze(1),
+                minimize=minimize
+            ).to(device)
+
         scores = self.mixture_fn(
             pi_target=pi_target,
             pi_related=pi_related,
-            reliability_scores=self.reliability_fn(
-                x_train.unsqueeze(1), y_train.unsqueeze(1),
-                minimize=minimize
-            ).to(device),
+            reliability_scores=reliability_scores,
             alpha=self.decay_fn(x_train.shape[0])
         )
-        return scores
+        return scores, reliability_scores
 
 
 

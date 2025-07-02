@@ -9,7 +9,7 @@ from src.model.calc_reliability import _calc_reliability
 import logging
 
 from src.utils.dotdict import DotDict
-from utils.filelogger import BufferedFileLogger
+from src.utils.filelogger import BufferedFileLogger
 
 log = logging.getLogger(__name__)
 
@@ -66,8 +66,7 @@ class PFNPriorImputation(AbstractModel):
 
     def __init__(self, model, criterion, logger, mixture_strategy,
                  related_task_data, min_context_size, imputation_mode='mean',
-                 reliability_fn=_calc_reliability,
-                 device=None):
+                 device=None, verbose=True):
 
         if type(model).__name__ == "ourTransformerBOMethod" or type(model).__name__ == "ourPFNs4BO":
             self.model = model
@@ -273,7 +272,7 @@ class PFNPriorImputation(AbstractModel):
         prior_incumbents = prior_incumbents.unsqueeze(1).repeat(1, x_test.shape[0])
         pi_related = torch.stack([
             self.criterion.pi(prior_logits[:, b, :].squeeze(1),
-                              best_f=prior_incumbents[b, :].unsqueeze(1))
+                              best_f=prior_incumbents[b, :])
             for b in range(B)
         ], dim=0)
 
@@ -301,7 +300,7 @@ class PFNPriorImputation(AbstractModel):
         return pi_target
 
     @torch.no_grad()
-    def get_pi(self, x_test, inc, x_train=None, y_train=None, minimize=True):
+    def get_pi(self, x_test, inc, x_train=None, y_train=None, minimize=False):
         """
         Get the Probability of Improvement (PI) acquisition function for the
         query points under the target task and the related tasks.
