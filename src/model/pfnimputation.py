@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import torch
 
 from ifbo.transformer import TransformerModel
@@ -7,6 +9,7 @@ from src.model.calc_reliability import _calc_reliability
 import logging
 
 from src.utils.dotdict import DotDict
+from utils.filelogger import BufferedFileLogger
 
 log = logging.getLogger(__name__)
 
@@ -61,7 +64,7 @@ class PFNPriorImputation(AbstractModel):
     """
     __name__ = "PFNPriorImputation"
 
-    def __init__(self, model, criterion, logger, decay_fn, mixture_fn,
+    def __init__(self, model, criterion, logger, mixture_strategy,
                  related_task_data, min_context_size, imputation_mode='mean',
                  reliability_fn=_calc_reliability,
                  device=None):
@@ -85,15 +88,24 @@ class PFNPriorImputation(AbstractModel):
 
         self.related_task_data = related_task_data
 
-        self.reliability_fn = reliability_fn
-        self.reliability_scores = None  # will be set in get_pi
-        self.decay_fn = decay_fn
+        self.reliability_scores = None 
+
         self.min_context_size = min_context_size
         self.imputation_mode = imputation_mode
 
-        self.mixture_fn = mixture_fn
-        self.call_counter=0
-        # TODO: distill the related tasks once (optionally)
+        self.mixture_strategy = mixture_strategy
+        self.call_counter = 0
+        self.verbose = verbose
+
+        if verbose:
+            num_related = self.related_task_data.x.shape[1]
+            self.mixture_logger = BufferedFileLogger(
+                file_name=f"mixture_strategy.csv",
+                file_path=Path().cwd() / "logs" / "mixture_strategy",
+                header=['metric', 'step', 'target_reliability',
+                        *[f'related_reliability_{i}' for i in range(num_related)]],
+                postfix=[]
+            )
 
     def _forward(self, context_x, context_y, query_x, *args, **kwargs) -> torch.Tensor:
 
@@ -137,18 +149,15 @@ class PFNPriorImputation(AbstractModel):
         # fixme: cache these values when we move to optimizing the acquisition function
         if context_size >= self.min_context_size:
             # calculate the reliability scores for the related tasks
+            counter = self.call_counter + 1 - self.min_context_size
             reliability_scores = self.reliability_fn(
                 self.model,
                 context_x,
                 context_y,
                 related_task_data,
                 self.criterion,
-                # peeking={
-                # # this was just to check why the reliability scores were so little
-                # # indicative of the actual performance in the first iteration.
-                #     'x': context_x,
-                #     'y': context_y
-                # }
+                verbose=True if self.verbose and counter < 15 or counter % 100 == 0 else False,
+                plot_file_path=Path().cwd() / f"reliability_scores_{counter}.png"
             )
         else:
             # if we have no context points, we must assume all are equally likely
@@ -216,6 +225,81 @@ class PFNPriorImputation(AbstractModel):
 
         return imputed_y
 
+    def get_pi_related(self, x_train, x_test, related_context_x=None, related_context_y=None,
+                       padding_mask=None):
+        """
+        First impute the y values for the target task under the related prior context,
+        then calculate the incumbent under the imputed data and finally collect the
+        pi values for the query points under the imputed prior.
+
+        :param x_train: target task training data points (x)
+        :param x_test: query points for which to calculate the pi values
+        :param related_context_x:
+        :param related_context_y:
+        :param padding_mask: padding for the related context data
+        :return:
+        """
+        num_related = related_context_x.shape[1]
+
+        imputed_y = self.impute(
+            x_train.unsqueeze(1),
+            related_context_x,
+            related_context_y,
+            padding_mask=padding_mask
+        )
+
+        # prior logits under the imputed data points --------------------------
+
+        # 2.
+        # TODO key-value-cache here on related tasks and incremental x_train
+        prior_logits = self.model(
+            (
+                torch.cat([
+                    related_context_x,
+                    x_train.unsqueeze(1).repeat(1, num_related, 1),
+                    x_test.unsqueeze(1).repeat(1, num_related, 1)
+                ], dim=0),
+                torch.cat([related_context_y, imputed_y, ], dim=0)
+            ),
+            single_eval_pos=related_context_x.shape[0] + x_train.shape[0],
+            src_key_padding_mask=torch.cat([
+                padding_mask,
+                torch.zeros(num_related, x_train.shape[0], dtype=torch.bool).to(self.device)
+            ], dim=1)
+        )
+
+        B = prior_logits.shape[1]
+        prior_incumbents = torch.cat([related_context_y, imputed_y, ], dim=0).min(dim=0).values
+        prior_incumbents = prior_incumbents.unsqueeze(1).repeat(1, x_test.shape[0])
+        pi_related = torch.stack([
+            self.criterion.pi(prior_logits[:, b, :].squeeze(1),
+                              best_f=prior_incumbents[b, :].unsqueeze(1))
+            for b in range(B)
+        ], dim=0)
+
+        return pi_related
+
+    def get_pi_target(self, x_train, y_train, x_test, inc):
+        """
+        Calculate the Probability of Improvement (PI) acquisition function for the
+        query points under the target task.
+        :param x_train:
+        :param y_train:
+        :param x_test:
+        :param inc: incumbent under the target task
+        :return:
+        """
+        target_logits = self.model(
+            (
+                torch.cat([x_train.unsqueeze(1), x_test.unsqueeze(1)], dim=0),
+                y_train.unsqueeze(1)
+            ),
+            single_eval_pos=x_train.shape[0],
+
+        )
+        pi_target = self.model.criterion.pi(target_logits.squeeze(1), best_f=inc)
+        return pi_target
+
     @torch.no_grad()
     def get_pi(self, x_test, inc, x_train=None, y_train=None, minimize=True):
         """
@@ -253,62 +337,42 @@ class PFNPriorImputation(AbstractModel):
         if minimize:
             related_context_y = (1 - related_context_y)
 
-        imputed_y = self.impute(
-            x_train.unsqueeze(1),
-            related_context_x,
-            related_context_y,
+        related_task_data = DotDict({
+            'x': related_context_x,
+            'y': related_context_y,
+            'padding_mask': padding_mask,
+            'single_eval_pos': related_context_x.shape[0]
+        })
+
+        pi_related = self.get_pi_related(
+            x_train=x_train,
+            x_test=x_test,
+            related_context_x=related_context_x,
+            related_context_y=related_context_y,
             padding_mask=padding_mask
         )
-
-        # prior logits under the imputed data points --------------------------
-
-        # 2.
-        # TODO key-value-cache here on related tasks and incremental x_train
-        prior_logits = self.model(
-            (
-                torch.cat([
-                    related_context_x,
-                    x_train.unsqueeze(1).repeat(1, num_related, 1),
-                    x_test.unsqueeze(1).repeat(1, num_related, 1)
-                ], dim=0),
-                torch.cat([related_context_y, imputed_y, ], dim=0)
-            ),
-            single_eval_pos=related_context_x.shape[0] + x_train.shape[0],
-            src_key_padding_mask=torch.cat([
-                padding_mask,
-                torch.zeros(num_related, x_train.shape[0], dtype=torch.bool).to(self.device)
-            ], dim=1)
-        )
-
-        B = prior_logits.shape[1]
-        scores_related = torch.stack([
-            self.criterion.pi(prior_logits[:, b, :].squeeze(1), best_f=inc)
-            for b in range(B)
-        ], dim=0)
-
         # 3 # FIXME: with proper stacking, the prior and target logits could be calculated in one go
         #      this implementation here is just to keep the code simple and readable for debugging
-        target_logits = self.model(
-            (
-                torch.cat([x_train.unsqueeze(1), x_test.unsqueeze(1)], dim=0),
-                y_train.unsqueeze(1)
-            ),
-            single_eval_pos=x_train.shape[0],
-
+        pi_target = self.get_pi_target(
+            x_train=x_train,
+            y_train=y_train,
+            x_test=x_test,
+            inc=inc
         )
-        scores = self.model.criterion.pi(target_logits.squeeze(1), best_f=inc)
-
-        self.reliability_scores =  self.calculate_reliability(
-                x_train.unsqueeze(1), y_train.unsqueeze(1),
-                minimize=minimize
-            ).to(self.device)
 
         # 4.
-        scores = self.mixture_fn(
-            scores,
-            scores_related,
-            reliability_scores=self.reliability_scores,
-            alpha=self.decay_fn(x_train.shape[0])
+        scores, reliability_scores = self.mixture_strategy(
+            model=self.model,
+            criterion=self.criterion,
+            related_task_data=related_task_data,
+            logger=self.mixture_logger if self.verbose else None,
+        )(
+            x_train=x_train,
+            y_train=y_train,
+            pi_target=pi_target,
+            pi_related=pi_related,
+            minimize=minimize  # fixme: do we need this?
         )
+        self.reliability_scores = reliability_scores  
         self.call_counter += 1
         return scores
