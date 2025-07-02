@@ -1,3 +1,4 @@
+from __future__ import annotations
 import torch
 import matplotlib.pyplot as plt
 import numpy as np
@@ -27,6 +28,7 @@ class ScaledFunctionWrapper:
 
         # Estimate output range using random sampling
         self.y_min, self.y_max = self.estimate_output_bounds(n_samples)
+        print(f"Estimated output bounds: [{self.y_min}, {self.y_max}]")
 
     def scale_to_bounds(self, X_unit):
         """Convert inputs from [0, 1]^d to original bounds."""
@@ -42,10 +44,13 @@ class ScaledFunctionWrapper:
         """Normalize output to [0, 1] using estimated bounds."""
         y_trans = self.y_transform(y)
         y_norm = (y_trans - self.y_min) / (self.y_max - self.y_min + self.epsilon)
+
         return  1 - torch.clamp(y_norm, 0.0, 1.0) if maximize  else torch.clamp(y_norm, 0.0, 1.0)
 
     def estimate_output_bounds(self, n_samples):
         """Estimate the output range by sampling the function."""
+        if isinstance(self.func, Fixed):
+            return 0.0, 1.0
         binary_combinations = torch.tensor(list(itertools.product([0.0, 1.0], repeat=self.dim)))
         X_augmented = torch.cat([torch.rand(n_samples, self.dim), binary_combinations], dim=0)
 
@@ -70,5 +75,21 @@ class ScaledFunctionWrapper:
         """
         X_scaled = self.scale_to_bounds(X_unit)
         Y = self.func(X_scaled)
+
         y =  self.normalize_outputs(Y)
         return y
+
+
+from botorch.test_functions.synthetic import SyntheticTestFunction
+from torch import Tensor
+import torch
+
+class Fixed(SyntheticTestFunction):
+    dim = 2
+    continuous_inds = list(range(dim))
+    _optimal_value = 0.0
+    _bounds = [(0, 1),(0, 1)]
+    _optimizers = [(0.5, 0.5)]
+
+    def evaluate_true(self, X: Tensor) -> Tensor:
+        return torch.full((X.shape[0],), 0.25, dtype=X.dtype, device=X.device)

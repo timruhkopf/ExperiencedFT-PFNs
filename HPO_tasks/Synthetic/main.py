@@ -48,7 +48,9 @@ if __name__ == "__main__":
         from botorch.test_functions.synthetic import Rosenbrock
         func = Rosenbrock()
 
-
+    elif function_name == 'Fixed':  
+        from utils import Fixed
+        func = Fixed()
 
     function_ids ={}
     function_ids["0"]=  ScaledFunctionWrapper(func, y_transform=None, X_transforms=None)
@@ -85,8 +87,10 @@ if __name__ == "__main__":
                 from pfns4bo.scripts.tune_input_warping import fit_input_warping
                 method  = PFNs4BO(torch.load( pfns4bo.hebo_plus_model), bounds=func.bounds)
 
-            elif method_name == "ourPFNs":
-                    meta_data_lists = [
+            elif  "ourPFNs" in method_name:
+                meta_data_list_index  = int(method_name.split("_")[1])
+                if meta_data_list_index == 0:
+                    meta_data_list = [
                         ("Branin", "0", "Random-Search"),
                         ("Branin", "1", "Random-Search"),
                         ("Branin", "2", "Random-Search"),
@@ -94,12 +98,46 @@ if __name__ == "__main__":
                         ("Branin", "4", "Random-Search"),
                         ("Branin", "5", "Random-Search"),
                     ]
+                elif meta_data_list_index == 1:
+                    meta_data_list = [
+                        ("Ackley", "0", "Random-Search"),
+                        ("Ackley", "1", "Random-Search"),
+                        ("Ackley", "2", "Random-Search"),
+                        ("Ackley", "3", "Random-Search"),
+                        ("Ackley", "4", "Random-Search"),
+                        ("Ackley", "5", "Random-Search"),
+                    ]
+                elif meta_data_list_index == 2:
+                    meta_data_list = [
+                        ("Ackley", "0", "PFNs4BO-HEBO"),
+                        ("Ackley", "1", "PFNs4BO-HEBO"),
+                        ("Ackley", "2", "PFNs4BO-HEBO"),
+                        ("Ackley", "3", "PFNs4BO-HEBO"),
+                        ("Ackley", "4", "PFNs4BO-HEBO"),
+                        ("Ackley", "5", "PFNs4BO-HEBO"),
+                    ]
+                elif meta_data_list_index == 3:
+                    meta_data_list = [
+                        ("Ackley", "0", "Random-Search"),
+                        ("Fixed", "1", "Random-Search"),
+                        ("Fixed", "2", "Random-Search"),
+                        ("Fixed", "3", "Random-Search"),
+                        ("Fixed", "4", "Random-Search"),
+                        ("Fixed", "5", "Random-Search"),
+                    ]
 
-                    import pfns4bo
-                    from pfns4bo.scripts.tune_input_warping import fit_input_warping
-                    from our_pfns4bo import ourPFNs4BO, get_meta_data_of_method_name
-                    meta_data =  get_meta_data_of_method_name(meta_data_lists, seeds,  seed )
-                    method = ourPFNs4BO(torch.load( pfns4bo.hebo_plus_model), meta_data, bounds=func.bounds, device=device)
+                elif meta_data_list_index == 4:
+                    meta_data_list = [
+                        ("Ackley", "0", "Random-Search"),
+                        ("Ackley", "0", "PFNs4BO-HEBO"),
+                        ("Ackley", "0", "GP-UCB"),
+                    ]
+
+                import pfns4bo
+                from pfns4bo.scripts.tune_input_warping import fit_input_warping
+                from our_pfns4bo import ourPFNs4BO, get_meta_data_of_method_name
+                meta_data =  get_meta_data_of_method_name(meta_data_list, seeds,  seed )
+                method = ourPFNs4BO(torch.load( pfns4bo.hebo_plus_model), meta_data, bounds=func.bounds, device=device)
             else:
                 raise ValueError(f"Unknown method: {method_name}")
 
@@ -119,7 +157,8 @@ if __name__ == "__main__":
                         "iteration": ieration, 
                         "y": float(y),
                         "x": x ,
-                        "reliability_scores" :method.reliability_scores,
+                        "reliability_scores" :method.reliability_scores.tolist(),
+                        "meta_data_lists": meta_data_lists,
                     })
                 else:
                     results.append({
