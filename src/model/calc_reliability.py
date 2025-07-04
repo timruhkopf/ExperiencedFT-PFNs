@@ -53,6 +53,37 @@ def _calc_reliability(
     return loss  # reliability scores
 
 
+
+
+def linear_alg(num_tasks, context_y, imputed_y, device):
+        with torch.set_grad_enabled(True):
+            context_y =  context_y.unsqueeze(1)
+            ones = torch.ones(context_y.size(0), 1, device=device)
+            context_y_aug = torch.cat([context_y, ones], dim=1) 
+            context_y_expanded = context_y_aug.unsqueeze(1).repeat(1, num_tasks, 1).to(device)
+            imputed_y = imputed_y.to(device)
+
+            beta = torch.nn.Parameter(torch.randn(num_tasks, 2, device=device), requires_grad=True).to(device)
+            optimizer = torch.optim.Adam([beta], lr=0.01)
+
+            for _ in range(1000):  # adjust iterations as needed
+                optimizer.zero_grad()
+                beta_expanded = beta.unsqueeze(0) 
+
+                y_proj = torch.sum(context_y_expanded * beta_expanded, dim=2) 
+
+                mse_loss = torch.nn.functional.mse_loss(y_proj, imputed_y)
+
+                reg_loss = 0.1 * (torch.sum((beta) ** 2) )
+                loss = mse_loss + reg_loss
+
+                loss.backward()
+                optimizer.step()
+            return y_proj
+
+
+
+
 def calc_imputed_linalg_reliability(
         model: TransformerModel,
         context_x: torch.Tensor,
@@ -61,7 +92,8 @@ def calc_imputed_linalg_reliability(
         criterion: BarDistribution,
         verbose: bool = False,
         plot_file_path: str = None,  # type: ignore
-        degree_fn=lambda x, y :0
+        degree_fn=lambda x, y :0,
+        multi_fidelity = True, 
 ) -> torch.Tensor:
     """
     Compute scale-invariant reliability scores for meta-tasks using block-diagonal regression.
@@ -119,26 +151,33 @@ def calc_imputed_linalg_reliability(
     imputed_y = criterion.median(logits)  # shape [num_points, num_tasks]
 
     # Learn the projection from the related task to the target task ------------
-    target_fidelity = context_x[:, 0, 1]
-    # Build polynomial features for target fidelity & then the design matrix
-    x = target_fidelity.reshape(-1, 1)  # Ensure x is column vector
-    degree = degree_fn(context_x, context_y)
-    x = torch.cat([x ** i for i in range(degree+1)], dim=1).to(device)  # Polynomial features
-    X_design = torch.cat([context_y.unsqueeze(1), x], dim=1).to(device)  # Add context_y as first
-    # column
+    if multi_fidelity:
+        target_fidelity = context_x[:, 0, 1]
+        x = target_fidelity.reshape(-1, 1)  # Ensure x is column vector
+        degree = degree_fn(context_x, context_y)
+        
+        x = torch.cat([x ** i for i in range(degree+1)], dim=1).to(device)  # Polynomial features
+        X_design = torch.cat([context_y.unsqueeze(1), x], dim=1).to(device)  # Add context_y as first
+        # column
 
-    # Build block-diagonal design matrix for all tasks
-    X_design_block = torch.block_diag(*[X_design for _ in range(num_related)])  # [num_tasks*num_points, ...][2][5]
+        # Build block-diagonal design matrix for all tasks
+        X_design_block = torch.block_diag(*[X_design for _ in range(num_related)])  # [num_tasks*num_points, ...][2][5]
 
-    # Reorder imputed_y to match block-diagonal structure: all points for task 0, then task 1, etc.
-    imputed_y_ordered = imputed_y.transpose(0, 1).contiguous().view(-1)  # [num_tasks*num_points]
+        # Reorder imputed_y to match block-diagonal structure: all points for task 0, then task 1, etc.
+        imputed_y_ordered = imputed_y.transpose(0, 1).contiguous().view(-1)  # [num_tasks*num_points]
 
-    beta = torch.linalg.lstsq(X_design_block, imputed_y_ordered).solution
-    y_proj = X_design_block @ beta
-    y_proj = y_proj.clamp(0, 1)
+        beta = torch.linalg.lstsq(X_design_block, imputed_y_ordered).solution
+        y_proj = X_design_block @ beta
+        y_proj = y_proj.clamp(0, 1)
 
-    num_tasks = imputed_y.shape[1]
-    num_fidelity = target_fidelity.shape[0]
+        num_tasks = imputed_y.shape[1]
+        num_fidelity = target_fidelity.shape[0]
+
+    else:
+        target_fidelity = context_x[:, 0, 1]
+        num_tasks = imputed_y.shape[1]
+        num_fidelity = imputed_y.shape[0]
+        y_proj = linear_alg(num_tasks, context_y, imputed_y, device).T
 
     # For plotting and debugging
     if verbose:
@@ -265,7 +304,6 @@ def kfold_hp_split(context_x, context_y, n_splits=5, random_state=42, start_feat
 
     # List of unique HP configs and their associated token indices
     hp_tuples = list(curve_indices.keys())
-    print(hp_tuples)
     hp_indices = list(curve_indices.values())
 
     # KFold split on HP configs

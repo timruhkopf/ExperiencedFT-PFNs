@@ -132,6 +132,17 @@ if __name__ == "__main__":
                         ("Ackley", "0", "PFNs4BO-HEBO"),
                         ("Ackley", "0", "GP-UCB"),
                     ]
+                    
+                elif meta_data_lists_index == 5:
+                    meta_data_lists = [
+                        ("Fixed", "0", "Random-Search"),
+                        ("Fixed", "1", "Random-Search"),
+                        ("Fixed", "2", "Random-Search"),
+                        ("Fixed", "3", "Random-Search"),
+                        ("Fixed", "4", "Random-Search"),
+                        ("Fixed", "5", "Random-Search"),
+                    ]
+
 
                 import pfns4bo
                 from pfns4bo.scripts.tune_input_warping import fit_input_warping

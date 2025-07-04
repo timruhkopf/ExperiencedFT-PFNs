@@ -36,7 +36,8 @@ class CVMixtureStrategy:
                 self.model, x_train, y_train,
                 self.related_task_data,
                 self.criterion,
-                degree_fn=lambda x, y: max(x[:, 0, 1].unique().shape[0] - 3, 0)
+                degree_fn=lambda x, y: max(x[:, 0, 1].unique().shape[0] - 3, 0) if self.multi_fidelity else 1,    
+                multi_fidelity = self.multi_fidelity
                 # avoid multicollinearity if all have same fidelity. grow polynomial features based on the fidelity availability
             ).to(device)
         else:
@@ -44,6 +45,8 @@ class CVMixtureStrategy:
             num_related = pi_related.shape[0]
             target_nll = torch.zeros(1, device=device)
             related_nll = torch.zeros(num_related, device=device)
+
+        #print(f"Target NLL: {target_nll}, Related NLL: {related_nll}")
 
         # weigh the target and related scores by the reliability
         reliability = torch.nn.functional.softmax(

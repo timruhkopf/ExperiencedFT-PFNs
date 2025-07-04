@@ -373,5 +373,6 @@ class PFNPriorImputation(AbstractModel):
             minimize=minimize  # fixme: do we need this?
         )
         self.reliability_scores = reliability_scores  
+        #print(f"Reliability scores: {self.reliability_scores}")
         self.call_counter += 1
         return scores
