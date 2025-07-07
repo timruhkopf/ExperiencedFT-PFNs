@@ -40,6 +40,8 @@ class CVMixtureStrategy:
                 multi_fidelity = self.multi_fidelity
                 # avoid multicollinearity if all have same fidelity. grow polynomial features based on the fidelity availability
             ).to(device)
+
+            #print(f"Target NLL: {target_nll}, Related NLL: {related_nll}")
         else:
             # uniform scores
             num_related = pi_related.shape[0]
@@ -59,6 +61,7 @@ class CVMixtureStrategy:
             )
 
         pi_values = torch.concat([pi_target.unsqueeze(0), pi_related], dim=0)
+
         weighted_pi = (pi_values * reliability.unsqueeze(1)).sum(dim=0, keepdim=True)
 
         return weighted_pi, reliability

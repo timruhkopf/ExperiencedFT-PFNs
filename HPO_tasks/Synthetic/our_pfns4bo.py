@@ -121,11 +121,13 @@ class ourPFNs4BO(nn.Module):
                 style = style.to(x_full.device)
             else:
                 style = torch.tensor(style, device=x_full.device).view(1, 1).repeat(x_full.shape[1], 1)
+
         return  self.model(
             (style,
             x_full,
             y_full),
             single_eval_pos=single_eval_pos,
+            #src_key_padding_mask = src_key_padding_mask,
         )
 
     def label_transforms(
