@@ -1,3 +1,5 @@
+import math
+
 import torch
 
 from model.calc_reliability import calc_target_cv_nll, calc_imputed_linalg_reliability
@@ -34,7 +36,8 @@ class CVMixtureStrategy:
                 self.model, x_train, y_train,
                 self.related_task_data,
                 self.criterion,
-                degree_fn=lambda x, y: max(x[:, 0, 1].unique().shape[0] - 3, 0)
+                # some arbitrary degree function to avoid multicollinearity
+                degree_fn=lambda x, y: max(math.ceil(math.log(x[:, 0, 1].unique().shape[0]))-3, 0)
                 # avoid multicollinearity if all have same fidelity. grow polynomial features based on the fidelity availability
             ).to(device)
         else:
