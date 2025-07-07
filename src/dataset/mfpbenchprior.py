@@ -626,6 +626,8 @@ class MFBenchPrior(TabularBenchmark):
             - single_eval_pos: The list of evaluation positions used for each task.
         :rtype: Batch
         """
+        if self.name == "synthetic" and self.data_path is not None:
+            return torch.load(self.data_path, map_location=self.device, weights_only=False)
 
         benchmarks = [self.target_benchmark, *self.related_benchmarks]
         print(len(benchmarks), "benchmarks")

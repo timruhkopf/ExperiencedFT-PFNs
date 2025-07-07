@@ -71,12 +71,14 @@ class SyntheticBenchmark(Benchmark):
         perturb_prior: float | None = None,
         value_metric: str | None = None,
         cost_metric: str | None = None,
+        dim_hyperparameters: int  = 6,
+        max_fidelities: int = 50,
     ):
         self.n_configs = 500 # Number of configurations to sample
-        self.max_fidelities = 50  # Maximum number of epochs
+        self.max_fidelities = max_fidelities  # Maximum number of epochs
 
         # sample the dimensionality (i.e. hp space dim)
-        self.dim_hyperparameters = 6
+        self.dim_hyperparameters = dim_hyperparameters
         self.sampling_seed = seed
         
         # set up the BNN mapping from the hyperparameter space to the learning curves
@@ -90,6 +92,7 @@ class SyntheticBenchmark(Benchmark):
             f"SyntheticBenchmark_{self.dim_hyperparameters}D"
         )
 
+        # get unit cube hyperparameter space
         space = ConfigurationSpace(name=name, seed=seed)
         space.add_hyperparameter(
             [
