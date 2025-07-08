@@ -136,7 +136,7 @@ class PFNPPDMixture(AbstractModel):
         # (1) calculate the likelihood of the context points under the related tasks
         # Consider: reference NLL could be nll on leave one out from the task (which can
         #  efficiently be calculated in a batch with the same separation!).
-
+        query_x = query_x.to(self.device)
         context_size = context_x.shape[0]
         T, n_related_tasks, num_bars = (
             query_x.shape[0],
@@ -148,8 +148,6 @@ class PFNPPDMixture(AbstractModel):
         context_y = context_y.to(self.device)
 
         related_task_data = self.related_task_data
-        if minimize:
-            related_task_data.y = 1 - related_task_data.y
 
         if context_size >= self.min_context_size:
             # calculate the reliability scores for the related tasks
@@ -194,9 +192,9 @@ class PFNPPDMixture(AbstractModel):
         # (2) Collect the PPD logits on the target task's query
 
         # related ppd for current query points
-        task_context_x = related_task_data.x
-        task_context_y = related_task_data.y
-        padding_mask = related_task_data.padding_mask
+        task_context_x = related_task_data.x.to(self.device)
+        task_context_y = related_task_data.y.to(self.device)
+        padding_mask = related_task_data.padding_mask.to(self.device) if isinstance(related_task_data, MyBatch) else None
         num_related = task_context_x.shape[1]
 
 
