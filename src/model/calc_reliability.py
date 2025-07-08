@@ -29,11 +29,12 @@ def _calc_reliability(
         :param criterion: The criterion to use for the calculation.
 
     """
+    device = model.device
 
     # for task_data in related_task_data:
-    task_context_x = related_task_data.x
-    task_context_y = related_task_data.y
-    padding_mask = related_task_data.padding_mask
+    task_context_x = related_task_data.x.to(device)  # [num_tasks, num_points, num_features]
+    task_context_y = related_task_data.y.to(device)  # [num_tasks, num_points, 1]
+    padding_mask = related_task_data.padding_mask.to(device)  # [num_tasks, num_points]
     num_related = task_context_x.shape[1]
 
     logits = model(
@@ -61,7 +62,7 @@ def calc_imputed_linalg_reliability(
         criterion: BarDistribution,
         verbose: bool = False,
         plot_file_path: str = None,  # type: ignore
-        degree_fn=lambda x, y :0
+        degree_fn=lambda x, y: 0
 
 ) -> torch.Tensor:
     """
@@ -124,12 +125,13 @@ def calc_imputed_linalg_reliability(
     # Build polynomial features for target fidelity & then the design matrix
     x = target_fidelity.reshape(-1, 1)  # Ensure x is column vector
     degree = degree_fn(context_x, context_y)
-    x = torch.cat([x ** i for i in range(degree+1)], dim=1).to(device)  # Polynomial features
+    x = torch.cat([x ** i for i in range(degree + 1)], dim=1).to(device)  # Polynomial features
     X_design = torch.cat([context_y.unsqueeze(1), x], dim=1).to(device)  # Add context_y as first
     # column
 
     # Build block-diagonal design matrix for all tasks
-    X_design_block = torch.block_diag(*[X_design for _ in range(num_related)])  # [num_tasks*num_points, ...][2][5]
+    X_design_block = torch.block_diag(
+        *[X_design for _ in range(num_related)])  # [num_tasks*num_points, ...][2][5]
 
     # Reorder imputed_y to match block-diagonal structure: all points for task 0, then task 1, etc.
     imputed_y_ordered = imputed_y.transpose(0, 1).contiguous().view(-1)  # [num_tasks*num_points]
@@ -144,7 +146,7 @@ def calc_imputed_linalg_reliability(
         # plot the available data (currently collected on target task and the constant task data
         # -------------------------------------------------------
         import matplotlib.pyplot as plt
-        num_tasks = task_context_y.shape[1] +1
+        num_tasks = task_context_y.shape[1] + 1
         fig, axes = plt.subplots(
             nrows=1, ncols=num_tasks, figsize=(2 * num_tasks, 5), sharex=True,
             sharey=True
@@ -152,25 +154,24 @@ def calc_imputed_linalg_reliability(
 
         # plot the context_x and context_y for the target task
         ax = axes[0] if num_tasks > 1 else axes
-        ax.plot(context_x[:500, 0, 1].cpu().numpy(), context_y[:500].cpu().numpy(), 'o', label='Target Task')
+        ax.plot(context_x[:500, 0, 1].cpu().numpy(), context_y[:500].cpu().numpy(), 'o',
+                label='Target Task')
         ax.set_title('Target Task')
         ax.set_xlabel('Fidelity')
         ax.set_ylabel('y')
         print('unique fidelity values on target:', context_x[:, 0, 1].unique().cpu().numpy())
 
-        for i in range(0, num_tasks-1):
-            ax = axes[i+1] if num_tasks > 1 else axes
+        for i in range(0, num_tasks - 1):
+            ax = axes[i + 1] if num_tasks > 1 else axes
             ax.plot(task_context_x[:500, i, 1].cpu().numpy(), task_context_y[:500,
-                                                               i].cpu().numpy(),
+                                                              i].cpu().numpy(),
                     'o')
-            ax.set_title(f'related task {i }')
+            ax.set_title(f'related task {i}')
             ax.set_xlabel('Fidelity')
             # ax.set_ylabel('y')
 
         plt.tight_layout()
         plt.show()
-
-
 
         # plot how the target task x points are imputed and projected under the
         # related tasks
@@ -202,8 +203,8 @@ def plot_gt_data(
 
         related_task_x: torch.Tensor,
         related_task_y: torch.Tensor,
-context_x: torch.Tensor | None=None,
-        context_y: torch.Tensor| None=None,
+        context_x: torch.Tensor | None = None,
+        context_y: torch.Tensor | None = None,
 ):
     """Here we plot the performance against fidelity for all the tasks (irrespective of the hp
     dim)"""
@@ -216,14 +217,13 @@ context_x: torch.Tensor | None=None,
     related_task_y_np = related_task_y.cpu().numpy()
 
     num_tasks = related_task_y_np.shape[1]
-    offset=0
+    offset = 0
 
     # for each task (target and related) plot the fidelity vs y
     if context_x is not None and context_y is not None:
         context_x_np = context_x.cpu().numpy()
         context_y_np = context_y.cpu().numpy()
         num_tasks += 1  # +1 for target task
-
 
     fig, axs = plt.subplots(1, num_tasks, figsize=(4 * num_tasks, 5), sharey=True, sharex=True)
     fig.suptitle('Ground Truth Data', fontsize=16)
@@ -242,7 +242,8 @@ context_x: torch.Tensor | None=None,
     # Plot related tasks
     for task_idx in range(related_task_y_np.shape[1]):
         ax = axs[task_idx + offset]
-        ax.scatter(related_task_x_np[:, 0, 1], related_task_y_np[:, task_idx], label=f'Related Task {task_idx + 1}', color='red')
+        ax.scatter(related_task_x_np[:, 0, 1], related_task_y_np[:, task_idx],
+                   label=f'Related Task {task_idx + 1}', color='red')
         ax.set_title(f'Related Task {task_idx + 1}')
         ax.set_xlabel('Fidelity')
         ax.grid(True, alpha=0.3)
@@ -392,8 +393,8 @@ def kfold_hp_split(context_x, context_y, n_splits=5, random_state=42):
     return padded_context_x, padded_context_y, context_mask, \
         padded_query_x, padded_query_y, query_mask
 
-def calc_target_cv_nll(context_x, context_y, model, criterion, splits=5, random_state=42):
 
+def calc_target_cv_nll(context_x, context_y, model, criterion, splits=5, random_state=42):
     device = context_x.device
 
     padded_context_x, padded_context_y, context_mask, \
@@ -403,7 +404,7 @@ def calc_target_cv_nll(context_x, context_y, model, criterion, splits=5, random_
 
     # Concatenate context and query for model input
     all_x = torch.cat([padded_context_x, padded_query_x], dim=1)
-    all_x = all_x.permute(1, 0, 2).to(device) # [batch_size, seq_len, feature_dim]
+    all_x = all_x.permute(1, 0, 2).to(device)  # [batch_size, seq_len, feature_dim]
 
     padded_context_y = padded_context_y.permute(1, 0).to(device)
     padded_query_y = padded_query_y.permute(1, 0).to(device)
@@ -411,7 +412,6 @@ def calc_target_cv_nll(context_x, context_y, model, criterion, splits=5, random_
     kf_logits = model((all_x, padded_context_y),
                       single_eval_pos=padded_context_x.shape[1],
                       src_key_padding_mask=~context_mask.to(device))
-
 
     # Compute loss on the (unpadded) query set
     kf_loss = criterion(kf_logits, padded_query_y)
