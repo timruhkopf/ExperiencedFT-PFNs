@@ -230,6 +230,10 @@ class PFNPriorImputation(AbstractModel):
         """
         num_related = related_context_x.shape[1]
 
+        x_train = x_train.to(self.device)
+        related_context_x = related_context_x.to(self.device)
+        related_context_y = related_context_y.to(self.device)
+
         imputed_y = self.impute(
             x_train.unsqueeze(1),
             related_context_x,
