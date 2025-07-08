@@ -225,7 +225,7 @@ class PFNPriorImputation(AbstractModel):
         return imputed_y
 
     def get_pi_related(self, x_train, x_test, related_context_x=None, related_context_y=None,
-                       padding_mask=None):
+                       padding_mask=None,minimize = False, only_obs_incumbents= True):
         """
         First impute the y values for the target task under the related prior context,
         then calculate the incumbent under the imputed data and finally collect the
@@ -268,17 +268,26 @@ class PFNPriorImputation(AbstractModel):
         )
 
         B = prior_logits.shape[1]
-        prior_incumbents = torch.cat([related_context_y, imputed_y, ], dim=0).min(dim=0).values
+
+        if only_obs_incumbents:
+            incumbents = imputed_y
+        else:
+            incumbents = torch.cat([related_context_y, imputed_y, ], dim=0)
+
+        if minimize:
+            prior_incumbents = incumbents.min(dim=0).values
+        else:
+            prior_incumbents = incumbents.max(dim=0).values
         prior_incumbents = prior_incumbents.unsqueeze(1).repeat(1, x_test.shape[0])
         pi_related = torch.stack([
             self.criterion.pi(prior_logits[:, b, :].squeeze(1),
-                              best_f=prior_incumbents[b, :])
+                            best_f=prior_incumbents[b, :])
             for b in range(B)
         ], dim=0)
 
         return pi_related
 
-    def get_pi_target(self, x_train, y_train, x_test, inc):
+    def get_pi_target(self, x_train, y_train, x_test, inc, minimize=False):
         """
         Calculate the Probability of Improvement (PI) acquisition function for the
         query points under the target task.
@@ -296,7 +305,7 @@ class PFNPriorImputation(AbstractModel):
             single_eval_pos=x_train.shape[0],
 
         )
-        pi_target = self.model.criterion.pi(target_logits.squeeze(1), best_f=inc)
+        pi_target = self.model.criterion.pi(target_logits.squeeze(1), best_f=inc, maximize = not minimize)
         return pi_target
 
     @torch.no_grad()
@@ -342,13 +351,13 @@ class PFNPriorImputation(AbstractModel):
             'padding_mask': padding_mask,
             'single_eval_pos': related_context_x.shape[0]
         })
-
         pi_related = self.get_pi_related(
             x_train=x_train,
             x_test=x_test,
             related_context_x=related_context_x,
             related_context_y=related_context_y,
-            padding_mask=padding_mask
+            padding_mask=padding_mask,
+            minimize = minimize,
         )
         # 3 # FIXME: with proper stacking, the prior and target logits could be calculated in one go
         #      this implementation here is just to keep the code simple and readable for debugging
@@ -356,7 +365,8 @@ class PFNPriorImputation(AbstractModel):
             x_train=x_train,
             y_train=y_train,
             x_test=x_test,
-            inc=inc
+            inc=inc,
+            minimize=minimize
         )
 
         # 4.

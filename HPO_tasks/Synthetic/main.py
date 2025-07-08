@@ -6,6 +6,127 @@ warnings.filterwarnings('ignore', category=FutureWarning)
 np.warnings = warnings
 import torch
 
+multiprocess = "joblib"
+#multiprocess = " "
+if(multiprocess == "joblib"):
+     import joblib
+
+
+def run_experiment(func, method_name, function_name, transform_id , time_horizon,seeds, seed, device):
+    seed_num = int(''.join(filter(str.isdigit, seed)))
+    torch.manual_seed(seed_num)
+    np.random.seed(seed_num)
+    results = []
+
+    if method_name == 'Random-Search':
+        from simple_random_search import RandomSearch
+        method  = RandomSearch(bounds=func.bounds)
+    elif method_name == 'GP-UCB':
+        from simple_bayes_opt import BayesianOptimizer
+        method  = BayesianOptimizer(bounds=func.bounds)
+    elif method_name == 'PFNs4BO-HEBO':
+        from simple_pfns4bo import PFNs4BO
+        import pfns4bo
+        from pfns4bo.scripts.tune_input_warping import fit_input_warping
+        method  = PFNs4BO(torch.load( pfns4bo.hebo_plus_model), bounds=func.bounds)
+
+    elif  "ourPFNs" in method_name:
+        meta_data_lists_index  = int(method_name.split("_")[1])
+        if meta_data_lists_index == 0:
+            meta_data_lists = [
+                ("Branin", "0", "Random-Search"),
+                ("Branin", "1", "Random-Search"),
+                ("Branin", "2", "Random-Search"),
+                ("Branin", "3", "Random-Search"),
+                ("Branin", "4", "Random-Search"),
+                ("Branin", "5", "Random-Search"),
+            ]
+        elif meta_data_lists_index == 1:
+            meta_data_lists = [
+                ("Ackley", "0", "Random-Search"),
+                ("Ackley", "1", "Random-Search"),
+                ("Ackley", "2", "Random-Search"),
+                ("Ackley", "3", "Random-Search"),
+                ("Ackley", "4", "Random-Search"),
+                ("Ackley", "5", "Random-Search"),
+            ]
+        elif meta_data_lists_index == 2:
+            meta_data_lists = [
+                ("Ackley", "0", "PFNs4BO-HEBO"),
+                ("Ackley", "1", "PFNs4BO-HEBO"),
+                ("Ackley", "2", "PFNs4BO-HEBO"),
+                ("Ackley", "3", "PFNs4BO-HEBO"),
+                ("Ackley", "4", "PFNs4BO-HEBO"),
+                ("Ackley", "5", "PFNs4BO-HEBO"),
+            ]
+        elif meta_data_lists_index == 3:
+            meta_data_lists = [
+                ("Ackley", "0", "Random-Search"),
+                ("Fixed", "1", "Random-Search"),
+                ("Fixed", "2", "Random-Search"),
+                ("Fixed", "3", "Random-Search"),
+                ("Fixed", "4", "Random-Search"),
+                ("Fixed", "5", "Random-Search"),
+            ]
+
+        elif meta_data_lists_index == 4:
+            meta_data_lists = [
+                ("Ackley", "0", "Random-Search"),
+                ("Ackley", "0", "PFNs4BO-HEBO"),
+                ("Ackley", "0", "GP-UCB"),
+            ]
+            
+        elif meta_data_lists_index == 5:
+            meta_data_lists = [
+                ("Fixed", "0", "Random-Search"),
+                ("Fixed", "1", "Random-Search"),
+                ("Fixed", "2", "Random-Search"),
+                ("Fixed", "3", "Random-Search"),
+                ("Fixed", "4", "Random-Search"),
+                ("Fixed", "5", "Random-Search"),
+            ]
+
+        import pfns4bo
+        from pfns4bo.scripts.tune_input_warping import fit_input_warping
+        from our_pfns4bo import ourPFNs4BO, get_meta_data_of_method_name
+        meta_data =  get_meta_data_of_method_name(meta_data_lists, seeds,  seed )
+        method = ourPFNs4BO(torch.load( pfns4bo.hebo_plus_model), meta_data, bounds=func.bounds, device=device)
+    else:
+        raise ValueError(f"Unknown method: {method_name}")
+
+    print(f"Evaluating method: {method_name} on function: {function_name, transform_id} and seed: {seed}")
+    
+    for ieration in range(time_horizon):
+        x = method.suggest()
+        y = func(x)
+        method.observe(x, y)
+
+        if  "ourPFNs" in method_name:
+            results.append({
+                "function_name": function_name,
+                "transform_id": transform_id,
+                "method": method_name,
+                "seed": int(''.join(filter(str.isdigit, seed))),
+                "iteration": ieration, 
+                "y": float(y),
+                "x": x ,
+                "reliability_scores" :method.reliability_scores.cpu().numpy().tolist(),
+                "meta_data_lists": meta_data_lists,
+            })
+            #print(f"Iteration {ieration} - x: {x}, y: {y}, reliability_scores: {method.reliability_scores}")
+        else:
+            results.append({
+                "function_name": function_name,
+                "transform_id": transform_id,
+                "method": method_name,
+                "seed": int(''.join(filter(str.isdigit, seed))),
+                "iteration": ieration, 
+                "y": float(y),
+                "x": x 
+            })
+    return results
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run synthetic functions.")
     parser.add_argument("--function_name", type=str, default='Branin')
@@ -70,117 +191,13 @@ if __name__ == "__main__":
 
     results = []
     for transform_id, func in function_ids.items():
-        for seed in seeds:
-            seed_num = int(''.join(filter(str.isdigit, seed)))
-            torch.manual_seed(seed_num)
-            np.random.seed(seed_num)
-
-            if method_name == 'Random-Search':
-                from simple_random_search import RandomSearch
-                method  = RandomSearch(bounds=func.bounds)
-            elif method_name == 'GP-UCB':
-                from simple_bayes_opt import BayesianOptimizer
-                method  = BayesianOptimizer(bounds=func.bounds)
-            elif method_name == 'PFNs4BO-HEBO':
-                from simple_pfns4bo import PFNs4BO
-                import pfns4bo
-                from pfns4bo.scripts.tune_input_warping import fit_input_warping
-                method  = PFNs4BO(torch.load( pfns4bo.hebo_plus_model), bounds=func.bounds)
-
-            elif  "ourPFNs" in method_name:
-                meta_data_lists_index  = int(method_name.split("_")[1])
-                if meta_data_lists_index == 0:
-                    meta_data_lists = [
-                        ("Branin", "0", "Random-Search"),
-                        ("Branin", "1", "Random-Search"),
-                        ("Branin", "2", "Random-Search"),
-                        ("Branin", "3", "Random-Search"),
-                        ("Branin", "4", "Random-Search"),
-                        ("Branin", "5", "Random-Search"),
-                    ]
-                elif meta_data_lists_index == 1:
-                    meta_data_lists = [
-                        ("Ackley", "0", "Random-Search"),
-                        ("Ackley", "1", "Random-Search"),
-                        ("Ackley", "2", "Random-Search"),
-                        ("Ackley", "3", "Random-Search"),
-                        ("Ackley", "4", "Random-Search"),
-                        ("Ackley", "5", "Random-Search"),
-                    ]
-                elif meta_data_lists_index == 2:
-                    meta_data_lists = [
-                        ("Ackley", "0", "PFNs4BO-HEBO"),
-                        ("Ackley", "1", "PFNs4BO-HEBO"),
-                        ("Ackley", "2", "PFNs4BO-HEBO"),
-                        ("Ackley", "3", "PFNs4BO-HEBO"),
-                        ("Ackley", "4", "PFNs4BO-HEBO"),
-                        ("Ackley", "5", "PFNs4BO-HEBO"),
-                    ]
-                elif meta_data_lists_index == 3:
-                    meta_data_lists = [
-                        ("Ackley", "0", "Random-Search"),
-                        ("Fixed", "1", "Random-Search"),
-                        ("Fixed", "2", "Random-Search"),
-                        ("Fixed", "3", "Random-Search"),
-                        ("Fixed", "4", "Random-Search"),
-                        ("Fixed", "5", "Random-Search"),
-                    ]
-
-                elif meta_data_lists_index == 4:
-                    meta_data_lists = [
-                        ("Ackley", "0", "Random-Search"),
-                        ("Ackley", "0", "PFNs4BO-HEBO"),
-                        ("Ackley", "0", "GP-UCB"),
-                    ]
-                    
-                elif meta_data_lists_index == 5:
-                    meta_data_lists = [
-                        ("Fixed", "0", "Random-Search"),
-                        ("Fixed", "1", "Random-Search"),
-                        ("Fixed", "2", "Random-Search"),
-                        ("Fixed", "3", "Random-Search"),
-                        ("Fixed", "4", "Random-Search"),
-                        ("Fixed", "5", "Random-Search"),
-                    ]
-
-
-                import pfns4bo
-                from pfns4bo.scripts.tune_input_warping import fit_input_warping
-                from our_pfns4bo import ourPFNs4BO, get_meta_data_of_method_name
-                meta_data =  get_meta_data_of_method_name(meta_data_lists, seeds,  seed )
-                method = ourPFNs4BO(torch.load( pfns4bo.hebo_plus_model), meta_data, bounds=func.bounds, device=device)
-            else:
-                raise ValueError(f"Unknown method: {method_name}")
-
-            print(f"Evaluating method: {method_name} on function: {function_name, transform_id} and seed: {seed}")
-            
-            for ieration in range(time_horizon):
-                x = method.suggest()
-                y = func(x)
-                method.observe(x, y)
-
-                if  "ourPFNs" in method_name:
-                    results.append({
-                        "function_name": function_name,
-                        "transform_id": transform_id,
-                        "method": method_name,
-                        "seed": int(''.join(filter(str.isdigit, seed))),
-                        "iteration": ieration, 
-                        "y": float(y),
-                        "x": x ,
-                        "reliability_scores" :method.reliability_scores.cpu().numpy().tolist(),
-                        "meta_data_lists": meta_data_lists,
-                    })
-                    #print(f"Iteration {ieration} - x: {x}, y: {y}, reliability_scores: {method.reliability_scores}")
-                else:
-                    results.append({
-                        "function_name": function_name,
-                        "transform_id": transform_id,
-                        "method": method_name,
-                        "seed": int(''.join(filter(str.isdigit, seed))),
-                        "iteration": ieration, 
-                        "y": float(y),
-                        "x": x 
-                    })
+        if multiprocess == "joblib":
+            from joblib import Parallel, delayed
+            results = Parallel(n_jobs=-1)(delayed(run_experiment)(func, method_name, function_name, transform_id, time_horizon, seeds, seed, device) for seed in seeds)
+            results = [item for sublist in results for item in sublist]
+        else:
+            for seed in seeds:
+                print(f"Running {function_name} with transform_id {transform_id} and seed {seed}")
+                results.extend(run_experiment(func, method_name, function_name, transform_id, time_horizon, seeds, seed, device))
     df = pd.DataFrame(results)
     df.to_csv(output_dir + function_name + "_" +  method_name   + ".csv", index=False)

@@ -1,6 +1,10 @@
 from pfns4bo.utils import to_tensor
 import torch
 import numpy as np
+import warnings
+warnings.filterwarnings('ignore', category=FutureWarning)
+np.warnings = warnings
+
 import pandas as pd
 from sklearn.preprocessing import PowerTransformer
 from torch import nn
