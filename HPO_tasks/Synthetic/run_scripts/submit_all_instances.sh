@@ -1,6 +1,6 @@
 #!/bin/bash
 function_names=( "Ackley") #("Branin" "DropWave" "Levy" "Ackley" "Rastrigin"  "Rosenbrock" "Fixed" )
-policies=("ourPFNs_1" "ourPFNs_2" "ourPFNs_3" "ourPFNs_4")   #)"Random-Search"  "GP-UCB" "PFNs4BO-HEBO") #"ourPFNs")
+policies=("ourPFNs_1" "ourPFNs_2" "ourPFNs_3" "ourPFNs_4" "ourPFNs_5")   #)"Random-Search"  "GP-UCB" "PFNs4BO-HEBO") #"ourPFNs")
 # Get the length of the array
 function_names_length=${#function_names[@]}
 policies_length=${#policies[@]}
