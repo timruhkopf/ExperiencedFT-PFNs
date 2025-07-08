@@ -12,7 +12,7 @@ if(multiprocess == "joblib"):
      import joblib
 
 
-def run_experiment(func, method_name, function_name, transform_id , time_horizon,seeds, seed, device):
+def run_experiment(func, method_name, function_name, transform_id , time_horizon, device,seeds, seed):
     seed_num = int(''.join(filter(str.isdigit, seed)))
     torch.manual_seed(seed_num)
     np.random.seed(seed_num)
@@ -193,8 +193,11 @@ if __name__ == "__main__":
     for transform_id, func in function_ids.items():
         if multiprocess == "joblib":
             from joblib import Parallel, delayed
-            results = Parallel(n_jobs=-1)(delayed(run_experiment)(func, method_name, function_name, transform_id, time_horizon, seeds, seed, device) for seed in seeds)
-            results = [item for sublist in results for item in sublist]
+            from functools import partial
+            run_experiment_partial = partial(run_experiment, func, method_name, function_name, transform_id, time_horizon, device, seeds)
+            res = Parallel(n_jobs=-1)(delayed(run_experiment_partial)(seed ) for seed in seeds)
+            res = [item for sublist in results for item in sublist]
+            results.extend(res)
         else:
             for seed in seeds:
                 print(f"Running {function_name} with transform_id {transform_id} and seed {seed}")
