@@ -117,7 +117,7 @@ class PFNPriorImputation(AbstractModel):
 
         return target_logits
 
-    def calculate_reliability(self, x_train, y_train, minimize=False):
+    def calculate_reliability(self, x_train, y_train):
         context_size = x_train.shape[0]
 
         context_x = x_train.to(self.device)
@@ -128,8 +128,6 @@ class PFNPriorImputation(AbstractModel):
         padding_mask = self.related_task_data.padding_mask.to(self.device)
         single_eval_pos = related_x.shape[0]
 
-        if minimize:
-            related_y = (1 - related_y)
 
         related_task_data = DotDict({
             'x': related_x,
@@ -312,7 +310,7 @@ class PFNPriorImputation(AbstractModel):
         related_context_x = self.related_task_data.x
         related_context_y = self.related_task_data.y
         padding_mask = self.related_task_data.padding_mask
-        num_related = related_context_x.shape[1]
+
         x_test = x_test.to(self.device)
         x_train = x_train.to(self.device)
         y_train = y_train.to(self.device)
@@ -326,6 +324,8 @@ class PFNPriorImputation(AbstractModel):
             x_train = torch.clamp(x_train, max=999.)
 
         if minimize:
+            inc = (1 - inc)
+            y_train = (1 - y_train)
             related_context_y = (1 - related_context_y)
 
         related_task_data = DotDict({
@@ -362,7 +362,6 @@ class PFNPriorImputation(AbstractModel):
             y_train=y_train,
             pi_target=pi_target,
             pi_related=pi_related,
-            minimize=minimize  # fixme: do we need this?
         )
         self.call_counter += 1
         return scores

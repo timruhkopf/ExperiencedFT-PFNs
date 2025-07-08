@@ -62,6 +62,7 @@ def calc_imputed_linalg_reliability(
         verbose: bool = False,
         plot_file_path: str = None,  # type: ignore
         degree_fn=lambda x, y :0
+
 ) -> torch.Tensor:
     """
     Compute scale-invariant reliability scores for meta-tasks using block-diagonal regression.
@@ -139,6 +140,40 @@ def calc_imputed_linalg_reliability(
 
     # For plotting and debugging
     if verbose:
+
+        # plot the available data (currently collected on target task and the constant task data
+        # -------------------------------------------------------
+        import matplotlib.pyplot as plt
+        num_tasks = task_context_y.shape[1] +1
+        fig, axes = plt.subplots(
+            nrows=1, ncols=num_tasks, figsize=(2 * num_tasks, 5), sharex=True,
+            sharey=True
+        )
+
+        # plot the context_x and context_y for the target task
+        ax = axes[0] if num_tasks > 1 else axes
+        ax.plot(context_x[:500, 0, 1].cpu().numpy(), context_y[:500].cpu().numpy(), 'o', label='Target Task')
+        ax.set_title('Target Task')
+        ax.set_xlabel('Fidelity')
+        ax.set_ylabel('y')
+        print('unique fidelity values on target:', context_x[:, 0, 1].unique().cpu().numpy())
+
+        for i in range(0, num_tasks-1):
+            ax = axes[i+1] if num_tasks > 1 else axes
+            ax.plot(task_context_x[:500, i, 1].cpu().numpy(), task_context_y[:500,
+                                                               i].cpu().numpy(),
+                    'o')
+            ax.set_title(f'related task {i }')
+            ax.set_xlabel('Fidelity')
+            # ax.set_ylabel('y')
+
+        plt.tight_layout()
+        plt.show()
+
+
+
+        # plot how the target task x points are imputed and projected under the
+        # related tasks
         plot_projections(
             target_fidelity=target_fidelity,
             context_x=context_x,
@@ -161,6 +196,59 @@ def calc_imputed_linalg_reliability(
     loss = loss.mean(dim=0)  # mean over the batch
 
     return loss  # reliability scores
+
+
+def plot_gt_data(
+
+        related_task_x: torch.Tensor,
+        related_task_y: torch.Tensor,
+context_x: torch.Tensor | None=None,
+        context_y: torch.Tensor| None=None,
+):
+    """Here we plot the performance against fidelity for all the tasks (irrespective of the hp
+    dim)"""
+    import numpy as np
+    import matplotlib.pyplot as plt
+
+    # Convert tensors to numpy for plotting
+
+    related_task_x_np = related_task_x.cpu().numpy()
+    related_task_y_np = related_task_y.cpu().numpy()
+
+    num_tasks = related_task_y_np.shape[1]
+    offset=0
+
+    # for each task (target and related) plot the fidelity vs y
+    if context_x is not None and context_y is not None:
+        context_x_np = context_x.cpu().numpy()
+        context_y_np = context_y.cpu().numpy()
+        num_tasks += 1  # +1 for target task
+
+
+    fig, axs = plt.subplots(1, num_tasks, figsize=(4 * num_tasks, 5), sharey=True, sharex=True)
+    fig.suptitle('Ground Truth Data', fontsize=16)
+    # Plot target task
+
+    if context_x is not None and context_y is not None:
+        axs[0].scatter(context_x_np[:, 0, 1], context_y_np, label='Target Task', color='blue')
+        axs[0].set_title('Target Task')
+        axs[0].set_xlabel('Fidelity')
+        axs[0].set_ylabel('y value')
+
+        axs[0].legend()
+        axs[0].grid(True, alpha=0.3)
+        offset = 1  # offset for related tasks
+
+    # Plot related tasks
+    for task_idx in range(related_task_y_np.shape[1]):
+        ax = axs[task_idx + offset]
+        ax.scatter(related_task_x_np[:, 0, 1], related_task_y_np[:, task_idx], label=f'Related Task {task_idx + 1}', color='red')
+        ax.set_title(f'Related Task {task_idx + 1}')
+        ax.set_xlabel('Fidelity')
+        ax.grid(True, alpha=0.3)
+
+    plt.tight_layout(rect=[0, 0, 1, 0.95])
+    plt.show()
 
 
 def plot_projections(
@@ -240,8 +328,8 @@ def build_padded_batch(context_x, context_y, indices_grouped):
     padded_y = pad_sequence(y_seqs, batch_first=True)  # [batch, max_len, ...]
     lengths = torch.tensor([len(seq) for seq in x_seqs])
     max_len = padded_x.shape[1]
-    mask = torch.arange(max_len).expand(len(lengths), max_len) < lengths.unsqueeze(1)
-    return padded_x, padded_y, mask
+    is_data = (torch.arange(max_len).expand(len(lengths), max_len) < lengths.unsqueeze(1))
+    return padded_x, padded_y, is_data
 
 
 def kfold_hp_split(context_x, context_y, n_splits=5, random_state=42):
@@ -249,37 +337,45 @@ def kfold_hp_split(context_x, context_y, n_splits=5, random_state=42):
     Splits data so that all tokens from a given HP config are held out together.
     Returns context (train) and query (test) sets for the specified fold.
     """
-    cx = context_x.squeeze(1).cpu().numpy()  # shape: [n_tokens, n_features]
-    n_tokens = cx.shape[0]
-    fidelity_col = 1
-    hp_cols = list(range(2, cx.shape[1]))
+    # cx = context_x.squeeze(1).cpu().numpy()  # shape: [n_tokens, n_features]
+    # n_tokens = cx.shape[0]
+    # fidelity_col = 1
+    # hp_cols = list(range(2, cx.shape[1]))
 
     # Group indices by HP configuration
-    curve_indices = defaultdict(list)
-    for i in range(n_tokens):
-        hp_tuple = tuple(cx[i, hp_cols].tolist())
-        curve_indices[hp_tuple].append(i)
+    # curve_indices = defaultdict(list)
+    # for i in range(n_tokens):
+    #     hp_tuple = tuple(cx[i, hp_cols].tolist())
+    #     curve_indices[hp_tuple].append(i)
+
+    unique_rows, inverse_indices = torch.unique(context_x[:, 2:], dim=0, return_inverse=True)
+
+    # Build dictionary: key = unique row as tuple, value = tensor of indices
+    curve_indices = {
+        tuple(unique_rows[i].tolist()): torch.where(inverse_indices == i)[0].tolist()
+        for i in range(len(unique_rows))
+    }
 
     # List of unique HP configs and their associated token indices
     hp_tuples = list(curve_indices.keys())
     hp_indices = list(curve_indices.values())
 
     # KFold split on HP configs
-    kf = KFold(n_splits=n_splits, shuffle=True, random_state=random_state)
-    splits = []
+    kf = KFold(n_splits=min(n_splits, len(unique_rows)), shuffle=True, random_state=random_state)
+    # splits = []
     train_groups = []
     test_groups = []
     for train_hp_idx, test_hp_idx in kf.split(hp_tuples):
         # Flatten token indices for train/test HPs
-        train_indices = [idx for i in train_hp_idx for idx in hp_indices[i]]
-        test_indices = [idx for i in test_hp_idx for idx in hp_indices[i]]
-        splits.append((np.array(train_indices), np.array(test_indices)))
+        # train_indices = [idx for i in train_hp_idx for idx in hp_indices[i]]
+        # test_indices = [idx for i in test_hp_idx for idx in hp_indices[i]]
+        # splits.append((np.array(train_indices), np.array(test_indices)))
 
         # collect the train_groups and test_groups; i.e. collect the learning curve tokens
         # associated with each HP config
 
-        train_groups.append(list(chain(*[hp_indices[i] for i in train_hp_idx])))
-        test_groups.append(list(chain(*[hp_indices[i] for i in test_hp_idx])))
+        train_groups.append(list(chain(*[hp_indices[i] for i in sorted(train_hp_idx)])))
+        test_groups.append(list(chain(*[hp_indices[i] for i in sorted(test_hp_idx)])))
 
     # Pad and batch
     padded_context_x, padded_context_y, context_mask = build_padded_batch(
@@ -293,8 +389,8 @@ def kfold_hp_split(context_x, context_y, n_splits=5, random_state=42):
         test_groups
     )
 
-    return padded_context_x, padded_context_y, ~context_mask, \
-        padded_query_x, padded_query_y, ~query_mask
+    return padded_context_x, padded_context_y, context_mask, \
+        padded_query_x, padded_query_y, query_mask
 
 def calc_target_cv_nll(context_x, context_y, model, criterion, splits=5, random_state=42):
 
@@ -314,10 +410,11 @@ def calc_target_cv_nll(context_x, context_y, model, criterion, splits=5, random_
 
     kf_logits = model((all_x, padded_context_y),
                       single_eval_pos=padded_context_x.shape[1],
-                      src_key_padding_mask=context_mask.to(device))
+                      src_key_padding_mask=~context_mask.to(device))
+
 
     # Compute loss on the (unpadded) query set
     kf_loss = criterion(kf_logits, padded_query_y)
-    kf_loss = kf_loss[~query_mask.T.to(device)].mean(dim=0)
+    kf_loss = kf_loss[query_mask.T.to(device)].mean(dim=0)
 
     return kf_loss

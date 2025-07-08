@@ -18,6 +18,7 @@ if __name__ == '__main__':
     df_long = df_rel.melt(id_vars='step', value_vars=cols_to_plot,
                           var_name='reliability_type', value_name='reliability_value')
     # Plot
+    plt.figure(figsize=(12, 8))
     sns.lineplot(data=df_long, x='step', y='reliability_value', hue='reliability_type')
     plt.title('Reliability vs. Step')
     plt.show()

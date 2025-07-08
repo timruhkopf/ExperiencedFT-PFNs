@@ -33,6 +33,7 @@ from src.evaluation.meta_train_test_split import k_folds, folds_of_size
 from src.model.batch_padded_pfn import parse_batch_for_padded_train_data
 from src.utils.filelogger import BufferedFileLogger
 from src.utils.seeding import SeededRandomContext
+from utils.dotdict import DotDict
 
 logger = logging.getLogger("main_ifbo")
 
@@ -53,7 +54,9 @@ NEPS_SF_MAX_EVALS = 200  # number of total function evaluations for single-fidel
 SET_BOUNDS_FROM_TABLE_FLAG = False  # if True, sets search space bounds from table values
 
 import warnings
+
 warnings.filterwarnings("ignore", category=DeprecationWarning)
+
 
 @hydra.main(config_path="configs", config_name="base_ifbo", version_base="1.1")
 def main(cfg: DictConfig):
@@ -160,8 +163,8 @@ def main(cfg: DictConfig):
 
         with (SeededRandomContext(seed)):
             config = dict(
-                single_eval_pos=[500] * (len(train_ids) + 1),
-                alphas=[10 ** np.random.uniform(-4, -1) for _ in range(len(train_ids) + 1)],
+                single_eval_pos=[1000] * (len(train_ids)),
+                alphas=[10 ** np.random.uniform(-4, -1) for _ in range(len(train_ids))],
                 **cfg.benchmark.sample_config if hasattr(cfg.benchmark, 'sample_config') else {},
             )
             # sample the dirichlet distributed data
@@ -169,30 +172,33 @@ def main(cfg: DictConfig):
                 batch = benchmark.sample_batch(**config)
 
                 # parse the batch ---------------------------------------------
-                padded_batch = parse_batch_for_padded_train_data(batch, target_idx=0)
+                related_task_data = parse_batch_for_padded_train_data(batch)
 
-                related_task_data = padded_batch.related_tasks
-                task_data = padded_batch.target_task
+                if False:
+                    # notice, that in this plot, the query points are not shown anymore ! (they
+                    # were sampled with the dirichlet distirbution prior but the single_eval_pos
+                    # cuts the 1k sequence to 500 train and 500 query points).
+                    fig, axes = plt.subplots(
+                        nrows=1, ncols=num_tasks, figsize=(2 * num_tasks, 5), sharex=True,
+                        sharey=True
+                    )
+                    train_x = related_task_data.x
+                    train_y = related_task_data.y
 
-                logger.info(f'Amount of related task data: {related_task_data.observed}')
+                    for i in range(num_tasks ):
+                        ax = axes[i] if num_tasks > 1 else axes
+                        ax.plot(train_x[:config['single_eval_pos'][i], i, 1].cpu().numpy(),
+                                train_y[:config['single_eval_pos'][i], i].cpu().numpy(), 'o')
+                        ax.set_title(f'Task {i + 1}')
+                        ax.set_xlabel('Fidelity')
+                        ax.set_ylabel('y')
 
-                target_task_context_x = task_data.x
-                target_task_context_y = task_data.y
-                target_task_query_x = task_data.query_x
-                target_task_query_y = task_data.query_y
-                padding_mask = related_task_data.padding_mask
-                n_related_tasks = related_task_data.x.shape[1]
+                    plt.tight_layout()
+                    plt.show()
 
-                # from src.utils.plot_curve_tensor import plot_curve_tensor
-                # plot_curve_tensor(related_task_data.x, related_task_data.y, idx=1,
-                #                   single_eval_pos=[500] * (len(train_ids)))
-
-                for k in ['x', 'y', 'query_x', 'query_y', 'padding_mask']:
-                    if hasattr(related_task_data, k) and isinstance(
-                            related_task_data.__getattribute__(k), torch.Tensor):
-                        related_task_data.__setattr__(k,related_task_data.__getattribute__(k).to(device))
-
-
+                    from src.utils.plot_curve_tensor import plot_curve_tensor
+                    plot_curve_tensor(related_task_data.x, related_task_data.y, idx=1,
+                                      single_eval_pos=[500] * (len(train_ids)))
 
         # --------------------------------------------------------------------------
 
@@ -217,8 +223,6 @@ def main(cfg: DictConfig):
                 # TODO: handle other tabular benchmarks
 
             full_trajectory = benchmark.trajectory(config)
-
-
 
             trajectory_to_query = [r for r in full_trajectory if r.fidelity <= fidelity]
 
@@ -293,8 +297,6 @@ def main(cfg: DictConfig):
                 NEPS_MF_EI_MAX_EVALS)
         else:
             max_evaluations_total = NEPS_SF_MAX_EVALS
-
-
 
         # placeholder pre_load hook
         def set_grid_table_space(
@@ -400,15 +402,15 @@ def main(cfg: DictConfig):
 
                 cfgmodel = cfg.algorithm.surrogate_model
 
-                train_config = dict(
-                    query_task_x=target_task_query_x,
-                    query_task_y=target_task_query_y
-                )
-                if 'train_call' in cfgmodel.keys():
-                    train_config.update(cfgmodel.train_call)
+                # train_config = dict(
+                #     query_task_x=target_task_query_x,
+                #     query_task_y=target_task_query_y
+                # )
+                # if 'train_call' in cfgmodel.keys():
+                #     train_config.update(cfgmodel.train_call)
 
                 # distillation will return a prefix, pfn_mixture won't
-                surrogate_model.train(**train_config)
+                # surrogate_model.train(**train_config)
 
                 searcher.model_policy.surrogate_model.nn = surrogate_model
                 searcher.model_policy.surrogate_model_name = surrogate_model.__name__

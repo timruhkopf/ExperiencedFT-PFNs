@@ -3,6 +3,7 @@ from pathlib import Path
 import torch
 
 from ifbo.priors.prior import Batch
+from utils.dotdict import DotDict
 
 
 class MyBatch:
@@ -72,7 +73,7 @@ class PaddedBatch:
                        padding_mask=self.padding_mask[indices, :], )
 
 
-def parse_batch_for_padded_train_data(batch, target_idx=0):
+def parse_batch_for_padded_train_data(batch):
     # Notice, that the batch.x tensor is regular, but the single_eval_pos is a list
     x = batch.x
     y = batch.y
@@ -87,7 +88,7 @@ def parse_batch_for_padded_train_data(batch, target_idx=0):
 
     for batch_idx, train_len in enumerate(batch.single_eval_pos):
         # Extract the train part for this batch element
-        data_x = x[:train_len, batch_idx, :]  # (train_len, dim)
+        data_x = x[:train_len, batch_idx, :]  # (train_len, batch, dim)
         data_y = y[:train_len, batch_idx]
         # Pad to max_train_len
         pad_len = max_train_len - train_len
@@ -109,23 +110,25 @@ def parse_batch_for_padded_train_data(batch, target_idx=0):
     train_tensor_y = torch.stack(train_y, dim=1)
     src_key_padding_mask = torch.stack(padding_masks, dim=0)  # (batch, max_train_len)
 
-    query_x = x[max_train_len:, :, :]  # (n_query, batch, dim)
-    query_y = y[max_train_len:, :]  # (n_query, batch)
+    # query_x = x[max_train_len:, :, :]  # (n_query, batch, dim)
+    # query_y = y[max_train_len:, :]  # (n_query, batch)
 
     # extend the src_key_padding_mask to the query points
     # query_mask = torch.zeros(query_x.shape[0], batch_size, dtype=torch.bool, device=x.device)
     # src_key_padding_mask = torch.cat([src_key_padding_mask, query_mask], dim=0)
 
-    return PaddedBatch(
-        x=train_tensor,
-        y=train_tensor_y,
-        query_y=query_y,
-        query_x=query_x,
-        single_eval_pos=batch.single_eval_pos,
-        max_train_len=max_train_len,
-        padding_mask=src_key_padding_mask,
-        target_idx=target_idx
-    )
+    # return PaddedBatch(
+    #     x=train_tensor,
+    #     y=train_tensor_y,
+    #     query_y=query_y,
+    #     query_x=query_x,
+    #     single_eval_pos=batch.single_eval_pos,
+    #     max_train_len=max_train_len,
+    #     padding_mask=src_key_padding_mask,
+    #     target_idx=target_idx
+    # )
+    x, y, padding =  train_tensor, train_tensor_y, src_key_padding_mask
+    return DotDict(x=x, y=y, padding_mask=padding)
 
 
 if __name__ == "__main__":

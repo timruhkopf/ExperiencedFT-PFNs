@@ -629,7 +629,7 @@ class MFBenchPrior(TabularBenchmark):
         if self.name == "synthetic" and self.data_path is not None:
             return torch.load(self.data_path, map_location=self.device, weights_only=False)
 
-        benchmarks = [self.target_benchmark, *self.related_benchmarks]
+        benchmarks = self.related_benchmarks
         print(len(benchmarks), "benchmarks")
         print(alphas)
         if alphas is None:

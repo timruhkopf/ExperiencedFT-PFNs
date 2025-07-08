@@ -16,8 +16,7 @@ class CVMixtureStrategy:
         self.min_num_samples = min_num_samples
         self.logger = logger
 
-    def __call__(self, x_train, y_train, pi_target, pi_related, minimize):
-        # fixme what do we need to do with the minimize flag?
+    def __call__(self, x_train, y_train, pi_target, pi_related):
 
         device = x_train.device
 
@@ -32,6 +31,7 @@ class CVMixtureStrategy:
                 splits=5,
                 random_state=42
             ).unsqueeze(0).to(device)
+
             related_nll = calc_imputed_linalg_reliability(
                 self.model, x_train, y_train,
                 self.related_task_data,

@@ -174,9 +174,9 @@ class MyPFN_SURROGATE(PFN_SURROGATE):
             inc = inc.unsqueeze(1).to(self.device)
             return self.nn.get_pi(
                 x_test=x_test,
-                inc=((1 - inc) if self.minimize else inc),
+                inc=inc,
                 x_train=self.train_x if x_train is None else x_train,
-                y_train=self.train_y if y_train is None else ((1 - y_train) if self.minimize else y_train),
+                y_train=self.train_y if y_train is None else y_train,
                 minimize=self.minimize,
             )
 
