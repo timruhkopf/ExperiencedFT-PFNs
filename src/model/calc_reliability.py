@@ -29,7 +29,7 @@ def _calc_reliability(
         :param criterion: The criterion to use for the calculation.
 
     """
-    device = model.device
+    device = next(model.parameters()).device
 
     # for task_data in related_task_data:
     task_context_x = related_task_data.x.to(device)  # [num_tasks, num_points, num_features]
@@ -100,13 +100,13 @@ def calc_imputed_linalg_reliability(
         - Debug plotting: Set internal flag to visualize imputed vs projected values per task (uses Matplotlib)
         - Time complexity: O((num_meta_tasks * num_points)^3) due to block-diagonal least squares
     """
-    device = context_x.device
-    context_x = context_x.unsqueeze(1)
+    device = next(model.parameters()).device
+    context_x = context_x.unsqueeze(1).to(device)  # shape [num_points, 1, num_features]
 
     # for task_data in related_task_data:
-    task_context_x = related_task_data.x
-    task_context_y = related_task_data.y
-    padding_mask = related_task_data.padding_mask
+    task_context_x = related_task_data.x.to(device)  # shape [num_tasks, num_points, num_features]
+    task_context_y = related_task_data.y.to(device)  # shape [num_tasks, num_points, 1]
+    padding_mask = related_task_data.padding_mask.to(device)  # shape [num_tasks, num_points]
     num_related = task_context_x.shape[1]
 
     # impute target_task y's for conditioned on each related task --------------
