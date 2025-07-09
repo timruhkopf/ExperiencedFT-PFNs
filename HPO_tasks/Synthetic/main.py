@@ -201,6 +201,6 @@ if __name__ == "__main__":
         else:
             for seed in seeds:
                 print(f"Running {function_name} with transform_id {transform_id} and seed {seed}")
-                results.extend(run_experiment(func, method_name, function_name, transform_id, time_horizon, seeds, seed, device))
+                results.extend(run_experiment(func, method_name, function_name, transform_id, time_horizon, device, seeds, seed))
     df = pd.DataFrame(results)
     df.to_csv(output_dir + function_name + "_" +  method_name   + ".csv", index=False)
