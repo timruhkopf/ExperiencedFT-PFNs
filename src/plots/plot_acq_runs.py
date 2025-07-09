@@ -4,12 +4,17 @@ import matplotlib.pyplot as plt
 
 from pathlib import Path
 
+import fire
 
-def compute_anytime_performance(df):
+
+def compute_anytime_performance(df, minimize=True):
     # Sort by filepath and epoch to ensure correct order
     df = df.sort_values(['filepath', 'epoch'])
     # Compute anytime performance (cumulative min loss) for each run
-    df['anytime_performance'] = df.groupby('filepath')['loss'].cummin()
+    if minimize:
+        df['anytime_performance'] = df.groupby('filepath')['loss'].cummin()
+    else:
+        df['anytime_performance'] = df.groupby('filepath')['loss'].cummax()
 
     # add arange ids to the dataframe
     df['step'] = df.groupby('filepath').cumcount()
@@ -58,21 +63,49 @@ def plot_anytime_performance(agg_df):
     plt.show()
 
 
-if __name__ == '__main__':
-    file = Path(
-        '/home/ruhkopf/PycharmProjects/ExperiencedFT-PFNs/kisski_results/joint_results_bdd5b01.csv')
+
+
+def main(
+    file='/home/ruhkopf/PycharmProjects/ExperiencedFT-PFNs/luis_results/fixed_reliability'
+         '/fix_joint_results_94dc71b.csv',
+    minimize=True
+):
+    file = Path(file)
     df = pd.read_csv(file)
 
-    df['benchmark.meta.name'].unique()
+    if 'epoch' not in df.columns:
+        df['epoch'] = df.index
 
-    df['algorithm.surrogate_model.meta.name'].unique()
+    print('Unique benchmarks:', df['benchmark.meta.name'].unique())
+    print('Unique surrogate models:', df['algorithm.surrogate_model.meta.name'].unique())
+    print('Columns:', df.columns)
 
-    df.columns
-
-    df['algorithm.surrogate_model.meta.name'] = df[
-        'algorithm.surrogate_model.meta.name'].fillna(value='ifbox')
+    df['algorithm.surrogate_model.meta.name'] = df['algorithm.surrogate_model.meta.name'].fillna(value='ifbo')
 
     # df is your original DataFrame
-    df_anytime = compute_anytime_performance(df)
+    df_anytime = compute_anytime_performance(df, minimize=minimize)
     agg_df = aggregate_anytime(df_anytime)
     plot_anytime_performance(agg_df)
+
+if __name__ == '__main__':
+    fire.Fire(main)
+#
+#
+# if __name__ == '__main__':
+#     file = Path(
+#         '/home/ruhkopf/PycharmProjects/ExperiencedFT-PFNs/luis_results/fixed_reliability/fix_joint_results_94dc71b.csv')
+#     df = pd.read_csv(file)
+#
+#     df['benchmark.meta.name'].unique()
+#
+#     df['algorithm.surrogate_model.meta.name'].unique()
+#
+#     df.columns
+#
+#     df['algorithm.surrogate_model.meta.name'] = df[
+#         'algorithm.surrogate_model.meta.name'].fillna(value='ifbo')
+#
+#     # df is your original DataFrame
+#     df_anytime = compute_anytime_performance(df)
+#     agg_df = aggregate_anytime(df_anytime)
+#     plot_anytime_performance(agg_df)
