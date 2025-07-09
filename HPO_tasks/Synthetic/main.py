@@ -196,7 +196,7 @@ if __name__ == "__main__":
             from functools import partial
             run_experiment_partial = partial(run_experiment, func, method_name, function_name, transform_id, time_horizon, device, seeds)
             res = Parallel(n_jobs=-1)(delayed(run_experiment_partial)(seed ) for seed in seeds)
-            res = [item for sublist in results for item in sublist]
+            res = [item for sublist in res for item in sublist]
             results.extend(res)
         else:
             for seed in seeds:
