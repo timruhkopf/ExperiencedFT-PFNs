@@ -4,7 +4,7 @@ if __name__ == '__main__':
 
     # self is class
 
-    df = self.logger.dataframe
+    df = self.mixture_logger.dataframe
     import pandas as pd
     import seaborn as sns
     import matplotlib.pyplot as plt
@@ -20,5 +20,7 @@ if __name__ == '__main__':
     # Plot
     plt.figure(figsize=(12, 8))
     sns.lineplot(data=df_long, x='step', y='reliability_value', hue='reliability_type')
-    plt.title('Reliability vs. Step')
+    plt.title('Weight vs. Step')
+    plt.xlabel('Step')
+    plt.ylabel('Softmax weight')
     plt.show()

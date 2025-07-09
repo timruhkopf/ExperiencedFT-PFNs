@@ -178,6 +178,8 @@ def main(cfg: DictConfig):
                     # notice, that in this plot, the query points are not shown anymore ! (they
                     # were sampled with the dirichlet distirbution prior but the single_eval_pos
                     # cuts the 1k sequence to 500 train and 500 query points).
+                    import matplotlib.pyplot as plt
+                    num_tasks = related_task_data.x.shape[1]
                     fig, axes = plt.subplots(
                         nrows=1, ncols=num_tasks, figsize=(2 * num_tasks, 5), sharex=True,
                         sharey=True
