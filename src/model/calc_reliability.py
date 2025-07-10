@@ -60,6 +60,7 @@ def calc_imputed_linalg_reliability(
         context_y: torch.Tensor,
         related_task_data: Dict[str, MyBatch],  # type: ignore
         criterion: BarDistribution,
+        projection: bool = True,
         verbose: bool = False,
         plot_file_path: str = None,  # type: ignore
         degree_fn=lambda x, y: 0
@@ -120,25 +121,28 @@ def calc_imputed_linalg_reliability(
     )
     imputed_y = criterion.median(logits)  # shape [num_points, num_tasks]
 
-    # Learn the projection from the related task to the target task ------------
-    target_fidelity = context_x[:, 0, 1]
-    # Build polynomial features for target fidelity & then the design matrix
-    x = target_fidelity.reshape(-1, 1)  # Ensure x is column vector
-    degree = degree_fn(context_x, context_y)
-    x = torch.cat([x ** i for i in range(degree + 1)], dim=1).to(device)  # Polynomial features
-    X_design = torch.cat([context_y.unsqueeze(1), x], dim=1).to(device)  # Add context_y as first
-    # column
+    if projection:
+        # Learn the projection from the related task to the target task ------------
+        target_fidelity = context_x[:, 0, 1]
+        # Build polynomial features for target fidelity & then the design matrix
+        x = target_fidelity.reshape(-1, 1)  # Ensure x is column vector
+        degree = degree_fn(context_x, context_y)
+        x = torch.cat([x ** i for i in range(degree + 1)], dim=1).to(device)  # Polynomial features
+        X_design = torch.cat([context_y.unsqueeze(1), x], dim=1).to(device)  # Add context_y as first
+        # column
 
-    # Build block-diagonal design matrix for all tasks
-    X_design_block = torch.block_diag(
-        *[X_design for _ in range(num_related)])  # [num_tasks*num_points, ...][2][5]
+        # Build block-diagonal design matrix for all tasks
+        X_design_block = torch.block_diag(
+            *[X_design for _ in range(num_related)])  # [num_tasks*num_points, ...][2][5]
 
-    # Reorder imputed_y to match block-diagonal structure: all points for task 0, then task 1, etc.
-    imputed_y_ordered = imputed_y.transpose(0, 1).contiguous().view(-1)  # [num_tasks*num_points]
+        # Reorder imputed_y to match block-diagonal structure: all points for task 0, then task 1, etc.
+        imputed_y_ordered = imputed_y.transpose(0, 1).contiguous().view(-1)  # [num_tasks*num_points]
 
-    beta = torch.linalg.lstsq(X_design_block, imputed_y_ordered).solution
-    y_proj = X_design_block @ beta
-    y_proj = y_proj.clamp(0, 1)
+        beta = torch.linalg.lstsq(X_design_block, imputed_y_ordered).solution
+        y_proj = X_design_block @ beta
+        y_proj = y_proj.clamp(0, 1)
+    else:
+        y_proj = imputed_y  # No projection, use imputed values directly
 
     # For plotting and debugging
     if verbose:
