@@ -1,13 +1,11 @@
 #!/bin/bash
+search_space_ids=("4796" "5527" "5636" "5859" "5860") #"5891" "5906" "5965" "5970" "5971" "6766" "6767" "6794" "7607" "7609" "5889") 
 policies=("PFNs4BO" "MALIBO" "mPFNs4BO")
-policy="PFNs4BO" # Default policy
 
-search_space_ids=("4796" "5527" "5636" "5859" "5860" "5891" "5906" "5965" "5970" "5971" "6766" "6767" "6794" "7607" "7609" "5889") 
 search_space_ids_length=${#search_space_ids[@]}
+policies_length=${#policies[@]}
 
-test_seeds=("test0" "test1" "test2" "test3" "test4")
-
-test_seeds_length=${#test_seeds[@]}
+seed="all" # Default
 
 # Function to check for idle partitions
 find_idle_partition() {
@@ -16,10 +14,10 @@ find_idle_partition() {
 
 # Loop through the array elements
 for ((i=0; i<search_space_ids_length; i++)); do
-    for ((j=0; j<test_seeds_length; j++)); do
+    for ((j=0; j<policies_length; j++)); do
         # Get the current dataset and policy
         search_space_id="${search_space_ids[i]}"
-        seed="${test_seeds[j]}"
+        policy="${policies[j]}"
 	echo "Running dataset: $search_space_id, policy: $policy"
         # Define the output and error file paths based on input parameters
         logpath="../results/logs/${search_space_id}/"
