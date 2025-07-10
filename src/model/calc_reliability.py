@@ -35,7 +35,7 @@ def _calc_reliability(
     task_context_y = related_task_data.y
     padding_mask = related_task_data.padding_mask
     num_related = task_context_x.shape[1]
-    print("_calc_reliability")
+
     logits = model(
         (
             torch.cat([task_context_x, context_x.repeat(1, num_related, 1)], dim=0),
@@ -91,8 +91,8 @@ def norm_alg(num_tasks, context_y, imputed_y, device):
         n_imputed_y = (imputed_y - imputed_y_min) / (imputed_y_max - imputed_y_min)  # Normalize imputed_y
         y_proj =  (n_imputed_y + context_y.min()) * (context_y.max() - context_y.min())
 
-        rmse = np.sqrt(((context_y- y_proj)**2).mean(axis=0))
-        print(f"RMSE: {rmse}")
+        #rmse = np.sqrt(((context_y- y_proj)**2).mean(axis=0))
+        #print(f"RMSE: {rmse}")
 
         return y_proj
 
@@ -153,7 +153,6 @@ def calc_imputed_linalg_reliability(
     num_related = task_context_x.shape[1]
 
     # impute target_task y's for conditioned on each related task --------------
-    print("calc_imputed_linalg_reliability")
     logits = model(
         (
             torch.cat([task_context_x, context_x.repeat(1, num_related, 1)], dim=0),
@@ -343,7 +342,7 @@ def calc_imputed_linalg_reliability(
         num_tasks = imputed_y.shape[1]
         num_fidelity = imputed_y.shape[0]
         
-        if based_on_loss := False:
+        if based_on_loss := True:
             # compute the reliability scores (nll) based on the projected y ------------
             # y's associated with query for that task
             # target = context_y.repeat(1, num_related)

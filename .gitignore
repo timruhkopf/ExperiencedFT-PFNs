@@ -193,10 +193,13 @@ HPO_tasks/Trajectories
 HPO_tasks/HPO_B/HPO_B
 HPO_tasks/HPO_B/pfns4bo
 HPO_tasks/HPO_B/results
-HPO_tasks/meta-learning-likelihood-free-bayesian-optimization
 HPO_tasks/HPO_B/tmp
 HPO_tasks/Bayesmark/pfns4bo
 HPO_tasks/Bayesmark
 HPO_tasks/Synthetic/pfns4bo
 HPO_tasks/Synthetic/results
 HPO_tasks/Synthetic/logs
+HPO_tasks/Meta-learning-BO/benchmarks/HPO-B
+HPO_tasks/Meta-learning-BO/checkpoints_hpob
+HPO_tasks/Meta-learning-BO/results
+HPO_tasks/Meta-learning-BO/pfns4bo/pfns4bo
