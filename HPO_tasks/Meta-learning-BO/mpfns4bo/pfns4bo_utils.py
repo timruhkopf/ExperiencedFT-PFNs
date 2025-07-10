@@ -6,6 +6,7 @@ import torch
 import scipy
 import math
 from sklearn.preprocessing import power_transform, PowerTransformer
+import numpy as np
 
 def log01(x, eps=.0000001, input_between_zero_and_one=False):
     logx = torch.log(x + eps)
@@ -63,7 +64,7 @@ def general_power_transform(x_train, x_apply, eps, less_safe=False):
             print('inputs are LAARGEe, normalizing them')
         try:
             pt.fit(x_train.cpu().double())
-        except ValueError as e:
+        except Exception as e:
             print('caught this errrr', e)
             if less_safe:
                 x_train = (x_train - x_train.mean(0)) / x_train.std(0)
@@ -72,10 +73,11 @@ def general_power_transform(x_train, x_apply, eps, less_safe=False):
                 x_train = x_train - x_train.mean(0)
                 x_apply = x_apply - x_train.mean(0)
             pt.fit(x_train.cpu().double())
+
         x_out = torch.tensor(pt.transform(x_apply.cpu()), dtype=x_apply.dtype, device=x_apply.device)
     if torch.isnan(x_out).any() or torch.isinf(x_out).any():
         print('WARNING: power transform failed')
-        print(f"{x_train=} and {x_apply=}")
+        #print(f"{x_train=} and {x_apply=}")
         x_out = x_apply - x_train.mean(0)
     return x_out
 

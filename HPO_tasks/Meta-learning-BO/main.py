@@ -68,6 +68,18 @@ if __name__ == "__main__":
                 np.random.seed(seed_num)        
 
                 if args.method == "MALIBO":
+                    from malibo.malibo import MALIBO
+                    classifier_config = {
+                        "num_layers": 5,
+                        "num_features": 50,
+                        "num_hidden_units": 64,
+                        "device": "cpu",
+                        "dtype": torch.float64,
+                    }
+                    train_config = {
+                        "num_epochs": 2048,
+                        "batch_size": 256,
+                    }
                     optimizer = MALIBO(benchmark.search_space, **classifier_config)
                     meta_dir = Path("./checkpoints_hpob") / "MALIBO" / f"{search_space_id}"
                     optimizer.save_dir = meta_dir

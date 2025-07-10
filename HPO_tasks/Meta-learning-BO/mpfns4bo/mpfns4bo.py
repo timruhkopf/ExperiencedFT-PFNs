@@ -103,7 +103,7 @@ class MPFNs4BO(nn.Module):
         self,
         y_given,
         apply_power_transform=True,
-        power_transform_eps=.0,
+        power_transform_eps=0.0,
         unsafe_power_transform=False,
     ):
         if len(y_given.shape) == 1:
