@@ -94,7 +94,7 @@ def main(cfg: DictConfig):
         print(f"PREPROCESSING {benchmark.meta.name} with "
               f"'apply_user_prior_step_0_median_normalized'")
         drop_0_epoch = cfg.benchmark.get("drop_epoch_0", True)
-        print(f"PREPROCESSING {benchmark.meta.name} with '{drop_0_epoch=}'")
+        print(f"PREPROCESSING {benchmark.meta.name} with '{drop_0_epoch}'")
         benchmark = process_taskset_mfpbench_with_step_0_prior(
             benchmark=benchmark,
             drop_step_0=drop_0_epoch,

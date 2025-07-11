@@ -83,6 +83,9 @@ class MyBaseModel(BaseModel):
 
 class MyPFN_MODEL(MyBaseModel, pfns4hpo.PFN_MODEL):
     def forward(self, x_train, y_train, x_test):
+        """Notice, that this forward is accessed from pfn.py get_pi based off
+        MyPFN_SURROGATE.get_pi in case we are neither  isinstance(self.nn, PFNPriorImputation) or isinstance(self.nn, PFNPPDMixture);
+        Which translates to the default ifbo / dpl /dyhpo, ..."""
         if x_train.shape[0] == 0:
             x_test[:, 0] = 0
         elif x_train[:, 0].min() == 0:
@@ -172,12 +175,21 @@ class MyPFN_SURROGATE(PFN_SURROGATE):
     def get_pi(self, x_test, inc, x_train=None, y_train=None):
         if isinstance(self.nn, PFNPriorImputation) or isinstance(self.nn, PFNPPDMixture):
             inc = inc.unsqueeze(1).to(self.device)
+
+            inc = (1 - inc) if self.minimize else inc
+            x_train = self.train_x if x_train is None else x_train
+            y_train = self.train_y if y_train is None else \
+                (1 - y_train) if self.minimize else y_train
+
+            assert torch.allclose(inc[0],y_train.max(), atol=0.1), \
+                f"inc[0] {inc[0]} and y_train.max() {y_train.max()} have opposite flips"
             return self.nn.get_pi(
                 x_test=x_test,
+                x_train=x_train,
+                y_train=y_train,
                 inc=inc,
-                x_train=self.train_x if x_train is None else x_train,
-                y_train=self.train_y if y_train is None else y_train,
-                minimize=self.minimize,
+                minimize=self.minimize, # this flag is only here to tell us when to flip the
+                # related data
             )
 
         else:

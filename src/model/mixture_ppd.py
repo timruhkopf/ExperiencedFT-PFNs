@@ -1,6 +1,5 @@
 from typing import List, Dict, Union, Callable
 
-import numpy as np
 import torch
 from ifbo.transformer import TransformerModel
 from model.calc_reliability import _calc_reliability
@@ -10,8 +9,7 @@ from ifbo import BarDistribution, FTPFN
 from src.model.abstractmodel import AbstractModel
 from src.model.batch_padded_pfn import MyBatch
 from src.utils.filelogger import BufferedFileLogger
-
-
+from utils.dotdict import DotDict
 
 
 class PFNPPDMixture(AbstractModel):
@@ -147,7 +145,20 @@ class PFNPPDMixture(AbstractModel):
         context_x = context_x.to(self.device)
         context_y = context_y.to(self.device)
 
-        related_task_data = self.related_task_data
+        related_context_x = self.related_task_data.x
+        related_context_y = self.related_task_data.y
+        padding_mask = self.related_task_data.padding_mask
+
+        if minimize:
+            related_context_y = (1 - related_context_y)
+
+
+        related_task_data = DotDict({
+            'x': related_context_x,
+            'y': related_context_y,
+            'padding_mask': padding_mask,
+            'single_eval_pos': related_context_x.shape[0]
+        })
 
         if context_size >= self.min_context_size:
             # calculate the reliability scores for the related tasks
@@ -230,6 +241,10 @@ class PFNPPDMixture(AbstractModel):
 
     @torch.no_grad()
     def get_pi(self, x_test, inc, x_train=None, y_train=None, minimize=True):
+        if y_train is not None:
+            assert inc[0] == y_train.max() , \
+            'Incumbent has opposite sign to the training labels. '
+
 
         logits = self(x_train=x_train, y_train=y_train, x_test=x_test, minimize=minimize)
         # torch.Size([x_train.shape[0], 1, 10000])

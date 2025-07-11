@@ -66,7 +66,7 @@ class PFNPriorImputation(AbstractModel):
 
     def __init__(self, model, criterion, logger, mixture_strategy,
                  related_task_data, min_context_size, imputation_mode='mean',
-
+                 incumbent_calculation='imputation and related',
                  device=None, verbose=True):
         self.model: TransformerModel = model if isinstance(model, TransformerModel) else model.model
 
@@ -88,6 +88,7 @@ class PFNPriorImputation(AbstractModel):
         self.mixture_strategy = mixture_strategy
         self.call_counter = 0
         self.verbose = verbose
+        self.incumbent_calculation = incumbent_calculation
 
         if verbose:
             num_related = self.related_task_data.x.shape[1]
@@ -235,7 +236,7 @@ class PFNPriorImputation(AbstractModel):
         related_context_x = related_context_x.to(self.device)
         related_context_y = related_context_y.to(self.device)
 
-        if padding_mask is not  None:
+        if padding_mask is not None:
             padding_mask = padding_mask.to(self.device)
 
         imputed_y = self.impute(
@@ -266,11 +267,21 @@ class PFNPriorImputation(AbstractModel):
         )
 
         B = prior_logits.shape[1]
-        prior_incumbents = torch.cat([related_context_y, imputed_y, ], dim=0).min(dim=0).values
+        # TODO ABLATE consider that we should only use the imputed_y here for incumbent calculation.
+        if self.incumbent_calculation == 'imputation only':
+            prior_incumbents = imputed_y.max(dim=0).values
+        elif self.incumbent_calculation == 'related only':
+            prior_incumbents = related_context_y.max(dim=0).values
+        elif self.incumbent_calculation == 'imputation and related':
+            prior_incumbents = torch.cat([related_context_y, imputed_y, ], dim=0).max(dim=0).values
+        else:
+            raise ValueError(f"Unknown incumbent calculation mode: {self.incumbent_calculation}")
+
         prior_incumbents = prior_incumbents.unsqueeze(1).repeat(1, x_test.shape[0])
         pi_related = torch.stack([
             self.criterion.pi(prior_logits[:, b, :].squeeze(1),
-                              best_f=prior_incumbents[b, :].unsqueeze(1))
+                              best_f=prior_incumbents[b, :].unsqueeze(1),
+                              maximize=True)  # FIXME: do we need to maximize here?
             for b in range(B)
         ], dim=0)
 
@@ -294,7 +305,9 @@ class PFNPriorImputation(AbstractModel):
             single_eval_pos=x_train.shape[0],
 
         )
-        pi_target = self.model.criterion.pi(target_logits.squeeze(1), best_f=inc)
+        pi_target = self.model.criterion.pi(
+            target_logits.squeeze(1), best_f=inc,
+            maximize=True)  # FIXME: do we need to maximize here?
         return pi_target
 
     @torch.no_grad()
@@ -332,8 +345,6 @@ class PFNPriorImputation(AbstractModel):
             x_train = torch.clamp(x_train, max=999.)
 
         if minimize:
-            inc = (1 - inc)
-            y_train = (1 - y_train)
             related_context_y = (1 - related_context_y)
 
         related_task_data = DotDict({
