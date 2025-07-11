@@ -241,7 +241,7 @@ if __name__=="__main__":
     results_path = "benchmarks/HPO-B/results/"
     output_path = "benchmarks/HPO-B/plots/"
     name = "benchmark_plot"
-    experiments = ["GP", "FSBO", "FSBO2", "RGPE", "MALIBO"]
+    experiments = ["GP", "FSBO", "FSBO2", "RGPE", "MALIBO", "PFNs4BO", "mPFNs4BO"]
 
     benchmark_plotter  = BenchmarkPlotter(experiments=experiments, 
                                             name = name,
