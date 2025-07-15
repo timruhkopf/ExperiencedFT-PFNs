@@ -51,9 +51,7 @@ class CVMixtureStrategy:
         #print(f"Target NLL: {target_nll}, Related NLL: {related_nll}")
 
         # filtering out low reliability scores (e.g., unrelated tasks  )
-        #print(f"related_nll: {related_nll} , target_nll: {target_nll}")
-        related_nll[related_nll> 2] = 100 # threshold for related tasks that are not reliable
-        
+
         # weigh the target and related scores by the reliability
         reliability = torch.nn.functional.softmax(
             torch.concat([-target_nll, -related_nll], dim=0), dim=0

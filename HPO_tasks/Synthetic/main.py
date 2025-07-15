@@ -7,7 +7,7 @@ np.warnings = warnings
 import torch
 
 multiprocess = "joblib"
-#multiprocess = " "
+multiprocess = " "
 if(multiprocess == "joblib"):
      import joblib
 
@@ -84,6 +84,15 @@ def run_experiment(func, method_name, function_name, transform_id , time_horizon
                 ("Fixed", "3", "Random-Search"),
                 ("Fixed", "4", "Random-Search"),
                 ("Fixed", "5", "Random-Search"),
+            ]
+        elif meta_data_lists_index == 6:
+            meta_data_lists = [
+                ("Ackley", "0", "PFNs4BO-HEBO"),
+                ("Fixed", "0", "Random-Search"),
+                ("Fixed", "0", "Random-Search"),
+                ("Fixed", "0", "Random-Search"),
+                ("Fixed", "0", "Random-Search"),
+                ("Fixed", "0", "Random-Search"),
             ]
 
         import pfns4bo

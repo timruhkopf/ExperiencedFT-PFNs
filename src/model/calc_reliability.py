@@ -53,33 +53,56 @@ def _calc_reliability(
     return loss  # reliability scores
 
 
+def linear_alg(num_tasks, context_y, imputed_y, device, lambda_reg=0.1):
+    # context_y: (N,)
+    # imputed_y: (N, T)
+    # Goal: solve y = α * x + β  for each task
+    y = context_y.view(-1, 1).to(device)         # (N, 1)
+    x = imputed_y.to(device)                     # (N, T)
+    N = x.size(0)
+    x_mean = x.mean(dim=0, keepdim=True)         # (1, T)
+    y_mean = y.mean(dim=0, keepdim=True)         # (1, 1)
+    x_centered = x - x_mean                      # (N, T)
+    y_centered = y - y_mean                      # (N, 1)
+    # Compute covariance between each x[:,j] and y
+    cov_xy = (x_centered * y_centered).mean(dim=0)  # (T,)
+    var_x = (x_centered ** 2).mean(dim=0)           # (T,)
+    # Regularized alpha
+    alpha = (cov_xy + lambda_reg) / (var_x + lambda_reg)  # (T,)
+    # Compute beta for each task
+    beta = y_mean.squeeze() - alpha * x_mean.squeeze()    # (T,)
+    # Project y back into x space: x_proj = (y - beta) / alpha
+    y_proj = (y - beta.unsqueeze(0)) / alpha.unsqueeze(0)  # (N, T)
+    return y_proj
 
 
-def linear_alg(num_tasks, context_y, imputed_y, device):
-        with torch.set_grad_enabled(True):
-            context_y =  context_y.unsqueeze(1)
-            ones = torch.ones(context_y.size(0), 1, device=device)
-            context_y_aug = torch.cat([context_y, ones], dim=1) 
-            context_y_expanded = context_y_aug.unsqueeze(1).repeat(1, num_tasks, 1).to(device)
-            imputed_y = imputed_y.to(device)
+# def linear_alg(num_tasks, context_y, imputed_y, device):
+#         with torch.set_grad_enabled(True):
+#             target =  context_y.unsqueeze(1).repeat(1, num_tasks)
+#             x = imputed_y.to(device)
 
-            beta = torch.nn.Parameter(torch.randn(num_tasks, 2, device=device), requires_grad=True).to(device)
-            optimizer = torch.optim.Adam([beta], lr=0.01)
+#             alpha = torch.nn.Parameter(torch.randn(num_tasks, device=device), requires_grad=True).to(device)
+#             beta = torch.nn.Parameter(torch.randn(num_tasks, device=device), requires_grad=True).to(device)
+#             optimizer = torch.optim.Adam([beta], lr=0.01)
 
-            for _ in range(1000):  # adjust iterations as needed
-                optimizer.zero_grad()
-                beta_expanded = beta.unsqueeze(0) 
+#             for _ in range(100):  # adjust iterations as needed
+#                 optimizer.zero_grad()
+#                 y_proj = alpha * x + beta
 
-                y_proj = torch.sum(context_y_expanded * beta_expanded, dim=2) 
+#                 mse_loss = torch.nn.functional.mse_loss(y_proj, target)
 
-                mse_loss = torch.nn.functional.mse_loss(y_proj, imputed_y)
+#                 reg_loss = 0.1 *(torch.sum((alpha-1) ** 2) )
+#                 loss = mse_loss + reg_loss
 
-                reg_loss = 0.0001 * (torch.sum((beta) ** 2) )
-                loss = mse_loss + reg_loss
+#                 loss.backward()
+#                 optimizer.step()
+#             print(f"Loss: {loss.item()}, MSE: {mse_loss.item()}, Reg: {reg_loss.item()}")
 
-                loss.backward()
-                optimizer.step()
-            return y_proj
+#             print(f"alpha: {alpha}, beta: {beta}")
+
+#             y_proj = (target - beta)/ alpha
+ 
+#             return y_proj
 
 
 def norm_alg(num_tasks, context_y, imputed_y, device):
@@ -90,9 +113,6 @@ def norm_alg(num_tasks, context_y, imputed_y, device):
         imputed_y_max = imputed_y.max(dim=0).values
         n_imputed_y = (imputed_y - imputed_y_min) / (imputed_y_max - imputed_y_min)  # Normalize imputed_y
         y_proj =  (n_imputed_y + context_y.min()) * (context_y.max() - context_y.min())
-
-        #rmse = np.sqrt(((context_y- y_proj)**2).mean(axis=0))
-        #print(f"RMSE: {rmse}")
 
         return y_proj
 
@@ -279,6 +299,8 @@ def calc_imputed_linalg_reliability(
 
     # impute target_task y's for conditioned on each related task --------------
     #print("calc_imputed_linalg_reliability")
+    #print(task_context_y.shape)
+    #print(task_context_y[:,:4])
     logits = model(
         (
             torch.cat([task_context_x, context_x.repeat(1, num_related, 1)], dim=0),
@@ -347,10 +369,11 @@ def calc_imputed_linalg_reliability(
             # y's associated with query for that task
             # target = context_y.repeat(1, num_related)
             # Reshape y_proj to [num_points, num_tasks] for loss computation
-            y_proj = norm_alg(num_tasks, context_y, imputed_y, device).T
+            num_tasks = imputed_y.shape[1]
+            num_fidelity = target_fidelity.shape[0]
+            y_proj = linear_alg(num_tasks, context_y, imputed_y, device).T
             y_proj_for_loss = y_proj.view(num_tasks, num_fidelity).T  # [num_points, num_tasks]
             loss = criterion(logits, y_proj_for_loss)
-            loss = loss.view(-1, logits.shape[1])  # bar distribution issue
             loss = loss.mean(dim=0)  # mean over the batch
             return loss  # reliability scores
         else:

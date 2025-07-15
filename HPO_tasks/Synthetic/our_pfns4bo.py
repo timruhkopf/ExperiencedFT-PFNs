@@ -44,12 +44,11 @@ class ourPFNs4BO(nn.Module):
         self.kwargs = kwargs
         self.fit_encoder = fit_encoder
         self.initial_points = initial_points
-
         
 
         x_task_context = to_tensor(np.stack([ item["X"]   for k, item in related_task_data.items()], axis=1)).to(torch.float32)
         y_task_context =  to_tensor(np.stack([ item["y"]   for k, item in related_task_data.items()], axis=1)).to(torch.float32)  
-        y_task_context =  self.label_transforms(y_task_context, **self.kwargs)
+        #y_task_context =  self.label_transforms(y_task_context, **self.kwargs)
         padding_mask = torch.zeros(x_task_context.size(1), x_task_context.size(0), dtype=torch.bool).to(device)
 
         self.related_task_data = SimpleNamespace(x=x_task_context, y=y_task_context, padding_mask=padding_mask)
@@ -126,13 +125,29 @@ class ourPFNs4BO(nn.Module):
             else:
                 style = torch.tensor(style, device=x_full.device).view(1, 1).repeat(x_full.shape[1], 1)
 
-        return  self.model(
+        if src_key_padding_mask is None:
+            return self.model(
             (style,
             x_full,
             y_full),
             single_eval_pos=single_eval_pos,
-            #src_key_padding_mask = src_key_padding_mask,
         )
+        else:
+            # PFNs4BO does not support src_key_padding_mask! 
+            # We need to do it manually
+            results = []
+            for batch_index in range(src_key_padding_mask.shape[0]): #batch size
+                src_x_padding_mask =  torch.nn.functional.pad(src_key_padding_mask[batch_index], (0, x_full.shape[0] - src_key_padding_mask.shape[1]), value=False)
+                src_y_padding_mask = src_key_padding_mask[batch_index]
+                res = self.model(
+                (style,
+                x_full[:, batch_index:batch_index+1, :][~src_x_padding_mask] ,
+                y_full[:, batch_index:batch_index+1][~src_y_padding_mask]
+                ),
+                single_eval_pos= single_eval_pos - int(src_y_padding_mask.sum())
+                )
+                results.append(res.clone().detach())
+            return torch.cat(results, dim=1)
 
     def label_transforms(
         self,
