@@ -34,7 +34,7 @@ def aggregate_anytime(df):
     return agg
 
 
-def plot_anytime_performance(agg_df, title=None):
+def plot_anytime_performance(agg_df, title=None, show=False):
     # Facet by benchmark, hue by algorithm
     g = sns.FacetGrid(
         agg_df,
@@ -63,7 +63,8 @@ def plot_anytime_performance(agg_df, title=None):
     if title is not None:
         plt.title(title)
 
-    plt.show()
+    if show:
+        plt.show()
 
     return g
 
@@ -75,7 +76,8 @@ def main(
          '/fix_joint_results_94dc71b.csv',
     minimize=True,
     save=True,
-        title=None
+    title=None,
+    show=False
 ):
     file = Path(file)
     df = pd.read_csv(file)
@@ -92,7 +94,7 @@ def main(
     # df is your original DataFrame
     df_anytime = compute_anytime_performance(df, minimize=minimize)
     agg_df = aggregate_anytime(df_anytime)
-    g = plot_anytime_performance(agg_df, title=title)
+    g = plot_anytime_performance(agg_df, title=title, show=show)
 
     if save:
         output_file = file.parent / f"anytime_performance_{file.stem}.png"

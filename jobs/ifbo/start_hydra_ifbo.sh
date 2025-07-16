@@ -9,6 +9,7 @@
 
 #SBATCH --mem=8GB
 
+# Set up the environment variables
 commit_hash=$(git log -1 --pretty=format:"%h")
 
 REPONAME=ExperiencedFT-PFNs
@@ -42,6 +43,7 @@ export PYTHONPATH=$BIGWORK/$REPONAME/ifBO_icml2024:$PYTHONPATH
 export CUBLAS_WORKSPACE_CONFIG=:4096:8
 
 
+# Parsing the command line arguments --------------------
 # Initialize an empty array to store Hydra overrides
 HYDRA_OVERRIDES=()
 MULTIRUN_FLAG=""
@@ -85,61 +87,80 @@ if [[ -n "$RESOLVE_FLAG" ]]; then
     FINAL_CMD+=" $RESOLVE_FLAG"
 fi
 
+# Parsing the Directory from the overrides --------------------
+# Defaults (optional)
+EXPERIMENT_NAME=""
+EXPERIMENT_GROUP=""
+
+echo "Debugging output"
+echo ${HYDRA_OVERRIDES[@]}
+
+# Extract specific values from overrides
+for override in "${HYDRA_OVERRIDES[@]}"; do
+    if [[ "$override" =~ ^experiment_name= ]]; then
+        EXPERIMENT_NAME="${override#experiment_name=}"
+    elif [[ "$override" =~ ^experiment_group= ]]; then
+        EXPERIMENT_GROUP="${override#experiment_group=}"
+    fi
+done
+
+
+# LOGGING the execution: ----------------------------------
+# Timestamp in readable format
+TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
+
+# Escape any quotes in the final command
+FINAL_CMD_ESCAPED=$(echo "$FINAL_CMD" | sed 's/"/""/g')
+
+# Log file path
+LOG_DIR="$BIGWORK/$REPONAME/logs"
+mkdir -p "$LOG_DIR"
+LOG_FILE="$LOG_DIR/experiment_log.csv"
+
+# Ensure header is written only once
+if [[ ! -f "$LOG_FILE" ]]; then
+    echo "timestamp,commit_hash,slurm_job_id,exit_code,experiment_name,experiment_group,sweep_dir,final_cmd" >> "$LOG_FILE"
+fi
+
+# Append CSV line
+echo "\"$TIMESTAMP\",\"$commit_hash\",\"$SLURM_JOB_ID\",\"$EXIT_CODE\",\"$EXPERIMENT_NAME\",\"$EXPERIMENT_GROUP\",\"$SWEEP_DIR_CLEAN\",\"$FINAL_CMD_ESCAPED\"" >> "$LOG_FILE"
+
+
+
+# Execute the command and capture output -------------------
 export HYDRA_FULL_ERROR=1
 echo "Executing: $FINAL_CMD"
-HYDRA_DIR=$(eval "$FINAL_CMD"  | grep "Sweep dir:" | awk -F': ' '{print $2}')
+HYDRA_LOG_OUTPUT=$(eval "$FINAL_CMD" 2>&1)
+EXIT_CODE=$?
+
 
 wait
 
-echo "Hydra output directory: $HYDRA_DIR"
+#echo "Hydra output directory parsed from the main logging: $HYDRA_DIR"
 
-##
-commit_hash=$(git log -1 --pretty=format:"%h")
+# Collect the data from the direcotry --------------------
+
 #echo "Running read_data:"
-#DIR=$BIGWORK/$REPONAME/$HYDRA_DIR
+DIR=$BIGWORK/$REPONAME/results/$EXPERIMENT_GROUP/$EXPERIMENT_NAME/
+echo "Results directory: $DIR"
 python $BIGWORK/$REPONAME/src/utils/read_neps.py \
   --root_dir $DIR \
   --file_pattern "all_losses_and_configs.txt" \
-  --keys "[\"experiment_name\",\"algorithm.surrogate_model.meta.name\",\"benchmark.meta.name\",\"split_seed\"]" \
-  --csv $DIR/joint_results_$commit_hash.csv
+  --keys "[\"experiment_name\",\"algorithm.surrogate_model.meta.name\",\"benchmark.meta.name\",\"split_seed\",\"benchmark.cls.seed\"]" \
+  - to_csv $DIR/anytime_${commit_hash}_${$SLURM_JOB_ID}.csv
 
-DIR=/bigwork/nhwpruht/ExperiencedFT-PFNs/results/test/max-meta-train2
 python $BIGWORK/$REPONAME/src/utils/read_data.py \
   --root_dir $DIR \
   --file_pattern "results.csv" \
-  --keys "[\"experiment_name\",\"algorithm.surrogate_model.meta.name\",\"benchmark.meta.name\",\"split_seed\"]" \
-  - to_csv $DIR/joint_results_reliability_${commit_hash}_${$SLURM_JOB_ID}.csv
+  --keys "[\"experiment_name\",\"algorithm.surrogate_model.meta.name\",\"benchmark.meta.name\",\"split_seed\",\"benchmark.cls.seed\"]" \
+  - to_csv $DIR/joint_results_${commit_hash}_${$SLURM_JOB_ID}.csv
 
-/bigwork/nhwpruht/ExperiencedFT-PFNs/results/test/test-scaled
-#wait
+python $BIGWORK/$REPONAME/src/plots/plot_acq_runs.py \
+--file $DIR/joint_results_${commit_hash}.csv \
+--minimize True \
+--title $EXPERIMENT_NAME \
+--save=True \
+--plot=False
 
-# scp -r nhwpruht@transfer.cluster.uni-hannover.de:/bigwork/nhwpruht/ExperiencedFT-PFNs/output/surrogate_new_seeds/joint_results.csv /home/ruhkopf/PycharmProjects/ExperiencedFT-PFNs/luis_results/surrogate_joint_results.csv
-
-#sbatch jobs/ifbo/run_ifbo.sh +fold=0 +flip=False +target_idx=0 experiment_group=unflipped nepsnevals=200
-
-#watch -n 1 nvidia-smi
-
-# salloc --nodes=1 --time=02:00:00 --cpus-per-task=8 --gres=gpu:1 --mem=8GB srun --pty bash #  forces GPU visible allocation on salloc
-
-#srun --pty bash # on kisski connect to the job
-
-#HYDRA_FULL_ERROR=1 python main.py smactuner.epochs=1 smactuner='al' scheduler='sh' +budgets=[0.0001,0.0002,0.0003] n_init_cfgs=2 dataset='cifar10' smactuner.batch_size=512 smactuner.track_scores=False seed=1 al_method='DCOM' dataset.path='/bigwork/nhwpruht/AdaptiveMFSimple/data' +pretrain_epochs=1
-
-
-#scp -r truhkopf@kisski01.cluster.uni-hannover.de:/mnt/home/truhkopf/ExperiencedFT-PFNs/results/test/joint_results_bdd5b01.csv .
-
-$BIGWORK/ExperiencedFT-PFNs/jobs/ifbo/start_hydra_ifbo.sh   device=cuda benchmark=taskset  +algorithm=ifbo-pfnimpute   split_seed=0    experiment_name=test     +target_idx=0
-
-
-salloc --partition=gpu.test --time=02:00:00
-
-benchmark=taskset +algorithm=ifbo-pfnsoftmax-cv split_seed=0 experiment_name=pfnsoftmax-cv split_seed=0 +target_idx=0
-
-sbatch --array=0-11 --gres=gpu:1 --partition=ai jobs/ifbo/run_ifbo.sh device=cuda split_seed=0    experiment_name=pfnimpute-1sttrial +target_idx=0
-
-sbatch --array=0-11 --gres=gpu:1  jobs/ifbo/run_ifbo.sh device=cuda split_seed=0    experiment_name=pfnimpute-1sttrial +target_idx=0
-
-bash jobs/ifbo/start_hydra_ifbo.sh benchmark=taskset +algorithm=ifbo-pfnimpute split_seed=0 experiment_name=reliabiltiy_test split_seed=0 +target_idx=0  device=cuda
-
-sbatch --array=0-11 --gres=gpu:1 --partition=ai jobs/ifbo/run_ifbo.sh device=cuda split_seed=0    experiment_name=pfnimpute-larget-train +target_idx=0 fold_size=-1
+wait
 
