@@ -91,6 +91,8 @@ def main(cfg: DictConfig):
             isinstance(benchmark, TaskSetTabularBenchmark)
             and cfg.benchmark.get("apply_user_prior_step_0_median_normalized", False) is True
     ):
+        benchmark.meta = DotDict({})  # make it mutable
+        benchmark.meta.name=''
         print(f"PREPROCESSING {benchmark.meta.name} with "
               f"'apply_user_prior_step_0_median_normalized'")
         drop_0_epoch = cfg.benchmark.get("drop_epoch_0", True)
@@ -384,9 +386,10 @@ def main(cfg: DictConfig):
 
         # ---------------------------------------------------
 
-        if cfg.algorithm.searcher.surrogate_model not in ['pfn', 'dpl', 'deep_gp']:
+        if cfg.algorithm.searcher.surrogate_model in ['pfn', 'dpl', 'deep_gp']:
             searcher = cfg.algorithm.name
-        else:
+
+        if   'surrogate_model' in cfg.algorithm.keys():
 
             searcher = hydra.utils.instantiate(
                 cfg.algorithm.searcher,
@@ -394,28 +397,28 @@ def main(cfg: DictConfig):
                 # surrogate_model=surrogate_model
             )
 
-            if 'surrogate_model' in cfg.algorithm.keys():
-                surrogate_model = hydra.utils.instantiate(
-                    cfg.algorithm.surrogate_model.cls,
-                    logger=file_logger,
-                    device=device,
-                    related_task_data=related_task_data
-                )
 
-                cfgmodel = cfg.algorithm.surrogate_model
+            surrogate_model = hydra.utils.instantiate(
+                cfg.algorithm.surrogate_model.cls,
+                logger=file_logger,
+                device=device,
+                related_task_data=related_task_data
+            )
 
-                # train_config = dict(
-                #     query_task_x=target_task_query_x,
-                #     query_task_y=target_task_query_y
-                # )
-                # if 'train_call' in cfgmodel.keys():
-                #     train_config.update(cfgmodel.train_call)
+            # cfgmodel = cfg.algorithm.surrogate_model
 
-                # distillation will return a prefix, pfn_mixture won't
-                # surrogate_model.train(**train_config)
+            # train_config = dict(
+            #     query_task_x=target_task_query_x,
+            #     query_task_y=target_task_query_y
+            # )
+            # if 'train_call' in cfgmodel.keys():
+            #     train_config.update(cfgmodel.train_call)
 
-                searcher.model_policy.surrogate_model.nn = surrogate_model
-                searcher.model_policy.surrogate_model_name = surrogate_model.__name__
+            # distillation will return a prefix, pfn_mixture won't
+            # surrogate_model.train(**train_config)
+
+            searcher.model_policy.surrogate_model.nn = surrogate_model
+            searcher.model_policy.surrogate_model_name = surrogate_model.__name__
 
         # -----------------------------------------------------------------------
         neps_dir = Path.cwd() / (f"neps_root_directory_{target_task}_{fold}"

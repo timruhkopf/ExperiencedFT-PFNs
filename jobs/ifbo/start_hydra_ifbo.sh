@@ -93,17 +93,24 @@ wait
 
 echo "Hydra output directory: $HYDRA_DIR"
 
-#
+##
 commit_hash=$(git log -1 --pretty=format:"%h")
-echo "Running read_data:"
-DIR=$BIGWORK/$REPONAME/$HYDRA_DIR
+#echo "Running read_data:"
+#DIR=$BIGWORK/$REPONAME/$HYDRA_DIR
 python $BIGWORK/$REPONAME/src/utils/read_neps.py \
   --root_dir $DIR \
   --file_pattern "all_losses_and_configs.txt" \
   --keys "[\"experiment_name\",\"algorithm.surrogate_model.meta.name\",\"benchmark.meta.name\",\"split_seed\"]" \
   --csv $DIR/joint_results_$commit_hash.csv
 
+DIR=/bigwork/nhwpruht/ExperiencedFT-PFNs/results/test/max-meta-train2
+python $BIGWORK/$REPONAME/src/utils/read_data.py \
+  --root_dir $DIR \
+  --file_pattern "results.csv" \
+  --keys "[\"experiment_name\",\"algorithm.surrogate_model.meta.name\",\"benchmark.meta.name\",\"split_seed\"]" \
+  - to_csv $DIR/joint_results_reliability_${commit_hash}_${$SLURM_JOB_ID}.csv
 
+/bigwork/nhwpruht/ExperiencedFT-PFNs/results/test/test-scaled
 #wait
 
 # scp -r nhwpruht@transfer.cluster.uni-hannover.de:/bigwork/nhwpruht/ExperiencedFT-PFNs/output/surrogate_new_seeds/joint_results.csv /home/ruhkopf/PycharmProjects/ExperiencedFT-PFNs/luis_results/surrogate_joint_results.csv
@@ -120,3 +127,19 @@ python $BIGWORK/$REPONAME/src/utils/read_neps.py \
 
 
 #scp -r truhkopf@kisski01.cluster.uni-hannover.de:/mnt/home/truhkopf/ExperiencedFT-PFNs/results/test/joint_results_bdd5b01.csv .
+
+$BIGWORK/ExperiencedFT-PFNs/jobs/ifbo/start_hydra_ifbo.sh   device=cuda benchmark=taskset  +algorithm=ifbo-pfnimpute   split_seed=0    experiment_name=test     +target_idx=0
+
+
+salloc --partition=gpu.test --time=02:00:00
+
+benchmark=taskset +algorithm=ifbo-pfnsoftmax-cv split_seed=0 experiment_name=pfnsoftmax-cv split_seed=0 +target_idx=0
+
+sbatch --array=0-11 --gres=gpu:1 --partition=ai jobs/ifbo/run_ifbo.sh device=cuda split_seed=0    experiment_name=pfnimpute-1sttrial +target_idx=0
+
+sbatch --array=0-11 --gres=gpu:1  jobs/ifbo/run_ifbo.sh device=cuda split_seed=0    experiment_name=pfnimpute-1sttrial +target_idx=0
+
+bash jobs/ifbo/start_hydra_ifbo.sh benchmark=taskset +algorithm=ifbo-pfnimpute split_seed=0 experiment_name=reliabiltiy_test split_seed=0 +target_idx=0  device=cuda
+
+sbatch --array=0-11 --gres=gpu:1 --partition=ai jobs/ifbo/run_ifbo.sh device=cuda split_seed=0    experiment_name=pfnimpute-larget-train +target_idx=0 fold_size=-1
+

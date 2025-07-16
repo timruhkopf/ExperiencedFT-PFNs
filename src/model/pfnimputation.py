@@ -12,6 +12,7 @@ from src.utils.dotdict import DotDict
 from utils.filelogger import BufferedFileLogger
 
 log = logging.getLogger(__name__)
+import tensorboard
 
 
 class PFNPriorImputation(AbstractModel):
@@ -66,7 +67,7 @@ class PFNPriorImputation(AbstractModel):
 
     def __init__(self, model, criterion, logger, mixture_strategy,
                  related_task_data, min_context_size, imputation_mode='mean',
-                 incumbent_calculation='imputation and related',
+                 incumbent_calculation='imputation only', flippable_related=False,
                  device=None, verbose=True):
         self.model: TransformerModel = model if isinstance(model, TransformerModel) else model.model
 
@@ -84,6 +85,7 @@ class PFNPriorImputation(AbstractModel):
 
         self.min_context_size = min_context_size
         self.imputation_mode = imputation_mode
+        self.flippable_related = flippable_related
 
         self.mixture_strategy = mixture_strategy
         self.call_counter = 0
@@ -128,7 +130,6 @@ class PFNPriorImputation(AbstractModel):
         related_y = self.related_task_data.y.to(self.device)
         padding_mask = self.related_task_data.padding_mask.to(self.device)
         single_eval_pos = related_x.shape[0]
-
 
         related_task_data = DotDict({
             'x': related_x,
@@ -175,10 +176,17 @@ class PFNPriorImputation(AbstractModel):
         # related ppd for current query points
         num_related = task_context_x.shape[1]
 
+        if task_context_x.shape[1:] != x_train.repeat(1, num_related, 1).shape[1:]:
+            print(f"Shape mismatch: {task_context_x.shape[1:]} vs"
+                  " {x_train.repeat(1, num_related, 1).shape[1:]}")
+
         # impute the observed data points --------------------------------------
         # TODO Cache these values, when we optimize over the acquisition function?
         imputed_logits = self.model(
             (
+                # fixme: slurm error: ifbo_array_5565440_5.err
+                #  RuntimeError: Sizes of tensors must match except in dimension 0. Expected size
+                #  10 but got size 6 for tensor number 1 in the list.
                 torch.cat([task_context_x, x_train.repeat(1, num_related, 1)], dim=0),
                 torch.cat([task_context_y, ], dim=0)
             ),
@@ -327,6 +335,7 @@ class PFNPriorImputation(AbstractModel):
         :param x_train: The training data points for the target task.
         :param y_train: The training labels for the target task.
         """
+        self.call_counter += 1
         # 1.
         related_context_x = self.related_task_data.x
         related_context_y = self.related_task_data.y
@@ -344,7 +353,7 @@ class PFNPriorImputation(AbstractModel):
             log.warning(f"Training points x_train contain values > 999: {x_train[x_train > 999.]}")
             x_train = torch.clamp(x_train, max=999.)
 
-        if minimize:
+        if minimize and self.flippable_related:
             related_context_y = (1 - related_context_y)
 
         related_task_data = DotDict({
@@ -370,6 +379,30 @@ class PFNPriorImputation(AbstractModel):
             inc=inc
         )
 
+        # Plotting the reliability scores for debugging
+        if self.verbose:
+            # df = self.mixture_logger.dataframe
+            # plot_reliability_scores(df)
+
+            # measure the correlation between the target and mean of the related pi values
+            # Step 1: Compute mean of related pi values
+            pi_related_mean = pi_related.mean(dim=0)  # shape [101]
+
+            # Step 2: Calculate Pearson correlation coefficient
+            stacked = torch.stack([pi_target, pi_related_mean], dim=0)  # [2, 101]
+            corr_matrix = torch.corrcoef(stacked)  # [2, 2]
+            corr_value = corr_matrix[0, 1].item()  # scalar Pearson correlation
+
+            # Step 3: Log it
+            self.mixture_logger.add_scalar(
+                "pi/corr_target_related_mean",
+                self.call_counter,
+                corr_value
+            )
+            # plot_pi_correlation(self.mixture_logger.dataframe)
+
+            # plot_pi(pi_target, pi_related)
+
         # 4.
         scores = self.mixture_strategy(
             model=self.model,
@@ -382,5 +415,89 @@ class PFNPriorImputation(AbstractModel):
             pi_target=pi_target,
             pi_related=pi_related,
         )
-        self.call_counter += 1
+
+
         return scores
+
+
+def plot_pi(pi_target, pi_related):
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    fig, ax = plt.subplots(figsize=(15, 5))
+
+    # Boxplot (one box per index)
+    ax.boxplot(pi_related.T, positions=np.arange(pi_related.shape[1]), widths=0.6,
+               patch_artist=True, boxprops=dict(facecolor='lightblue'))
+
+    # Overlay: pi_target as a red dot for each index
+    ax.scatter(np.arange(pi_target.shape[0]), pi_target, color='red', zorder=10, s=20,
+               label='pi_target')
+
+    ax.set_xticks(np.arange(0, pi_target.shape[0], 10))
+    ax.set_xlabel('Index')
+    ax.set_ylabel('pi value')
+    ax.set_title('pi_related (boxplot) & pi_target (red dot) per index')
+    ax.legend()
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_reliability_scores(df):
+    import pandas as pd
+    import seaborn as sns
+    import matplotlib.pyplot as plt
+
+    # Filter rows where metric == 'reliability'
+    df_rel = df[df['metric'] == 'reliability']
+    # Select columns to plot
+    cols_to_plot = ['target_reliability'] + [col for col in df.columns if
+                                             col.startswith('related_reliability_')]
+    # Melt dataframe to long format for seaborn
+    df_long = df_rel.melt(id_vars='step', value_vars=cols_to_plot,
+                          var_name='reliability_type', value_name='reliability_value')
+    # Plot
+    plt.figure(figsize=(12, 8))
+    sns.lineplot(data=df_long, x='step', y='reliability_value', hue='reliability_type')
+    plt.title('Weight vs. Step')
+    plt.xlabel('Step')
+    plt.ylabel('Softmax weight')
+    plt.show()
+
+
+def plot_pi_correlation(df):
+    # FIXME: something went wrong with the logging --> the columns here are messed up
+    import seaborn as sns
+    import matplotlib.pyplot as plt
+
+    # Filter rows for each metric
+    df_corr = df[df['metric'] == 'pi/corr_target_related_mean']
+    df_rel = df[df['metric'] == 'reliability']
+
+    plt.figure(figsize=(12, 8))
+    ax1 = plt.gca()  # Primary axis
+
+    # Plot first metric on primary y-axis (left)
+    sns.lineplot(data=df_corr, x='step', y='target_reliability', marker='o', ax=ax1,
+                 label='Corr(pi_target, mean(pi_related))')
+    ax1.set_ylabel('Correlation Coefficient')
+    ax1.set_xlabel('Step')
+    ax1.axhline(y=0, color='blue', )
+
+    # Create secondary y-axis (right)
+    ax2 = ax1.twinx()
+    sns.lineplot(data=df_rel, x='step', y='target_reliability', marker='s', ax=ax2, color='orange',
+                 label='target weight')
+    ax2.set_ylabel('Reliability')
+    ax2.axhline(y=0.2, color='orange', )
+
+
+    # Titles and grid
+    plt.title('Correlation and Reliability over Steps')
+    ax1.grid()
+    # Optional: handle legends
+    lines_1, labels_1 = ax1.get_legend_handles_labels()
+    lines_2, labels_2 = ax2.get_legend_handles_labels()
+    ax2.legend(lines_1 + lines_2, labels_1 + labels_2, loc='upper left')
+
+    plt.show()

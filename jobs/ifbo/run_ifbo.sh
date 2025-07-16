@@ -8,7 +8,7 @@
 
 
 
-#  sbatch --array=0-11 --gres=gpu:1 --partition=ai jobs/ifbo/run_ifbo.sh experiment_name=pfn-acq-1st-attempt  +fold=0 +target_idx=0
+# sbatch  --array=0-11 --gres=gpu:1 --partition=ai  jobs/ifbo/run_ifbo.sh experiment_name=fixed_reliability +fold=0 +target_idx=0 split_seed=0 device=cuda
 #for split in range(3):
 #    for algo in ['ifbo', 'ifbo-pfnargmin', 'ifbo-pfnsoftmax', 'ifbo-distill']:
 #        for bench in ['lcbench', 'taskset', 'pd1']:

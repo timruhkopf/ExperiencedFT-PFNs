@@ -121,9 +121,10 @@ def calc_imputed_linalg_reliability(
     )
     imputed_y = criterion.median(logits)  # shape [num_points, num_tasks]
 
+    target_fidelity = context_x[:, 0, 1]
+
     if projection:
         # Learn the projection from the related task to the target task ------------
-        target_fidelity = context_x[:, 0, 1]
         # Build polynomial features for target fidelity & then the design matrix
         x = target_fidelity.reshape(-1, 1)  # Ensure x is column vector
         degree = degree_fn(context_x, context_y)
@@ -199,6 +200,9 @@ def calc_imputed_linalg_reliability(
     loss = criterion(logits, y_proj_for_loss)
     loss = loss.view(-1, logits.shape[1])  # bar distribution issue
     loss = loss.mean(dim=0)  # mean over the batch
+
+    # rmse = torch.sqrt(((imputed_y - y_proj.reshape(imputed_y.shape)) ** 2).mean(
+    #     axis=0))
 
     return loss  # reliability scores
 

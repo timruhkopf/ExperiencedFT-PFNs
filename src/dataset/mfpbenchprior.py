@@ -1,5 +1,6 @@
 from typing import Optional, Union, List, Dict
 
+from pathlib import Path
 import numpy as np
 import torch
 from mfpbench import TabularBenchmark
@@ -132,7 +133,7 @@ class MFBenchPrior(TabularBenchmark):
                  device="cpu",
                  **kwargs):
         self.name = name
-        self.data_path = data_path
+        self.data_path = Path(data_path) if data_path is not None else None
         self.seq_len = seq_len
         self.mfb_kwargs = mfb_kwargs
         self.seq_len = seq_len
@@ -627,7 +628,23 @@ class MFBenchPrior(TabularBenchmark):
         :rtype: Batch
         """
         if self.name == "synthetic" and self.data_path is not None:
-            return torch.load(self.data_path, map_location=self.device, weights_only=False)
+            # load the bnn config and weights to have the same target benchmark task as the related tasks
+            from ifbo.priors.ftpfn_prior import MLP
+            import json
+            self.target_benchmark.relation_prior.model = MLP(2,3)
+            self.target_benchmark.relation_prior.model.to(self.device)
+
+            with open(self.data_path / 'config.json', 'r') as f:
+                config = json.load(f)
+
+            self.target_benchmark.relation_prior.model.reset_from_signature(config)
+            self.target_benchmark.relation_prior.model.load_state_dict(
+                torch.load(self.data_path / 'benchmark_model.pt',
+                           map_location=self.device,
+                           weights_only=True)
+            )
+            return torch.load(self.data_path / 'batch.pt', map_location=self.device,
+                              weights_only=False)
 
         benchmarks = self.related_benchmarks
         print(len(benchmarks), "benchmarks")
@@ -663,6 +680,14 @@ class MFBenchPrior(TabularBenchmark):
 
         X = torch.stack(X, dim=1).to(self.device).float()
         Y = torch.stack(Y, dim=1).to(self.device).float()
+        if self.name == "synthetic" and self.data_path is not None:
+            import json
+            with open(self.data_path / 'config.json', 'w') as f:
+                json.dump(self.target_benchmark.relation_prior.model.parameter_signature(), f)
+            torch.save(Batch(x=X, y=Y, target_y=Y.clone(), single_eval_pos=single_eval_pos),
+                       self.data_path / 'batch.pt')
+            torch.save(self.target_benchmark.relation_prior.model.state_dict(), self.data_path /
+                       'benchmark_model.pt')
 
         return Batch(x=X, y=Y, target_y=Y.clone(), single_eval_pos=single_eval_pos)
 

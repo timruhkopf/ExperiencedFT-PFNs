@@ -34,7 +34,7 @@ def aggregate_anytime(df):
     return agg
 
 
-def plot_anytime_performance(agg_df):
+def plot_anytime_performance(agg_df, title=None):
     # Facet by benchmark, hue by algorithm
     g = sns.FacetGrid(
         agg_df,
@@ -60,7 +60,12 @@ def plot_anytime_performance(agg_df):
     g.add_legend()
     g.set_axis_labels("Fidelity (step)", "Anytime Performance (Mean Loss)")
     g.set_titles(col_template="{col_name}")
+    if title is not None:
+        plt.title(title)
+
     plt.show()
+
+    return g
 
 
 
@@ -68,7 +73,9 @@ def plot_anytime_performance(agg_df):
 def main(
     file='/home/ruhkopf/PycharmProjects/ExperiencedFT-PFNs/luis_results/fixed_reliability'
          '/fix_joint_results_94dc71b.csv',
-    minimize=True
+    minimize=True,
+    save=True,
+        title=None
 ):
     file = Path(file)
     df = pd.read_csv(file)
@@ -85,7 +92,12 @@ def main(
     # df is your original DataFrame
     df_anytime = compute_anytime_performance(df, minimize=minimize)
     agg_df = aggregate_anytime(df_anytime)
-    plot_anytime_performance(agg_df)
+    g = plot_anytime_performance(agg_df, title=title)
+
+    if save:
+        output_file = file.parent / f"anytime_performance_{file.stem}.png"
+        g.savefig(output_file)
+        print(f"Plot saved to {output_file}")
 
 if __name__ == '__main__':
     fire.Fire(main)

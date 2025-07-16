@@ -3,6 +3,7 @@ from typing import List, Dict, Union, Callable
 import torch
 from ifbo.transformer import TransformerModel
 from model.calc_reliability import _calc_reliability
+from model.mixing import EqualWeights
 
 from src.evaluation.test_on_new_task_nll import TestOnNewTaskNLL
 from ifbo import BarDistribution, FTPFN
@@ -22,10 +23,11 @@ class PFNPPDMixture(AbstractModel):
             device,
             related_task_data: MyBatch,
             decay_fn: Callable,
-            mixture_fn: Callable,
+            mixture_fn: Callable | None = None,
             reliability_fn: Callable = _calc_reliability,
             criterion=None,
             min_context_size: int = 10,
+                    flippable_related=False
 
     ) -> None:
         """
@@ -87,6 +89,7 @@ class PFNPPDMixture(AbstractModel):
         self.decay_fn = decay_fn
         self.min_context_size = min_context_size
         self.mixture_fn = mixture_fn
+        self.flippable_related = flippable_related
 
     def query_batch_fwd(self, context_x, context_y, query_x):
         assert context_x.shape[0] + query_x.shape[0] <= 1000, \
@@ -149,7 +152,7 @@ class PFNPPDMixture(AbstractModel):
         related_context_y = self.related_task_data.y
         padding_mask = self.related_task_data.padding_mask
 
-        if minimize:
+        if minimize and self.flippable_related:
             related_context_y = (1 - related_context_y)
 
 
@@ -229,282 +232,26 @@ class PFNPPDMixture(AbstractModel):
 
         #   # (4) Calculate the mixture of the logits based on the reliability scores
 
-        mixture_logits = self.mixture_fn(
-            target_logits,
-            related_logits,
-            reliability_scores,
-            # temperature=temperature,
-            alpha=self.decay_fn(context_size)
-        )
+        # mixture_logits = self.mixture_fn(
+        #     target_logits,
+        #     related_logits,
+        #     reliability_scores,
+        #     # temperature=temperature,
+        #     alpha=self.decay_fn(context_size)
+        # )
+
+        # if self.mixture_fn is None:
+        logits = torch.cat([target_logits, related_logits], dim=1)
+        n = logits.shape[1]
+        mixture_logits = (logits * torch.ones((T, n, 1)).to(self.device) / n).sum(dim=1, keepdim=True)
 
         return mixture_logits
 
     @torch.no_grad()
     def get_pi(self, x_test, inc, x_train=None, y_train=None, minimize=True):
-        if y_train is not None:
-            assert inc[0] == y_train.max() , \
-            'Incumbent has opposite sign to the training labels. '
-
-
         logits = self(x_train=x_train, y_train=y_train, x_test=x_test, minimize=minimize)
         # torch.Size([x_train.shape[0], 1, 10000])
         scores = self.criterion.pi(logits.squeeze(), best_f=inc)
         return scores
 
 
-# def calc_logits_mixture(
-#         self,
-#         target_logits: torch.Tensor,
-#         logits: torch.Tensor,
-#         reliability_scores,
-#         context_size: int,
-#         temperature=1.
-# ) -> torch.Tensor:
-#     """
-#     Calculate the mixture of the logits based on the reliability scores.
-#
-#     :param logits: T, B+1, C, with B+1 being the number of tasks (including the current task,
-#     located at index 0)
-#     :param reliability_scores: nll scores for each task
-#     :param context_size: size of the context for the current task
-#     :param temperature: temperature for the softmax calculation over the reliability scores.
-#     # FIxME: temperature is an important hyperparameter, as lower values will
-#     #  give more weight to higher reliability scores (fewer tasks will be
-#     #  considered)
-#     :return: logits tensor T, 1, C, which defines the mixture of the logits
-#     """
-#     if reliability_scores.shape[0] > 1:
-#         weights = torch.softmax(-reliability_scores / temperature)
-#     else:
-#         weights = torch.tensor([1.0])
-#
-#     weights = weights.to(self.device)
-#
-#     if context_size > self.min_context_size:
-#         # devalue the current task
-#         weights[0] *= self.decay_factor(context_size)
-#
-#     weights = torch.cat([torch.tensor([1.0]).to(self.device), weights])
-#     weights = weights / weights.sum()  # normalizing with the current task
-#
-#     for i, score in enumerate(weights.to('cpu')):
-#         self.logger.add_scalar(
-#             "weights",
-#             score.item(),
-#             i,  # task index
-#             context_size
-#         )
-#
-#     logits = (logits * weights.view(1, 2, 1)).sum(dim=1)
-#
-#     # Weighted combination using broadcasting
-#     return logits.unsqueeze(1)  # [B, 1, C]
-
-
-
-if __name__ == '__main__':
-
-    from src.utils.filelogger import BufferedFileLogger
-    import matplotlib.pyplot as plt
-
-    # FIXME: factor this into a set of fixtures
-    import ifbo
-    from src.dataset.taskprior import MetaTaskPriorSameProblem, detokenize_batch
-    import tempfile
-
-    BATCH_SIZE = 64
-    # TODO initialize distilled points with subset of x with appropriate size
-    DISTILL_SIZE = 50  # FIXME: important hyperparameter
-    N_STEPS = 10  # number of distillation steps
-
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    ftpfn = ifbo.surrogate.FTPFN(version="0.0.1", device=device)
-    pfn_backend: TransformerModel = ftpfn.model
-
-    # (2) instantiate meta-train meta-test dataset from benchmark (doing a round-robin?)
-    # TODO refactor this into a replicable dataset class
-    prior = MetaTaskPriorSameProblem(dim_hyperparameters=3, n_fidelities=None, seq_len=1000)
-    batch = prior.sample_batch(n_tasks=2, single_eval_pos=500)
-
-    sep = batch.single_eval_pos[0]
-    x, y = batch.x, batch.y
-
-    # 0 task is the one we want to predict on
-    target_task_context_x = x[:sep, 0:1]
-    target_task_context_y = y[:sep, 0:1]
-    target_task_val_x = x[sep:, 0:1]
-    target_task_val_y = y[sep:, 0:1]
-
-    # fixme: max context size is 1k, so distilled + task context + query can
-    #  exceed that. in that case we will want to batch over the exceeing query points with the
-    #  same context.
-    max_query_size = 1000 - target_task_context_x.shape[0] - DISTILL_SIZE
-    target_task_query_x = x[sep:sep + max_query_size, 0:1]  # actual test points
-    target_task_query_y = y[sep:sep + max_query_size, 0:1]  # actual test labels
-
-    x_task_context = x[:sep, 1:]
-    y_task_context = y[:sep, 1:]
-    x_val = x[sep:sep + max_query_size, 0:1]  # fixme: max_query_size
-    y_val = y[sep:sep + max_query_size, 0:1]  # fixme: max_query_size
-    # print(x.shape, y.shape)
-
-    target_task_context = {
-        'x': target_task_context_x,
-        'y': target_task_context_y
-    }
-
-    target_task_query = {
-        'x': target_task_query_x,
-        'y': target_task_query_y
-    }
-
-    related_task_data = [{
-        'x': x_task_context,
-        'y': y_task_context
-    }]
-
-    with tempfile.TemporaryDirectory() as tmpdirname:
-        trainlogger = BufferedFileLogger(
-            file_name="distill.csv",
-            file_path=tmpdirname,
-            buffer_size=1000,
-            header=("metric", "value", "task", "context_size"))
-
-        pfnmixture = PFNPPDMixture(
-            pfn_backend,
-            trainlogger,
-            device,
-            related_task_data,
-            criterion=pfn_backend.criterion,
-            min_context_size=10,
-            # exponential decay factor 1 for size of 10, 0 for 200
-            # decayfactor=lambda size: 1 - (size - 10) / (200 - 10)
-
-        )
-
-        logits = pfnmixture.forward(
-            context_x=target_task_context_x,
-            context_y=target_task_context_y,
-            query_x=target_task_query_x,
-            temperature=1
-        )
-
-        nll = pfn_backend.criterion(
-            logits,
-            target_task_query_y
-        ).mean()
-
-    # Plot ---------------
-    with (tempfile.TemporaryDirectory() as tmpdirname):
-        pfnmixture.logger.reset()  # to check the nll reliability scores
-
-        logger = BufferedFileLogger(
-            file_name="distill.csv",
-            file_path=tmpdirname,
-            buffer_size=1000,
-            header=("metric", "value", "context_size", 'global_step'))
-
-        CONTEXT_SIZES = range(10, target_task_context_x.shape[0], 20)
-
-        evaluator = TestOnNewTaskNLL(
-            criterion=pfn_backend.criterion,
-            logger=logger, device=device
-        )
-
-        # PFN Mixture distillation ----------
-        evaluator.test_on_new_task(
-            model=pfnmixture,
-            prefix_x=torch.tensor([]),  # TODO make this default?
-            prefix_y=torch.tensor([]),
-            context_task_x=target_task_context_x,
-            context_task_y=target_task_context_y,
-            query_task_x=target_task_query_x,
-            query_task_y=target_task_query_y,
-            task_name="pfn_mixture",
-            step=0,
-            context_sizes=CONTEXT_SIZES,
-            # fwd kwargs
-            temperature=1.0
-        )
-
-        # plot the reliability scores for each of the related tasks:
-        # TODO for multiple tasks first collect the dataframe then plot
-        ax = trainlogger.plot_scalar_curve(
-            'reliability_score',
-            plot=False,
-            x='context_size',
-            y='value',
-            title='NLL Reliability over context_sizes',
-        )
-        ax.set_xlabel("Task's Context size")
-        ax.set_ylabel("NLL Loss")
-        plt.show()
-
-        # No distillation: Should be what the ifbo paper reports
-
-        evaluator.test_on_new_task(
-            model=pfn_backend,
-            task_name='baseline (no distillation)',
-            # prefix_x=baseline_x,
-            # prefix_y=baseline_y,
-            context_task_x=target_task_context_x,
-            context_task_y=target_task_context_y,
-            query_task_x=target_task_query_x,
-            query_task_y=target_task_query_y,
-            context_sizes=CONTEXT_SIZES
-        )
-
-        # adding in half of the related dataset in
-        half_x = x_task_context.shape[0] // 2
-        evaluator.test_on_new_task(
-            model=pfn_backend,
-            task_name='baseline (half context task 0)',
-            prefix_x=x_task_context[:half_x],
-            prefix_y=y_task_context[:half_x],
-            context_task_x=target_task_context_x,
-            context_task_y=target_task_context_y,
-            query_task_x=target_task_query_x,
-            query_task_y=target_task_query_y,
-            context_sizes=CONTEXT_SIZES
-        )
-
-        # Adding in (almost) the entire context of the related task
-        # we can't fit the entire one, since we need space in the sequence
-        # to do a batched evaluation over the query points
-        evaluator.test_on_new_task(
-            model=pfn_backend,
-            task_name='baseline (approx. complete context task 0)',
-            prefix_x=x_task_context,
-            prefix_y=y_task_context,
-            context_task_x=target_task_context_x[:-25],
-            context_task_y=target_task_context_y[:-25],
-            query_task_x=target_task_query_x,
-            query_task_y=target_task_query_y,
-            context_sizes=CONTEXT_SIZES  # [:10]
-        )
-
-        ax = None
-        plots = [
-            'pfn_mixture',
-            'baseline (no distillation)',
-            'baseline (approx. complete context task 0)',
-            'baseline (half context task 0)'
-        ]
-        for metric in plots:
-            try:
-                ax = logger.plot_scalar_curve(
-                    metric=metric,
-                    plot=False,
-                    ax=ax,
-                    x='context_size',
-                    y='value',
-                )
-            except ValueError:
-                # log.warning(f"Metric {metric} not found in logger.")
-                continue
-
-        ax.set_xlabel("Task's Context size")
-        ax.set_ylabel("NLL Loss")
-        ax.set_title("PFN_Mixture + increments of the new Task (nll)", )
-        ax.legend()
-        plt.show()

@@ -4,9 +4,23 @@ import torch
 
 from model.calc_reliability import calc_target_cv_nll, calc_imputed_linalg_reliability
 
+class EqualWeights:
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def __call__(self, x_train, y_train, pi_target, pi_related):
+        """This class implements a simple mixture strategy that assigns equal weights to the target and related scores."""
+        pi = torch.cat([pi_target.unsqueeze(1), pi_related.permute(1, 0)], dim=1)
+        # scores = pi.mean(dim=1, keepdim=True)
+        n = pi.shape[1]
+        w = torch.ones(n) / n
+        scores = ((pi * w).sum(dim=1, keepdim=True)) / w.sum()
+
+        return scores
 
 class CVMixtureStrategy:
-    def __init__(self, model, criterion, related_task_data=None, min_num_samples=10, logger=None):
+    def __init__(self, model, criterion, related_task_data=None, min_num_samples=10, logger=None,
+                 projection=True):
         """This class is a new variant of the MixtureStrategy that consider
         the reliability of related scores in conjunction with cross-valdiated nll scores
         of the target data."""
@@ -15,6 +29,7 @@ class CVMixtureStrategy:
         self.related_task_data = related_task_data
         self.min_num_samples = min_num_samples
         self.logger = logger
+        self.projection = projection
 
     def __call__(self, x_train, y_train, pi_target, pi_related):
 
@@ -37,7 +52,8 @@ class CVMixtureStrategy:
                 self.related_task_data,
                 self.criterion,
                 # some arbitrary degree function to avoid multicollinearity
-                degree_fn=lambda x, y: max(math.ceil(math.log(x[:, 0, 1].unique().shape[0]))-3, 0)
+                degree_fn=lambda x, y: max(math.ceil(math.log(x[:, 0, 1].unique().shape[0]))-3, 0),
+                projection=self.projection
                 # avoid multicollinearity if all have same fidelity. grow polynomial features based on the fidelity availability
             ).to(device)
         else:
