@@ -43,7 +43,7 @@ class MPFNs4BO(nn.Module):
             padding_mask.append(np.concatenate([np.zeros(item["y"].shape[0]),  np.ones(max_length- item["y"].shape[0])]  ))
         x_task_context = to_tensor(np.stack(x_task_context, axis=1)).to(torch.float32).to(device)
         y_task_context =  to_tensor(np.stack(y_task_context, axis=1)).to(torch.float32).to(device)
-        y_task_context =  self.label_transforms(y_task_context, **self.kwargs)
+        #y_task_context =  self.label_transforms(y_task_context, **self.kwargs)
         padding_mask =  to_tensor(np.stack(padding_mask, axis=1)).to(torch.bool).to(device).T 
 
         self.related_task_data = SimpleNamespace(x=x_task_context, y=y_task_context, padding_mask=padding_mask)
