@@ -21,8 +21,8 @@ for ((i=0; i<seeds_length; i++)); do
         # Define the output and error file paths based on input parameters
         logpath="../results/logs/${search_space_id}/"
         mkdir -p "$logpath"
-        output_path="${logpath}/${seed}%j_out.txt"
-        error_path="${logpath}/${seed}%j_err.txt"
+        output_path="${logpath}/${seed}_%j_out.txt"
+        error_path="${logpath}/${seed}_%j_err.txt"
         # Get an idle partition
         # partition=$(find_idle_partition)
         # if [ -z "$partition" ]; then
