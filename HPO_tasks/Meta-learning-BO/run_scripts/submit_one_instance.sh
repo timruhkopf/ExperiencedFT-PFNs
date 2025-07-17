@@ -17,7 +17,7 @@ for ((i=0; i<seeds_length; i++)); do
         # Get the current dataset and policy
         seed="${seeds[i]}"
         policy="${policies[j]}"
-	echo "Running dataset: $search_space_id, policy: $policy"
+	echo "Running dataset: $search_space_id, policy: $policy, seed: $seed"
         # Define the output and error file paths based on input parameters
         logpath="../results/logs/${search_space_id}/"
         mkdir -p "$logpath"
