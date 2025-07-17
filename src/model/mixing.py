@@ -13,7 +13,7 @@ class EqualWeights:
         pi = torch.cat([pi_target.unsqueeze(1), pi_related.permute(1, 0)], dim=1)
         # scores = pi.mean(dim=1, keepdim=True)
         n = pi.shape[1]
-        w = torch.ones(n) / n
+        w = torch.ones(n).to(pi_target.device) / n
         scores = ((pi * w).sum(dim=1, keepdim=True)) / w.sum()
 
         return scores

@@ -180,8 +180,8 @@ python $BIGWORK/$REPONAME/src/plots/plot_acq_runs.py \
 --file $DIR/anytime_${commit_hash}_${SLURM_JOB_ID}.csv \
 --minimize True \
 --title ${EXPERIMENT_GROUP}_${EXPERIMENT_NAME} \
---save=True \
---plot=False
+--save True \
+--plot False
 
 wait
 
