@@ -178,7 +178,7 @@ class PFNPriorImputation(AbstractModel):
 
         if task_context_x.shape[1:] != x_train.repeat(1, num_related, 1).shape[1:]:
             print(f"Shape mismatch: {task_context_x.shape[1:]} vs"
-                  " {x_train.repeat(1, num_related, 1).shape[1:]}")
+                  f"{x_train.repeat(1, num_related, 1).shape[1:]}")
 
         # impute the observed data points --------------------------------------
         # TODO Cache these values, when we optimize over the acquisition function?
