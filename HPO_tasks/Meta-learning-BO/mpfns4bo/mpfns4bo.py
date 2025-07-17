@@ -24,15 +24,29 @@ class MPFNs4BO(nn.Module):
         self.kwargs = kwargs
         self.fit_encoder = fit_encoder
         self.search_space = search_space
+        self.evaluated_candidates = []
 
         """Meta-learning on meta-data, corresponds to the meta-learning part in Algorithm 1."""
         converted_meta_data = dict()
         max_length = 0
+        # for task_uid, evaluations in related_task_data.items():
+        #     X = np.array([self.search_space.to_numerical(e.configuration) for e in evaluations])
+        #     Y = -np.array([e.objectives["loss"] for e in evaluations]).reshape(-1) # return to maximization (performance)
+        #     max_length = max(max_length, len(Y))
+        #     converted_meta_data[task_uid] = {"X": X, "y": Y}
+        #     print(Y.shape, X.shape, task_uid, Y.max(), Y.min())
         for task_uid, evaluations in related_task_data.items():
             X = np.array([self.search_space.to_numerical(e.configuration) for e in evaluations])
-            Y = 1 - np.array([e.objectives["loss"] for e in evaluations]).reshape(-1) # return to maximization (performance)
+            Y = -np.array([e.objectives["loss"] for e in evaluations]).reshape(-1) # return to maximization (performance)
+            if task_uid in validation_task_data:
+                evaluations_val = validation_task_data[task_uid]
+                X_val = np.array([self.search_space.to_numerical(e.configuration) for e in evaluations_val])
+                Y_val = -np.array([e.objectives["loss"] for e in evaluations_val]).reshape(-1) # return to maximization (performance)
+                X = np.concatenate([X, X_val], axis=0)
+                Y = np.concatenate([Y, Y_val], axis=0)
             max_length = max(max_length, len(Y))
             converted_meta_data[task_uid] = {"X": X, "y": Y}
+
 
         x_task_context =[]
         y_task_context = []
@@ -67,12 +81,18 @@ class MPFNs4BO(nn.Module):
         # X_pen is a numpy array of shape (n_samples_left, n_features)
         assert len(X_obs) == len(y_obs), "make sure both X_obs and y_obs have the same length."
         if minimize:
-            y_obs = to_tensor(1 - y_obs, device=self.device).to(torch.float32).view(-1) # data are normalized between 0 and 1
+            y_obs = to_tensor(-y_obs, device=self.device).to(torch.float32).view(-1) # data are normalized between 0 and 1
         else:
             y_obs = to_tensor(y_obs, device=self.device).to(torch.float32).view(-1)
         y_obs =  self.label_transforms(y_obs, **self.kwargs).squeeze()
         X_obs = to_tensor(X_obs, device=self.device).to(torch.float32)
+        if len(self.evaluated_candidates) > 0:
+            mask = np.ones(len(X_pen), dtype=bool)
+            mask[self.evaluated_candidates] = False
+            X_pen = X_pen[mask]
         X_pen = to_tensor(X_pen, device=self.device).to(torch.float32)
+
+        
 
         self.model.to(self.device)
 
@@ -93,6 +113,8 @@ class MPFNs4BO(nn.Module):
         if len(possible_next) == 0:
             possible_next = torch.arange(len(X_pen))
         r = possible_next[torch.randperm(len(possible_next))[0]].cpu().item()
+
+        self.evaluated_candidates.append(r)
 
         if return_actual_ei:
             return r, acq_values
@@ -144,12 +166,27 @@ class MPFNs4BO(nn.Module):
             for batch_index in range(src_key_padding_mask.shape[0]): #batch size
                 src_x_padding_mask =  torch.nn.functional.pad(src_key_padding_mask[batch_index], (0, x_full.shape[0] - src_key_padding_mask.shape[1]), value=False)
                 src_y_padding_mask = src_key_padding_mask[batch_index]
+                x_full_masked = x_full[:, batch_index:batch_index+1, :][~src_x_padding_mask]
+                y_full_masked = y_full[:, batch_index:batch_index+1][~src_y_padding_mask]
+                single_eval_pos_masked = single_eval_pos - int(src_y_padding_mask.sum())
+                if single_eval_pos_masked > 1000:
+                    idx = torch.randperm(single_eval_pos_masked)[:1000]
+                    y_full_masked = y_full_masked[idx]
+
+                    idx = torch.cat([
+                        idx,
+                        torch.arange(single_eval_pos_masked, x_full_masked.shape[0])
+                    ])
+                    x_full_masked = x_full_masked[idx] 
+                    
+                    single_eval_pos_masked = 1000
+
                 res = self.model(
-                (style,
-                x_full[:, batch_index:batch_index+1, :][~src_x_padding_mask] ,
-                y_full[:, batch_index:batch_index+1][~src_y_padding_mask]
-                ),
-                single_eval_pos= single_eval_pos - int(src_y_padding_mask.sum())
+                    (style,
+                        x_full_masked,
+                        y_full_masked
+                    ),
+                    single_eval_pos=single_eval_pos_masked
                 )
                 results.append(res)
             return torch.cat(results, dim=1)

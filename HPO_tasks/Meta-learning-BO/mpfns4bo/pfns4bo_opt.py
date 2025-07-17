@@ -11,6 +11,8 @@ class PFNs4BO:
         self.kwargs = kwargs
         self.acq_function = acq_f
         self.fit_encoder = fit_encoder
+        self.evaluated_candidates = []
+
 
     @torch.no_grad()
     def observe_and_suggest(self, X_obs, y_obs, X_pen, return_actual_ei=False, minimize=True):
@@ -20,10 +22,14 @@ class PFNs4BO:
         # y_obs is a numpy array of shape (n_samples,), between 0 and 1
         # X_pen is a numpy array of shape (n_samples_left, n_features)
         if minimize:
-            y_obs = to_tensor(1-y_obs, device=self.device).to(torch.float32).view(-1) # data are normalized between 0 and 1
+            y_obs = to_tensor(-y_obs, device=self.device).to(torch.float32).view(-1) # data are normalized between 0 and 1
         else:
             y_obs = to_tensor(y_obs, device=self.device).to(torch.float32).view(-1)
         X_obs = to_tensor(X_obs, device=self.device).to(torch.float32)
+        if len(self.evaluated_candidates) > 0:
+            mask = np.ones(len(X_pen), dtype=bool)
+            mask[self.evaluated_candidates] = False
+            X_pen = X_pen[mask]
         X_pen = to_tensor(X_pen, device=self.device).to(torch.float32)
 
         assert len(X_obs) == len(y_obs), "make sure both X_obs and y_obs have the same length."
@@ -44,8 +50,8 @@ class PFNs4BO:
             possible_next = torch.arange(len(X_pen))
 
         r = possible_next[torch.randperm(len(possible_next))[0]].cpu().item()
-
-
+        self.evaluated_candidates.append(r)
+        
         if return_actual_ei:
             return r, acq_values
         else:
