@@ -3,7 +3,7 @@
 #SBATCH --cpus-per-task=32          # Number of CPU cores per task
 #SBATCH --nodes=1                  # Ensure that all cores are on one machine
 #SBATCH --time=3-00:00             # Runtime in D-HH:MM
-#SBATCH --mem=128G                  # Memory pool for all cores (see also --mem-per-cpu)
+#SBATCH --mem=64G                  # Memory pool for all cores (see also --mem-per-cpu)
 #SBATCH --gres=gpu:0
 
 search_space_id=$1

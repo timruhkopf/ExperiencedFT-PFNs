@@ -3,6 +3,7 @@ import torch
 from pfns4bo.utils import to_tensor
 from pfns4bo.scripts.tune_input_warping import fit_input_warping
 from .pfns4bo_utils import general_acq_function
+import numpy as np
 
 class PFNs4BO:
     def __init__(self, model, acq_f=general_acq_function, device='cpu:0', fit_encoder=None, **kwargs):
