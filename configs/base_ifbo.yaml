@@ -31,5 +31,7 @@ name_key: ${oc.select:algorithm.surrogate_model.meta.name,${algorithm.name}}_${b
 hydra:
   run:
     dir: results/${experiment_group}/${experiment_name}/${now:%Y-%m-%d-%H-%M-%S}_${name_key}
+  sweep:
+    dir: results/${experiment_group}/${experiment_name}/${now:%Y-%m-%d-%H-%M-%S}_${name_key}
   job:
     chdir: true
