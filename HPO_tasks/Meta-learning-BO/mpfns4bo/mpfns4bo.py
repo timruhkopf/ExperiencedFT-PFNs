@@ -24,7 +24,6 @@ class MPFNs4BO(nn.Module):
         self.kwargs = kwargs
         self.fit_encoder = fit_encoder
         self.search_space = search_space
-        self.evaluated_candidates = []
 
         """Meta-learning on meta-data, corresponds to the meta-learning part in Algorithm 1."""
         converted_meta_data = dict()
@@ -86,10 +85,6 @@ class MPFNs4BO(nn.Module):
             y_obs = to_tensor(y_obs, device=self.device).to(torch.float32).view(-1)
         y_obs =  self.label_transforms(y_obs, **self.kwargs).squeeze()
         X_obs = to_tensor(X_obs, device=self.device).to(torch.float32)
-        if len(self.evaluated_candidates) > 0:
-            mask = np.ones(len(X_pen), dtype=bool)
-            mask[self.evaluated_candidates] = False
-            X_pen = X_pen[mask]
         X_pen = to_tensor(X_pen, device=self.device).to(torch.float32)
 
         
@@ -113,8 +108,6 @@ class MPFNs4BO(nn.Module):
         if len(possible_next) == 0:
             possible_next = torch.arange(len(X_pen))
         r = possible_next[torch.randperm(len(possible_next))[0]].cpu().item()
-
-        self.evaluated_candidates.append(r)
 
         if return_actual_ei:
             return r, acq_values
