@@ -119,46 +119,67 @@ LOG_FILE="$LOG_DIR/experiment_log.csv"
 
 # Ensure header is written only once
 if [[ ! -f "$LOG_FILE" ]]; then
-    echo "timestamp,commit_hash,slurm_job_id,exit_code,experiment_name,experiment_group,sweep_dir,final_cmd" >> "$LOG_FILE"
+    echo "timestamp,commit_hash,slurm_job_id,experiment_group,experiment_name,sweep_dir,final_cmd" >> "$LOG_FILE"
 fi
 
 # Append CSV line
-echo "\"$TIMESTAMP\",\"$commit_hash\",\"$SLURM_JOB_ID\",\"$EXIT_CODE\",\"$EXPERIMENT_NAME\",\"$EXPERIMENT_GROUP\",\"$SWEEP_DIR_CLEAN\",\"$FINAL_CMD_ESCAPED\"" >> "$LOG_FILE"
+echo "\"$TIMESTAMP\",\"$commit_hash\",\"$SLURM_JOB_ID\",\"$EXPERIMENT_GROUP\",\"$EXPERIMENT_NAME\",\"$SWEEP_DIR_CLEAN\",\"$FINAL_CMD_ESCAPED\"" >> "$LOG_FILE"
 
 
 
 # Execute the command and capture output -------------------
 export HYDRA_FULL_ERROR=1
-echo "Executing: $FINAL_CMD"
-HYDRA_LOG_OUTPUT=$(eval "$FINAL_CMD" 2>&1)
-EXIT_CODE=$?
+
+# Temporary file to capture the output
+HYDRA_LOG_OUTPUT_FILE=$(mktemp)
+
+# Run the command, streaming live output and writing to file
+eval "$FINAL_CMD" 2>&1 | tee "$HYDRA_LOG_OUTPUT_FILE"
+EXIT_CODE=${PIPESTATUS[0]}  # Get the exit status of `eval`, not `tee`
+
+# Read the full output into a variable
+HYDRA_LOG_OUTPUT=$(cat "$HYDRA_LOG_OUTPUT_FILE")
+
+# Clean up temp file
+rm "$HYDRA_LOG_OUTPUT_FILE"
 
 
 wait
+
+if [[ $EXIT_CODE -ne 0 ]]; then
+    echo "Error: Command failed with exit code $EXIT_CODE"
+    echo "Output was:"
+    echo "$HYDRA_LOG_OUTPUT"
+    exit $EXIT_CODE
+fi
 
 #echo "Hydra output directory parsed from the main logging: $HYDRA_DIR"
 
 # Collect the data from the direcotry --------------------
 
 #echo "Running read_data:"
-DIR=$BIGWORK/$REPONAME/results/$EXPERIMENT_GROUP/$EXPERIMENT_NAME/
+DIR=$BIGWORK/$REPONAME/results/$EXPERIMENT_GROUP/$EXPERIMENT_NAME
 echo "Results directory: $DIR"
-python $BIGWORK/$REPONAME/src/utils/read_neps.py \
-  --root_dir $DIR \
-  --file_pattern "all_losses_and_configs.txt" \
-  --keys "[\"experiment_name\",\"algorithm.surrogate_model.meta.name\",\"benchmark.meta.name\",\"split_seed\",\"benchmark.cls.seed\"]" \
-  - to_csv $DIR/anytime_${commit_hash}_${$SLURM_JOB_ID}.csv
 
 python $BIGWORK/$REPONAME/src/utils/read_data.py \
   --root_dir $DIR \
   --file_pattern "results.csv" \
   --keys "[\"experiment_name\",\"algorithm.surrogate_model.meta.name\",\"benchmark.meta.name\",\"split_seed\",\"benchmark.cls.seed\"]" \
-  - to_csv $DIR/joint_results_${commit_hash}_${$SLURM_JOB_ID}.csv
+  - to_csv $DIR/joint_results_${commit_hash}_${SLURM_JOB_ID}.csv &
+
+python $BIGWORK/$REPONAME/src/utils/read_neps.py \
+  --root_dir $DIR \
+  --file_pattern "all_losses_and_configs.txt" \
+  --keys "[\"experiment_name\",\"algorithm.surrogate_model.meta.name\",\"benchmark.meta.name\",\"split_seed\",\"benchmark.cls.seed\"]" \
+  - to_csv $DIR/anytime_${commit_hash}_${SLURM_JOB_ID}.csv &
+
+
+wait
 
 python $BIGWORK/$REPONAME/src/plots/plot_acq_runs.py \
---file $DIR/joint_results_${commit_hash}.csv \
+--file $DIR/anytime_${commit_hash}_${SLURM_JOB_ID}.csv \
 --minimize True \
---title $EXPERIMENT_NAME \
+--title ${EXPERIMENT_GROUP}_${EXPERIMENT_NAME} \
 --save=True \
 --plot=False
 
