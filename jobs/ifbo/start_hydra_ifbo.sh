@@ -181,7 +181,7 @@ python $BIGWORK/$REPONAME/src/plots/plot_acq_runs.py \
 --minimize True \
 --title ${EXPERIMENT_GROUP}_${EXPERIMENT_NAME} \
 --save True \
---plot False
+--show False
 
 wait
 
