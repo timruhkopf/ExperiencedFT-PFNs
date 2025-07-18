@@ -9,6 +9,9 @@ from typing import Callable, List
 from multiprocessing import Pool, cpu_count
 
 from omegaconf import DictConfig, OmegaConf
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def config_parser(config_path, keys: List) -> dict:
@@ -67,7 +70,7 @@ def process_folders(
         file_pattern,
         keys:List[str]=[],
         config_parser: Callable = config_parser,
-        outputfile: str = None
+        csv: str = None
 ):
     """
     Multiprocessing to collate the result data frames from multiple folders.
@@ -112,10 +115,14 @@ def process_folders(
         dfs = p.map(process_single_folder, args)
 
     all_dfs.extend([df for df in dfs if df is not None])
-    all_dfs = pd.concat(all_dfs, ignore_index=True)
+    if bool(all_dfs):
+        all_dfs = pd.concat(all_dfs, ignore_index=True)
 
-    if outputfile:
-        all_dfs.to_csv(outputfile, index=False)
+        if csv:
+            all_dfs.to_csv(csv, index=False)
+    else:
+        logger.info(f"No results found for {root_dir}")
+        all_dfs = pd.DataFrame()
 
     return all_dfs
 

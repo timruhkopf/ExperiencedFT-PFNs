@@ -131,27 +131,27 @@ echo "\"$TIMESTAMP\",\"$commit_hash\",\"$SLURM_JOB_ID\",\"$EXPERIMENT_GROUP\",\"
 export HYDRA_FULL_ERROR=1
 
 # Temporary file to capture the output
-HYDRA_LOG_OUTPUT_FILE=$(mktemp)
+#HYDRA_LOG_OUTPUT_FILE=$(mktemp)
 
 # Run the command, streaming live output and writing to file
-eval "$FINAL_CMD" 2>&1 | tee "$HYDRA_LOG_OUTPUT_FILE"
-EXIT_CODE=${PIPESTATUS[0]}  # Get the exit status of `eval`, not `tee`
+eval "$FINAL_CMD" # 2>&1 | tee "$HYDRA_LOG_OUTPUT_FILE"
+#EXIT_CODE=${PIPESTATUS[0]}  # Get the exit status of `eval`, not `tee`
 
-# Read the full output into a variable
-HYDRA_LOG_OUTPUT=$(cat "$HYDRA_LOG_OUTPUT_FILE")
+## Read the full output into a variable
+#HYDRA_LOG_OUTPUT=$(cat "$HYDRA_LOG_OUTPUT_FILE")
 
-# Clean up temp file
-rm "$HYDRA_LOG_OUTPUT_FILE"
-
-
-wait
-
-if [[ $EXIT_CODE -ne 0 ]]; then
-    echo "Error: Command failed with exit code $EXIT_CODE"
-    echo "Output was:"
-    echo "$HYDRA_LOG_OUTPUT"
-    exit $EXIT_CODE
-fi
+## Clean up temp file
+#rm "$HYDRA_LOG_OUTPUT_FILE"
+#
+#
+#wait
+#
+#if [[ $EXIT_CODE -ne 0 ]]; then
+#    echo "Error: Command failed with exit code $EXIT_CODE"
+#    echo "Output was:"
+#    echo "$HYDRA_LOG_OUTPUT"
+#    exit $EXIT_CODE
+#fi
 
 #echo "Hydra output directory parsed from the main logging: $HYDRA_DIR"
 
@@ -164,14 +164,16 @@ echo "Results directory: $DIR"
 python $BIGWORK/$REPONAME/src/utils/read_data.py \
   --root_dir $DIR \
   --file_pattern "results.jsonl" \
-  --keys "[\"experiment_name\",\"algoname\",\"benchmark.meta.name\",\"split_seed\",\"benchmark.cls.seed\"]" \
-  - to_csv $DIR/joint_results_${commit_hash}_${SLURM_JOB_ID}.csv &
+  --keys "[\"experiment_name\",\"algoname\",\"benchmark.meta.name\",\"split_seed\",\"benchmark.cls.seed\",\"experiment_group\"]" \
+  --csv $DIR/joint_results_${commit_hash}_${SLURM_JOB_ID}.csv \
+  - empty &
 
 python $BIGWORK/$REPONAME/src/utils/read_neps.py \
   --root_dir $DIR \
   --file_pattern "all_losses_and_configs.txt" \
-  --keys "[\"experiment_name\",\"algoname\",\"benchmark.meta.name\",\"split_seed\",\"benchmark.cls.seed\"]" \
-  - to_csv $DIR/anytime_${commit_hash}_${SLURM_JOB_ID}.csv &
+  --keys "[\"experiment_name\",\"algoname\",\"benchmark.meta.name\",\"split_seed\",\"benchmark.cls.seed\,\"experiment_group\"]" \
+  -csv $DIR/anytime_${commit_hash}_${SLURM_JOB_ID}.csv \
+  -empty &
 
 
 wait
