@@ -16,7 +16,7 @@ cls:
     _target_: src.model.mixing.CVMixtureStrategy
     _partial_: true
 
-  incumbent_calculation: "imputation only" # "related only" "imputation and related"
+  incumbent_calculation: "imputation-only" # "related only" "imputation and related"
   flippable_related: False
 
   criterion: Null

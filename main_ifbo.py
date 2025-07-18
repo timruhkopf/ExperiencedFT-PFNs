@@ -145,7 +145,7 @@ def main(cfg: DictConfig):
 
     # select the target task and the split of context tasks
     # TODO for loop over the alpha repetitions of the context tasks
-    allocation_seeds = range(*cfg.allocation_seeds)
+    allocation_seeds = cfg.allocation_seeds
     for fold, (train_ids, target_task, seed) in tqdm(
             enumerate(product(folds, test_ids, allocation_seeds)),
             total=len(test_ids) * len(folds) * len(allocation_seeds)

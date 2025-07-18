@@ -1,3 +1,4 @@
+import math
 from itertools import chain
 from typing import Dict, List
 
@@ -325,7 +326,7 @@ def plot_projections(
 import numpy as np
 import torch
 from collections import defaultdict
-from sklearn.model_selection import KFold  # or GroupKFold for stratification
+from sklearn.model_selection import KFold, train_test_split  # or GroupKFold for stratification
 from torch.nn.utils.rnn import pad_sequence
 
 
@@ -370,21 +371,31 @@ def kfold_hp_split(context_x, context_y, n_splits=5, random_state=42):
     hp_indices = list(curve_indices.values())
 
     # KFold split on HP configs
-    kf = KFold(n_splits=min(n_splits, len(unique_rows)), shuffle=True, random_state=random_state)
-    # splits = []
-    train_groups = []
-    test_groups = []
-    for train_hp_idx, test_hp_idx in kf.split(hp_tuples):
-        # Flatten token indices for train/test HPs
-        # train_indices = [idx for i in train_hp_idx for idx in hp_indices[i]]
-        # test_indices = [idx for i in test_hp_idx for idx in hp_indices[i]]
-        # splits.append((np.array(train_indices), np.array(test_indices)))
+    if len(unique_rows) >=2:
+        kf = KFold(n_splits=min(n_splits, len(unique_rows) ),
+                   shuffle=True,
+                   random_state=random_state)
 
-        # collect the train_groups and test_groups; i.e. collect the learning curve tokens
-        # associated with each HP config
+        # splits = []
+        train_groups = []
+        test_groups = []
+        for train_hp_idx, test_hp_idx in kf.split(hp_tuples):
+            # Flatten token indices for train/test HPs
+            # train_indices = [idx for i in train_hp_idx for idx in hp_indices[i]]
+            # test_indices = [idx for i in test_hp_idx for idx in hp_indices[i]]
+            # splits.append((np.array(train_indices), np.array(test_indices)))
 
-        train_groups.append(list(chain(*[hp_indices[i] for i in sorted(train_hp_idx)])))
-        test_groups.append(list(chain(*[hp_indices[i] for i in sorted(test_hp_idx)])))
+            # collect the train_groups and test_groups; i.e. collect the learning curve tokens
+            # associated with each HP config
+
+            train_groups.append(list(chain(*[hp_indices[i] for i in sorted(train_hp_idx)])))
+            test_groups.append(list(chain(*[hp_indices[i] for i in sorted(test_hp_idx)])))
+    else:
+
+        # in case we only have one HP config, we split the context into train and test
+        size = context_x.shape[0]
+        train_groups = [list(range(0, size))[:math.floor((2 / 3) * size)]]
+        test_groups = [list(range(0, size))[math.floor((2 / 3) * size):]]
 
     # Pad and batch
     padded_context_x, padded_context_y, context_mask = build_padded_batch(
@@ -397,6 +408,7 @@ def kfold_hp_split(context_x, context_y, n_splits=5, random_state=42):
         context_y,
         test_groups
     )
+
 
     return padded_context_x, padded_context_y, context_mask, \
         padded_query_x, padded_query_y, query_mask
