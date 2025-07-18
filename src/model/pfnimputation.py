@@ -92,16 +92,7 @@ class PFNPriorImputation(AbstractModel):
         self.verbose = verbose
         self.incumbent_calculation = incumbent_calculation
 
-        if verbose:
-            num_related = self.related_task_data.x.shape[1]
-            self.mixture_logger = BufferedFileLogger(
-                file_name=f"mixture_strategy.csv",
-                file_path=Path().cwd(),
-                header=['metric', 'step', 'target_reliability',
-                        *[f'related_reliability_{i}' for i in range(num_related)]],
-                postfix=[],
-                buffer_size=5
-            )
+
 
     def _forward(self, context_x, context_y, query_x, *args, **kwargs) -> torch.Tensor:
 
@@ -382,7 +373,7 @@ class PFNPriorImputation(AbstractModel):
 
         # Plotting the reliability scores for debugging
         if self.verbose:
-            # df = self.mixture_logger.dataframe
+            # df = self.logger.df
             # plot_reliability_scores(df)
 
             # measure the correlation between the target and mean of the related pi values
@@ -399,7 +390,7 @@ class PFNPriorImputation(AbstractModel):
                              'value': corr_value}
             )
             self.logger.flush()
-            # plot_pi_correlation(self.mixture_logger.dataframe)
+            # plot_pi_correlation(self.logger.df)
 
             # plot_pi(pi_target, pi_related)
 

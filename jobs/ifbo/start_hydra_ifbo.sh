@@ -157,33 +157,35 @@ eval "$FINAL_CMD" # 2>&1 | tee "$HYDRA_LOG_OUTPUT_FILE"
 
 # Collect the data from the direcotry --------------------
 
-#echo "Running read_data:"
-DIR=$BIGWORK/$REPONAME/results/$EXPERIMENT_GROUP/$EXPERIMENT_NAME
-echo "Results directory: $DIR"
-
-python $BIGWORK/$REPONAME/src/utils/read_data.py \
-  --root_dir $DIR \
-  --file_pattern "results.jsonl" \
-  --keys "[\"experiment_name\",\"algoname\",\"benchmark.meta.name\",\"split_seed\",\"benchmark.cls.seed\",\"experiment_group\"]" \
-  --csv $DIR/joint_results_${commit_hash}_${SLURM_JOB_ID}.csv \
-  - empty &
-
-python $BIGWORK/$REPONAME/src/utils/read_neps.py \
-  --root_dir $DIR \
-  --file_pattern "all_losses_and_configs.txt" \
-  --keys "[\"experiment_name\",\"algoname\",\"benchmark.meta.name\",\"split_seed\",\"benchmark.cls.seed\",\"experiment_group\"]" \
-  -csv $DIR/anytime_${commit_hash}_${SLURM_JOB_ID}.csv \
-  -empty &
-
-
-wait
-echo "plotting with file: " $DIR/anytime_${commit_hash}_${SLURM_JOB_ID}.csv
-python $BIGWORK/$REPONAME/src/plots/plot_acq_runs.py \
---file $DIR/anytime_${commit_hash}_${SLURM_JOB_ID}.csv \
---minimize True \
---title ${EXPERIMENT_GROUP}_${EXPERIMENT_NAME} \
---save True \
---show False
-
-wait
+#
+#
+##echo "Running read_data:"
+#DIR=$BIGWORK/$REPONAME/results/$EXPERIMENT_GROUP/
+#echo "Results directory: $DIR"
+#
+#python $BIGWORK/$REPONAME/src/utils/read_data.py \
+#  --root_dir $DIR \
+#  --file_pattern "results.jsonl" \
+#  --keys "[\"experiment_name\",\"algoname\",\"benchmark.meta.name\",\"split_seed\",\"benchmark.cls.seed\",\"experiment_group\"]" \
+#  --csv $DIR/joint_results_${commit_hash}.csv \
+#  - empty &
+#
+#python $BIGWORK/$REPONAME/src/utils/read_neps.py \
+#  --root_dir $DIR \
+#  --file_pattern "all_losses_and_configs.txt" \
+#  --keys "[\"experiment_name\",\"algoname\",\"benchmark.meta.name\",\"split_seed\",\"benchmark.cls.seed\",\"experiment_group\"]" \
+#  --csv $DIR/anytime_${commit_hash}.csv \
+#  -empty &
+#
+#
+#wait
+#echo "plotting with file: " $DIR/anytime_${commit_hash}.csv
+#python $BIGWORK/$REPONAME/src/plots/plot_acq_runs.py \
+#--file $DIR/anytime_${commit_hash}.csv \
+#--minimize True \
+#--title ${EXPERIMENT_GROUP} \
+#--save True \
+#--show False
+#
+#wait
 
