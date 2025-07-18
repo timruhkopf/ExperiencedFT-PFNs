@@ -26,7 +26,8 @@ experiment_group: test
 seed: 2
 n_workers: 1
 
-name_key: ${oc.select:algorithm.surrogate_model.meta.name,${algorithm.name}}_${benchmark.meta.name}_seed_${seed}
+algoname: ${oc.select:algorithm.surrogate_model.meta.name,${algorithm.name}}
+name_key: ${algoname}_${benchmark.meta.name}_seed_${seed}
 
 hydra:
   run:

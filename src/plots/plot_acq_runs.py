@@ -23,7 +23,7 @@ def compute_anytime_performance(df, minimize=True):
 
 def aggregate_anytime(df):
     agg = (
-        df.groupby(['benchmark.meta.name', 'algorithm.surrogate_model.meta.name', 'step'])
+        df.groupby(['benchmark.meta.name', 'algoname', 'step'])
         .agg(
             q05_anytime=('anytime_performance', lambda x: x.quantile(0.05)),
             q95_anytime=('anytime_performance', lambda x: x.quantile(0.95)),
@@ -39,7 +39,7 @@ def plot_anytime_performance(agg_df, title=None, show=False):
     g = sns.FacetGrid(
         agg_df,
         col='benchmark.meta.name',
-        hue='algorithm.surrogate_model.meta.name',
+        hue='algoname',
         sharey=False,
         height=4,
         aspect=1.5
@@ -86,10 +86,10 @@ def main(
         df['epoch'] = df.index
 
     print('Unique benchmarks:', df['benchmark.meta.name'].unique())
-    print('Unique surrogate models:', df['algorithm.surrogate_model.meta.name'].unique())
+    print('Unique surrogate models:', df['algoname'].unique())
     print('Columns:', df.columns)
 
-    df['algorithm.surrogate_model.meta.name'] = df['algorithm.surrogate_model.meta.name'].fillna(value='ifbo')
+    df['algoname'] = df['algoname'].fillna(value='ifbo')
 
     # df is your original DataFrame
     df_anytime = compute_anytime_performance(df, minimize=minimize)
@@ -112,12 +112,12 @@ if __name__ == '__main__':
 #
 #     df['benchmark.meta.name'].unique()
 #
-#     df['algorithm.surrogate_model.meta.name'].unique()
+#     df['algoname'].unique()
 #
 #     df.columns
 #
-#     df['algorithm.surrogate_model.meta.name'] = df[
-#         'algorithm.surrogate_model.meta.name'].fillna(value='ifbo')
+#     df['algoname'] = df[
+#         'algoname'].fillna(value='ifbo')
 #
 #     # df is your original DataFrame
 #     df_anytime = compute_anytime_performance(df)
