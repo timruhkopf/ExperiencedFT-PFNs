@@ -627,7 +627,8 @@ class MFBenchPrior(TabularBenchmark):
             - single_eval_pos: The list of evaluation positions used for each task.
         :rtype: Batch
         """
-        if self.name == "synthetic" and self.data_path is not None:
+        if self.name == "synthetic" and self.data_path is not None and (self.data_path /
+                'config.json').exists():
             # load the bnn config and weights to have the same target benchmark task as the related tasks
             from ifbo.priors.ftpfn_prior import MLP
             import json

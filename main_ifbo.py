@@ -34,6 +34,7 @@ from src.model.batch_padded_pfn import parse_batch_for_padded_train_data
 from src.utils.filelogger import BufferedFileLogger
 from src.utils.seeding import SeededRandomContext
 from utils.dotdict import DotDict
+from utils.filelogger_json import BufferedDictLogger
 
 logger = logging.getLogger("main_ifbo")
 
@@ -118,12 +119,8 @@ def main(cfg: DictConfig):
     pfn_backend: TransformerModel = ftpfn.model
     criterion = pfn_backend.criterion.to(device)
 
-    file_logger = BufferedFileLogger(
-        file_name='results.csv',
-        file_path='.',
-        buffer_size=100,
-        header=["metric", "value", 'global_step', "context_size", "task"],
-        postfix=["target_task", "train_ids", "seed"]
+    file_logger = BufferedDictLogger(
+        file_path=Path.cwd() / 'results.jsonl', buffer_size=10,
     )
 
     # Generate and select the folds (meta-train-test splits)
@@ -139,6 +136,8 @@ def main(cfg: DictConfig):
     folds: List[List[int]] = folds_of_size(all_train_ids, size=cfg.fold_size, drop=True)
     #    folds: List[List[int]] = k_folds(train_ids, k=cfg.k_folds)
     if "fold" in cfg.keys():
+        assert len(folds) >= cfg.fold, \
+            "Not enough folds generated, please increase fold_size or k_folds"
         folds = [folds[cfg.fold]]
 
     if "target_idx" in cfg.keys():
@@ -153,7 +152,8 @@ def main(cfg: DictConfig):
     ):
         logger.info(f"Running task: target_task={target_task}, train_ids={train_ids}, seed={seed}")
 
-        file_logger.postfix = [target_task, train_ids, seed]
+        file_logger.postfix = {'target_task': target_task, 'train_ids': train_ids, 'seed': seed}
+
 
         # "instantiate" the task and related task datasets (with no budget allocation yet)
         with warnings.catch_warnings():
@@ -444,6 +444,11 @@ def main(cfg: DictConfig):
             pre_load_hooks=[set_grid_table_space],  # crucial in allowing tabular grid access
             post_run_summary=True,  # important for efficient plotting
         )
+        file_logger.flush()
+
+        logger.info(f"Finished run for target_task={target_task}, "
+                    f"train_ids={train_ids}, seed={seed}")
+
 
         if "mf" in cfg.algorithm and cfg.algorithm.mf:
             plotter = Plotter3D(
@@ -459,7 +464,7 @@ def main(cfg: DictConfig):
             )
             plotter.plot3D(data=_df, run_path=Path().cwd())
 
-    file_logger.close()
+    logger.info(f"All runs finished, results saved to {Path.cwd()}")
 
 
 if __name__ == '__main__':

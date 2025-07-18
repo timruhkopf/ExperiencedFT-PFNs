@@ -41,7 +41,12 @@ def process_single_folder(
 ):
     file_path, config_parser, keys = args
 
-    df = pd.read_csv(file_path)
+    if file_path.suffix == '.jsonl':
+        # If the file is a JSON file, read it as a DataFrame
+        df = pd.read_json(file_path, lines=True)
+
+    elif file_path.suffix == '.csv':
+        df = pd.read_csv(file_path)
 
     if df.empty:
         return None

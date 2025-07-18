@@ -163,7 +163,7 @@ echo "Results directory: $DIR"
 
 python $BIGWORK/$REPONAME/src/utils/read_data.py \
   --root_dir $DIR \
-  --file_pattern "results.csv" \
+  --file_pattern "results.jsonl" \
   --keys "[\"experiment_name\",\"algorithm.surrogate_model.meta.name\",\"benchmark.meta.name\",\"split_seed\",\"benchmark.cls.seed\"]" \
   - to_csv $DIR/joint_results_${commit_hash}_${SLURM_JOB_ID}.csv &
 
@@ -175,7 +175,7 @@ python $BIGWORK/$REPONAME/src/utils/read_neps.py \
 
 
 wait
-
+echo "plotting with file: " $DIR/anytime_${commit_hash}_${SLURM_JOB_ID}.csv
 python $BIGWORK/$REPONAME/src/plots/plot_acq_runs.py \
 --file $DIR/anytime_${commit_hash}_${SLURM_JOB_ID}.csv \
 --minimize True \

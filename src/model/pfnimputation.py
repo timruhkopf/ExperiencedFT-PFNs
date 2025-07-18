@@ -96,10 +96,11 @@ class PFNPriorImputation(AbstractModel):
             num_related = self.related_task_data.x.shape[1]
             self.mixture_logger = BufferedFileLogger(
                 file_name=f"mixture_strategy.csv",
-                file_path=Path().cwd() / "logs" / "mixture_strategy",
+                file_path=Path().cwd(),
                 header=['metric', 'step', 'target_reliability',
                         *[f'related_reliability_{i}' for i in range(num_related)]],
-                postfix=[]
+                postfix=[],
+                buffer_size=5
             )
 
     def _forward(self, context_x, context_y, query_x, *args, **kwargs) -> torch.Tensor:
@@ -120,53 +121,53 @@ class PFNPriorImputation(AbstractModel):
 
         return target_logits
 
-    def calculate_reliability(self, x_train, y_train):
-        context_size = x_train.shape[0]
-
-        context_x = x_train.to(self.device)
-        context_y = y_train.to(self.device)
-
-        related_x = self.related_task_data.x.to(self.device)
-        related_y = self.related_task_data.y.to(self.device)
-        padding_mask = self.related_task_data.padding_mask.to(self.device)
-        single_eval_pos = related_x.shape[0]
-
-        related_task_data = DotDict({
-            'x': related_x,
-            'y': related_y,
-            'padding_mask': padding_mask,
-            'single_eval_pos': single_eval_pos
-        })
-
-        # fixme: cache these values when we move to optimizing the acquisition function
-        if context_size >= self.min_context_size:
-            # calculate the reliability scores for the related tasks
-            counter = self.call_counter + 1 - self.min_context_size
-            reliability_scores = self.reliability_fn(
-                self.model,
-                context_x,
-                context_y,
-                related_task_data,
-                self.criterion,
-                verbose=True if self.verbose and counter < 15 or counter % 100 == 0 else False,
-                plot_file_path=Path().cwd() / f"reliability_scores_{counter}.png"
-            )
-        else:
-            # if we have no context points, we must assume all are equally likely
-            reliability_scores = -torch.log(torch.ones(len(self.related_task_data),
-                                                       device=self.device))
-
-        # 0 idx is reserved for the current task
-        for i, score in enumerate(reliability_scores):
-            self.logger.add_scalar(
-                "reliability_score",
-                score.item(),
-                -1,  # step
-                context_x.shape[0],
-                i,  # task index
-            )
-
-        return reliability_scores
+    # def calculate_reliability(self, x_train, y_train):
+    #     context_size = x_train.shape[0]
+    #
+    #     context_x = x_train.to(self.device)
+    #     context_y = y_train.to(self.device)
+    #
+    #     related_x = self.related_task_data.x.to(self.device)
+    #     related_y = self.related_task_data.y.to(self.device)
+    #     padding_mask = self.related_task_data.padding_mask.to(self.device)
+    #     single_eval_pos = related_x.shape[0]
+    #
+    #     related_task_data = DotDict({
+    #         'x': related_x,
+    #         'y': related_y,
+    #         'padding_mask': padding_mask,
+    #         'single_eval_pos': single_eval_pos
+    #     })
+    #
+    #     # fixme: cache these values when we move to optimizing the acquisition function
+    #     if context_size >= self.min_context_size:
+    #         # calculate the reliability scores for the related tasks
+    #         counter = self.call_counter + 1 - self.min_context_size
+    #         reliability_scores = self.reliability_fn(
+    #             self.model,
+    #             context_x,
+    #             context_y,
+    #             related_task_data,
+    #             self.criterion,
+    #             verbose=True if self.verbose and counter < 15 or counter % 100 == 0 else False,
+    #             plot_file_path=Path().cwd() / f"reliability_scores_{counter}.png"
+    #         )
+    #     else:
+    #         # if we have no context points, we must assume all are equally likely
+    #         reliability_scores = -torch.log(torch.ones(len(self.related_task_data),
+    #                                                    device=self.device))
+    #
+    #     # 0 idx is reserved for the current task
+    #     for i, score in enumerate(reliability_scores):
+    #         self.logger.add_scalar(
+    #             "reliability_score",
+    #             score.item(),
+    #             -1,  # step
+    #             context_x.shape[0],
+    #             i,  # task index
+    #         )
+    #
+    #     return reliability_scores
 
     def impute(self, x_train: torch.Tensor, task_context_x, task_context_y, padding_mask) -> (
             torch.Tensor):
@@ -394,11 +395,10 @@ class PFNPriorImputation(AbstractModel):
             corr_value = corr_matrix[0, 1].item()  # scalar Pearson correlation
 
             # Step 3: Log it
-            self.mixture_logger.add_scalar(
-                "pi/corr_target_related_mean",
-                self.call_counter,
-                corr_value
+            self.logger.log({'metric': "pi/corr_target_related_mean",'step': self.call_counter,
+                             'value': corr_value}
             )
+            self.logger.flush()
             # plot_pi_correlation(self.mixture_logger.dataframe)
 
             # plot_pi(pi_target, pi_related)
@@ -408,7 +408,7 @@ class PFNPriorImputation(AbstractModel):
             model=self.model,
             criterion=self.criterion,
             related_task_data=related_task_data,
-            logger=self.mixture_logger if self.verbose else None,
+            logger=self.logger if self.verbose else None,
         )(
             x_train=x_train,
             y_train=y_train,

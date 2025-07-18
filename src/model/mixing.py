@@ -36,8 +36,6 @@ class CVMixtureStrategy:
         device = x_train.device
 
         if x_train.shape[0] > self.min_num_samples:
-
-
             target_nll = calc_target_cv_nll(
                 x_train,
                 y_train,
@@ -68,9 +66,7 @@ class CVMixtureStrategy:
         )
 
         if self.logger is not None:
-            self.logger.add_scalar(
-                'reliability', x_train.shape[0], *reliability.detach().tolist(),
-            )
+            self.logger.log({'metric':'reliability', 'step': x_train.shape[0],  **{f'reliability_{i}': r.item() for i, r in enumerate(reliability)}})
 
         pi_values = torch.concat([pi_target.unsqueeze(0), pi_related], dim=0)
         weighted_pi = (pi_values * reliability.unsqueeze(1)).sum(dim=0, keepdim=True)

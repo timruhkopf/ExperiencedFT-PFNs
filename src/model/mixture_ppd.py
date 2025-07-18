@@ -9,7 +9,7 @@ from src.evaluation.test_on_new_task_nll import TestOnNewTaskNLL
 from ifbo import BarDistribution, FTPFN
 from src.model.abstractmodel import AbstractModel
 from src.model.batch_padded_pfn import MyBatch
-from src.utils.filelogger import BufferedFileLogger
+from src.utils.filelogger_json import BufferedDictLogger
 from utils.dotdict import DotDict
 
 
@@ -19,7 +19,7 @@ class PFNPPDMixture(AbstractModel):
     def __init__(
             self,
             model: Union[FTPFN, TransformerModel],
-            logger: BufferedFileLogger,
+            logger: BufferedDictLogger,
             device,
             related_task_data: MyBatch,
             decay_fn: Callable,
@@ -186,13 +186,8 @@ class PFNPPDMixture(AbstractModel):
 
         # 0 idx is reserved for the current task
         for i, score in enumerate(reliability_scores):
-            self.logger.add_scalar(
-                "reliability_score",
-                score.item(),
-                -1,  # step
-                context_x.shape[0],
-                i,  # task index
-            )
+            self.logger.log({'reliability_score': score.item(), 'task_index': i, 'context_size': context_x.shape[0],})
+
 
         # (3) TODO Localize the query_points; i.e. first find the most relevant context points
         #       for each task, then potentially fill it up with the rest of the context points
