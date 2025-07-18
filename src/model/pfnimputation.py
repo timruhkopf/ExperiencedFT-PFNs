@@ -67,7 +67,7 @@ class PFNPriorImputation(AbstractModel):
 
     def __init__(self, model, criterion, logger, mixture_strategy,
                  related_task_data, min_context_size, imputation_mode='mean',
-                 incumbent_calculation='imputation only', flippable_related=False,
+                 incumbent_calculation='imputation-only', flippable_related=False,
                  device=None, verbose=True):
         self.model: TransformerModel = model if isinstance(model, TransformerModel) else model.model
 
@@ -277,11 +277,11 @@ class PFNPriorImputation(AbstractModel):
 
         B = prior_logits.shape[1]
         # TODO ABLATE consider that we should only use the imputed_y here for incumbent calculation.
-        if self.incumbent_calculation == 'imputation only':
+        if self.incumbent_calculation == 'imputation-only':
             prior_incumbents = imputed_y.max(dim=0).values
-        elif self.incumbent_calculation == 'related only':
+        elif self.incumbent_calculation == 'related-only':
             prior_incumbents = related_context_y.max(dim=0).values
-        elif self.incumbent_calculation == 'imputation and related':
+        elif self.incumbent_calculation == 'imputation-and-related':
             prior_incumbents = torch.cat([related_context_y, imputed_y, ], dim=0).max(dim=0).values
         else:
             raise ValueError(f"Unknown incumbent calculation mode: {self.incumbent_calculation}")
