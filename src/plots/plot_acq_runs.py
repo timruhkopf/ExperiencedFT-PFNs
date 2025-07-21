@@ -21,12 +21,12 @@ def compute_anytime_performance(df, minimize=True):
     return df
 
 
-def aggregate_anytime(df):
+def aggregate_anytime(df, upper=0.95, lower=0.05):
     agg = (
         df.groupby(['benchmark.meta.name', 'algoname', 'step'])
         .agg(
-            q05_anytime=('anytime_performance', lambda x: x.quantile(0.05)),
-            q95_anytime=('anytime_performance', lambda x: x.quantile(0.95)),
+            qlower_anytime=('anytime_performance', lambda x: x.quantile(0.05)),
+            qupper_anytime=('anytime_performance', lambda x: x.quantile(0.95)),
             median_anytime=('anytime_performance', 'median')
         )
         .reset_index()
@@ -50,8 +50,8 @@ def plot_anytime_performance(agg_df, title=None, show=False):
         plt.plot(data['step'], data['median_anytime'], label=label, color=color)
         plt.fill_between(
             data['step'],
-            data['q05_anytime'],
-            data['q95_anytime'],
+            data['qlower_anytime'],
+            data['qupper_anytime'],
             color=color,
             alpha=0.2
         )
@@ -73,11 +73,13 @@ def plot_anytime_performance(agg_df, title=None, show=False):
 
 def main(
     file='/home/ruhkopf/PycharmProjects/ExperiencedFT-PFNs/luis_results/fixed_reliability'
-         '/fix_joint_results_94dc71b.csv',
+         '/fix_joint_results.csv',
     minimize=True,
     save=True,
     title=None,
-    show=False
+    show=False,
+    upper=0.95,
+    lower=0.05
 ):
     file = Path(file)
     df = pd.read_csv(file)
@@ -93,7 +95,7 @@ def main(
 
     # df is your original DataFrame
     df_anytime = compute_anytime_performance(df, minimize=minimize)
-    agg_df = aggregate_anytime(df_anytime)
+    agg_df = aggregate_anytime(df_anytime, upper, lower)
     g = plot_anytime_performance(agg_df, title=title, show=show)
 
     if save:
