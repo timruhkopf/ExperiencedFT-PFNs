@@ -53,7 +53,7 @@ def general_power_transform(x_train, x_apply, eps, less_safe=False):
             pt = PowerTransformer(method='box-cox')
             pt.fit(x_train.cpu()+eps)
             x_out = torch.tensor(pt.transform(x_apply.cpu()+eps), dtype=x_apply.dtype, device=x_apply.device)
-        except ValueError as e:
+        except Exception as e:
             print(e)
             x_out = x_apply - x_train.mean(0)
     else:
@@ -86,7 +86,8 @@ def general_power_transform(x_train, x_apply, eps, less_safe=False):
 #@torch.inference_mode()
 def general_acq_function(model: transformer.TransformerModel, x_given, y_given, x_eval, apply_power_transform=True,
                     rand_sample=False, znormalize=False, pre_normalize=False, pre_znormalize=False, predicted_mean_fbest=False,
-                    input_znormalize=False, max_dataset_size=10_000, remove_features_with_one_value_only=False, acq_function='ei', ucb_rest_prob=.05, ensemble_log_dims=False,
+                    input_znormalize=False, max_dataset_size=10_000, remove_features_with_one_value_only=False,
+                    return_actual_ei=False, acq_function='ei', ucb_rest_prob=.05, ensemble_log_dims=False,
                     ensemble_type='mean_probs', # in ('mean_probs', 'max_acq')
                     input_power_transform=False, power_transform_eps=.0, input_power_transform_eps=.0,
                     input_rank_transform=False, ensemble_input_rank_transform=False,
@@ -267,7 +268,6 @@ def general_acq_function(model: transformer.TransformerModel, x_given, y_given, 
 
     if acq_function == 'ei':
         acq_value = acq_ensembling(criterion.ei(logits_eval, tau))
-        print(f"acq_function: {acq_function}, acq_value: {acq_value}")
     elif acq_function == 'ei_or_rand':
         if torch.rand(1).item() < 0.5:
             acq_value = torch.rand(len(x_eval))
@@ -316,7 +316,10 @@ def general_acq_function(model: transformer.TransformerModel, x_given, y_given, 
         acq_value = is_pareto_efficient(-acq_values)
     else:
         raise ValueError(f'Unknown acquisition function: {acq_function}')
-    return acq_value
+
+    max_acq = acq_value.max()
+
+    return acq_value if return_actual_ei else (acq_value == max_acq)
 
 
 def optimize_acq(model, known_x, known_y, num_grad_steps=10, num_random_samples=100, lr=.01, **kwargs):

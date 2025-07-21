@@ -28,6 +28,9 @@ class PFNs4BO:
         X_obs = to_tensor(X_obs, device=self.device).to(torch.float32)
         X_pen = to_tensor(X_pen, device=self.device).to(torch.float32)
 
+        #print(f"X_obs shape: {X_obs.min()}, {X_obs.max()}: {X_pen.min()}, {X_pen.max()}")
+        #print(len(X_obs), len(y_obs), len(X_pen))
+
         assert len(X_obs) == len(y_obs), "make sure both X_obs and y_obs have the same length."
 
         self.model.to(self.device)
