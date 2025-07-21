@@ -4,6 +4,8 @@ from pathlib import Path
 import numpy as np
 import torch
 from mfpbench import TabularBenchmark
+from tqdm import tqdm
+
 from src.dataset.synthetic_bm import SyntheticBenchmark
 from ifbo.utils import detokenize
 from ifbo import Batch
@@ -667,11 +669,11 @@ class MFBenchPrior(TabularBenchmark):
 
         X = []
         Y = []
-        for task, alpha, context_size in zip(
+        for task, alpha, context_size in tqdm(zip(
                 benchmarks,
                 alphas,
                 single_eval_pos,
-        ):
+        ), desc="Sampling related task's budget allocations:", total=len(benchmarks)):
             x, y = self.sample_from_task(
                 alpha=alpha, context_size=context_size,
                 benchmark=task,
