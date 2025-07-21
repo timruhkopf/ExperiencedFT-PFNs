@@ -4,7 +4,7 @@ from src.model.calc_reliability import calc_target_cv_nll, calc_imputed_linalg_r
 
 
 class CVMixtureStrategy:
-    def __init__(self, model, criterion, related_task_data=None, min_num_samples=10, logger=None, multi_fidelity=False):
+    def __init__(self, model, criterion, related_task_data=None, min_num_samples=1, logger=None, multi_fidelity=False):
         """This class is a new variant of the MixtureStrategy that consider
         the reliability of related scores in conjunction with cross-valdiated nll scores
         of the target data."""
@@ -15,20 +15,19 @@ class CVMixtureStrategy:
         self.logger = logger
         self.multi_fidelity = multi_fidelity
 
+
     def __call__(self, x_train, y_train, pi_target, pi_related, minimize):
         # fixme what do we need to do with the minimize flag?
 
         device = x_train.device
 
         if x_train.shape[0] > self.min_num_samples:
-
-
             target_nll = calc_target_cv_nll(
                 x_train,
                 y_train,
                 self.model,
                 self.criterion,
-                splits=5,
+                splits=min(5, x_train.shape[0]),
                 random_state=42,
                 start_feature_indx=2 if self.multi_fidelity else 0,
             ).unsqueeze(0).to(device)
@@ -39,7 +38,9 @@ class CVMixtureStrategy:
                 degree_fn=lambda x, y: max(x[:, 0, 1].unique().shape[0] - 3, 0) if self.multi_fidelity else 1,    
                 multi_fidelity = self.multi_fidelity
                 # avoid multicollinearity if all have same fidelity. grow polynomial features based on the fidelity availability
-            ).to(device)
+            )
+            
+            related_nll = related_nll.to(device)
 
             #print(f"Target NLL: {target_nll}, Related NLL: {related_nll}")
         else:
@@ -57,7 +58,10 @@ class CVMixtureStrategy:
             torch.concat([-target_nll, -related_nll], dim=0), dim=0
         )
 
+
         #print(f"Reliability: {reliability}")
+        #reliability[1:] = 0
+
 
         if self.logger is not None:
             self.logger.add_scalar(

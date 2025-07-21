@@ -80,10 +80,10 @@ class MPFNs4BO(nn.Module):
         # X_pen is a numpy array of shape (n_samples_left, n_features)
         assert len(X_obs) == len(y_obs), "make sure both X_obs and y_obs have the same length."
         if minimize:
-            y_obs = to_tensor(-y_obs, device=self.device).to(torch.float32).view(-1) # data are normalized between 0 and 1
+            y_obs = to_tensor(1 - y_obs, device=self.device).to(torch.float32).view(-1) # data are normalized between 0 and 1
         else:
             y_obs = to_tensor(y_obs, device=self.device).to(torch.float32).view(-1)
-        y_obs =  self.label_transforms(y_obs, **self.kwargs).squeeze()
+        #y_obs =  self.label_transforms(y_obs, **self.kwargs).squeeze()
         X_obs = to_tensor(X_obs, device=self.device).to(torch.float32)
         X_pen = to_tensor(X_pen, device=self.device).to(torch.float32)
 

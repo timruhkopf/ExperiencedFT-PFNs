@@ -22,7 +22,7 @@ class PFNs4BO:
         # y_obs is a numpy array of shape (n_samples,), between 0 and 1
         # X_pen is a numpy array of shape (n_samples_left, n_features)
         if minimize:
-            y_obs = to_tensor(-y_obs, device=self.device).to(torch.float32).view(-1) # data are normalized between 0 and 1
+            y_obs = to_tensor(1 - y_obs, device=self.device).to(torch.float32).view(-1) # data are normalized between 0 and 1
         else:
             y_obs = to_tensor(y_obs, device=self.device).to(torch.float32).view(-1)
         X_obs = to_tensor(X_obs, device=self.device).to(torch.float32)
@@ -39,13 +39,17 @@ class PFNs4BO:
 
         with (torch.cuda.amp.autocast() if self.device[:3] != 'cpu' else contextlib.nullcontext()):
             acq_values = self.acq_function(self.model, X_obs, y_obs,
-                                           X_pen, return_actual_ei=return_actual_ei, apply_power_transform = False, **self.kwargs).cpu().clone()  # bool array
+                                           X_pen, apply_power_transform = False, acq_function='pi', **self.kwargs).cpu().clone()  # bool array
             acq_mask = acq_values.max() == acq_values
         possible_next = torch.arange(len(X_pen))[acq_mask]
         if len(possible_next) == 0:
             possible_next = torch.arange(len(X_pen))
 
         r = possible_next[torch.randperm(len(possible_next))[0]].cpu().item()
+
+        #print(f"Suggesting point {r} with acquisition value {acq_values}, y_obs: {y_obs.max(), y_obs[-1]}")
+        # run on one dataset 
+        
         
         if return_actual_ei:
             return r, acq_values

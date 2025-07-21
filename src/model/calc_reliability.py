@@ -55,69 +55,68 @@ def _calc_reliability(
 
 def linear_alg(num_tasks, context_y, imputed_y, device, lambda_reg=0.1):
     # context_y: (N,)
-    # imputed_y: (N, T)
+    # imputed_y: (T, N)
+    imputed_y = imputed_y  # Ensure shape is (N, T) for downstream code
     # Goal: solve y = α * x + β  for each task
-    y = context_y.view(-1, 1).to(device)         # (N, 1)
+    y = context_y.view(-1).to(device)            # (N,)
     x = imputed_y.to(device)                     # (N, T)
-    N = x.size(0)
     x_mean = x.mean(dim=0, keepdim=True)         # (1, T)
-    y_mean = y.mean(dim=0, keepdim=True)         # (1, 1)
+    y_mean = y.mean()                            # scalar
     x_centered = x - x_mean                      # (N, T)
-    y_centered = y - y_mean                      # (N, 1)
+    y_centered = y.unsqueeze(1) - y_mean         # (N, 1)
     # Compute covariance between each x[:,j] and y
     cov_xy = (x_centered * y_centered).mean(dim=0)  # (T,)
     var_x = (x_centered ** 2).mean(dim=0)           # (T,)
     # Regularized alpha
     alpha = (cov_xy + lambda_reg) / (var_x + lambda_reg)  # (T,)
     # Compute beta for each task
-    beta = y_mean.squeeze() - alpha * x_mean.squeeze()    # (T,)
+    beta = y_mean - alpha * x_mean.squeeze(0)            # (T,)
     # Project y back into x space: x_proj = (y - beta) / alpha
-    y_proj = (y - beta.unsqueeze(0)) / alpha.unsqueeze(0)  # (N, T)
+    y_proj = (y.unsqueeze(1) - beta.unsqueeze(0)) / alpha.unsqueeze(0)  # (N, T)
     return y_proj
 
+def linear_alg_main(num_tasks, context_x, context_y, imputed_y, device):
+    x = context_x.reshape(-1, 1)  # Ensure x is column vector
+    degree = 1
 
-# def linear_alg(num_tasks, context_y, imputed_y, device):
-#         with torch.set_grad_enabled(True):
-#             target =  context_y.unsqueeze(1).repeat(1, num_tasks)
-#             x = imputed_y.to(device)
+    x = torch.cat([x ** i for i in range(degree+1)], dim=1).to(device)  # Polynomial features
+    X_design = torch.cat([context_y.unsqueeze(1), x], dim=1).to(device)  # Add context_y as first
 
-#             alpha = torch.nn.Parameter(torch.randn(num_tasks, device=device), requires_grad=True).to(device)
-#             beta = torch.nn.Parameter(torch.randn(num_tasks, device=device), requires_grad=True).to(device)
-#             optimizer = torch.optim.Adam([beta], lr=0.01)
+    # Build block-diagonal design matrix for all tasks
+    X_design_block = torch.block_diag(*[X_design for _ in range(num_tasks)])  # [num_tasks*num_points, ...][2][5]
 
-#             for _ in range(100):  # adjust iterations as needed
-#                 optimizer.zero_grad()
-#                 y_proj = alpha * x + beta
+    # Reorder imputed_y to match block-diagonal structure: all points for task 0, then task 1, etc.
+    imputed_y_ordered = imputed_y.transpose(0, 1).contiguous().view(-1)  # [num_tasks*num_points]
 
-#                 mse_loss = torch.nn.functional.mse_loss(y_proj, target)
-
-#                 reg_loss = 0.1 *(torch.sum((alpha-1) ** 2) )
-#                 loss = mse_loss + reg_loss
-
-#                 loss.backward()
-#                 optimizer.step()
-#             print(f"Loss: {loss.item()}, MSE: {mse_loss.item()}, Reg: {reg_loss.item()}")
-
-#             print(f"alpha: {alpha}, beta: {beta}")
-
-#             y_proj = (target - beta)/ alpha
- 
-#             return y_proj
+    beta = torch.linalg.lstsq(X_design_block, imputed_y_ordered).solution
+    beta = torch.clamp(beta, min=0)  # Ensure no negative values in beta
+    print(beta)
+    y_proj = X_design_block @ beta
+    y_proj = y_proj.clamp(0, 1)
+    return y_proj   
 
 
 def norm_alg(num_tasks, context_y, imputed_y, device):
-        context_y =  context_y.unsqueeze(1)
-        imputed_y = imputed_y.to(device)
+    """
+    Normalize imputed_y for each task to [0, 1], then scale to context_y's range.
+    Returns y_proj of shape [num_points, num_tasks].
+    """
+    context_y = context_y.to(device).unsqueeze(1)  # [num_points, 1]
+    imputed_y = imputed_y.to(device)  # [num_tasks, num_points]
 
-        imputed_y_min = imputed_y.min(dim=0).values
-        imputed_y_max = imputed_y.max(dim=0).values
-        n_imputed_y = (imputed_y - imputed_y_min) / (imputed_y_max - imputed_y_min)  # Normalize imputed_y
-        y_proj =  (n_imputed_y + context_y.min()) * (context_y.max() - context_y.min())
+    imputed_y_min = imputed_y.min(dim=0, keepdim=True).values  # [num_tasks, 1]
+    imputed_y_max = imputed_y.max(dim=0, keepdim=True).values  # [num_tasks, 1]
+    # Avoid division by zero
+    denom = (imputed_y_max - imputed_y_min).clamp(min=1e-3)
+    n_imputed_y = (imputed_y - imputed_y_min) / denom  # [num_tasks, num_points ]
+    print(n_imputed_y)
+    context_y_min = context_y.min()
+    context_y_max = context_y.max()
+    y_proj = n_imputed_y * (context_y_max - context_y_min) + context_y_min  # [num_tasks, num_points]
+    return y_proj
 
-        return y_proj
 
-
-def calc_imputed_linalg_reliability(
+def old_calc_imputed_linalg_reliability(
         model: TransformerModel,
         context_x: torch.Tensor,
         context_y: torch.Tensor,
@@ -360,30 +359,29 @@ def calc_imputed_linalg_reliability(
         return loss  # reliability scores
 
     else:
-        target_fidelity = context_x[:, 0, 1]
         num_tasks = imputed_y.shape[1]
         num_fidelity = imputed_y.shape[0]
         
-        if based_on_loss := True:
+        if based_on_loss := False:
             # compute the reliability scores (nll) based on the projected y ------------
             # y's associated with query for that task
             # target = context_y.repeat(1, num_related)
             # Reshape y_proj to [num_points, num_tasks] for loss computation
             num_tasks = imputed_y.shape[1]
-            num_fidelity = target_fidelity.shape[0]
-            y_proj = linear_alg(num_tasks, context_y, imputed_y, device).T
+            #y_proj = linear_alg(num_tasks, context_y, imputed_y, device).T
+            y_proj = norm_alg(num_tasks, context_y, imputed_y, device).T
+            #y_proj = linear_alg_main(num_tasks, context_x, context_y, imputed_y, device).T
             y_proj_for_loss = y_proj.view(num_tasks, num_fidelity).T  # [num_points, num_tasks]
             loss = criterion(logits, y_proj_for_loss)
             loss = loss.mean(dim=0)  # mean over the batch
-            return loss  # reliability scores
+            return loss
         else:
-            target_fidelity = context_x[:, 0, 1]
             num_tasks = imputed_y.shape[1]
             num_fidelity = imputed_y.shape[0]
             z_mean_imputed_y = imputed_y - imputed_y.mean(dim=0)
             z_mean_context_y = context_y - context_y.mean(dim=0)
             cosine_similarity = torch.nn.functional.cosine_similarity(z_mean_context_y, z_mean_imputed_y.T)
-        return 1 - cosine_similarity  # reliability scores lower is better
+        return 1 - cosine_similarity
 
 def plot_projections(
         target_fidelity: torch.Tensor,
@@ -471,7 +469,11 @@ def kfold_hp_split(context_x, context_y, n_splits=5, random_state=42, start_feat
     Splits data so that all tokens from a given HP config are held out together.
     Returns context (train) and query (test) sets for the specified fold.
     """
-    cx = context_x.squeeze(1).cpu().numpy()  # shape: [n_tokens, n_features]
+    if context_x.ndim == 3:
+        cx = context_x.squeeze(1).cpu().numpy() 
+    else:
+        cx = context_x.cpu().numpy()  # shape: [n_tokens, n_features]
+
     n_tokens = cx.shape[0]
     fidelity_col = 1
     hp_cols = list(range(start_feature_indx, cx.shape[1])) 

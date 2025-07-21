@@ -68,7 +68,7 @@ class PFNPriorImputation(AbstractModel):
                  related_task_data, min_context_size, imputation_mode='mean',
                  device=None, verbose=True):
 
-        if type(model).__name__ == "MPFNs4BO" or type(model).__name__ == "ourPFNs4BO":
+        if "MPFNs4BO" in type(model).__name__ or "ourPFNs4BO" in type(model).__name__:
             self.model = model
         else:
             self.model: TransformerModel = model if isinstance(model, TransformerModel) else model.model
@@ -247,6 +247,8 @@ class PFNPriorImputation(AbstractModel):
             padding_mask=padding_mask
         )
 
+        self.imputed_y = imputed_y
+
         # prior logits under the imputed data points --------------------------
 
         # 2.
@@ -273,12 +275,14 @@ class PFNPriorImputation(AbstractModel):
             incumbents = imputed_y
         else:
             incumbents = torch.cat([related_context_y, imputed_y, ], dim=0)
-
+        
         if minimize:
             prior_incumbents = incumbents.min(dim=0).values
         else:
             prior_incumbents = incumbents.max(dim=0).values
         prior_incumbents = prior_incumbents.unsqueeze(1).repeat(1, x_test.shape[0])
+
+        
         pi_related = torch.stack([
             self.criterion.pi(prior_logits[:, b, :].squeeze(1),
                             best_f=prior_incumbents[b, :])
@@ -368,6 +372,8 @@ class PFNPriorImputation(AbstractModel):
             inc=inc,
             minimize=minimize
         )
+        self.pi_target = pi_target
+        self.pi_related = pi_related
 
         # 4.
         scores, reliability_scores = self.mixture_strategy(

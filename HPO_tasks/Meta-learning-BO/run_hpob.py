@@ -35,6 +35,7 @@ def run_optimization_loop(
     X = np.asarray(benchmark.benchmark_data["X"])
     y = np.asarray(benchmark.benchmark_data["y"])
     y = benchmark.normalize(-y)
+    print(f"Normalized y: {y.min()} to {y.max()}")
 
     data_size = len(X)
     # indices of pending evaluations
