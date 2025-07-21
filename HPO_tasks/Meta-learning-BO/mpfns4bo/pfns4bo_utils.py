@@ -75,11 +75,15 @@ def general_power_transform(x_train, x_apply, eps, less_safe=False):
             try:
                 pt.fit(x_train.cpu().double())
             except Exception as e2:
-                print('caught this errrr', e2)
+                print('caught this err2', e2)
                 x_out = x_apply - x_train.mean(0)
                 return x_out
-                
-        x_out = torch.tensor(pt.transform(x_apply.cpu()), dtype=x_apply.dtype, device=x_apply.device)
+        try:
+            x_out = torch.tensor(pt.transform(x_apply.cpu()), dtype=x_apply.dtype, device=x_apply.device)
+        except Exception as e3:
+                print('transform err3', e3)
+                x_out = x_apply - x_train.mean(0)
+                return x_out
     if torch.isnan(x_out).any() or torch.isinf(x_out).any():
         print('WARNING: power transform failed')
         #print(f"{x_train=} and {x_apply=}")
