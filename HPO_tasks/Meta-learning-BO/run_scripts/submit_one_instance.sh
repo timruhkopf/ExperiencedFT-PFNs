@@ -31,9 +31,9 @@ for ((i=0; i<seeds_length; i++)); do
         else
             echo "Idle partition found:$partition"
         fi
-        #partition="2080-galvani"
+        partition="2080-galvani"
 
-        output=$(eval sbatch --partition=$partition --error=$error_path --output=$output_path runoncluster.sh $search_space_id $policy $seed)
+        output=$(eval sbatch --partition=$partition --error=$error_path --output=$output_path --exclude=galvani-cn119 runoncluster.sh $search_space_id $policy $seed)
         if [[ $output == *"Submitted batch job"* ]]; then
             echo $output
             echo "Succesfully"
