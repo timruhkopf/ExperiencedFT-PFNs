@@ -39,7 +39,7 @@ class PFNs4BO:
 
         with (torch.cuda.amp.autocast() if self.device[:3] != 'cpu' else contextlib.nullcontext()):
             acq_values = self.acq_function(self.model, X_obs, y_obs,
-                                           X_pen, apply_power_transform = False, acq_function='pi', **self.kwargs).cpu().clone()  # bool array
+                                           X_pen, apply_power_transform = True, input_power_transform = True, acq_function='pi', **self.kwargs).cpu().clone()  # bool array
             acq_mask = acq_values.max() == acq_values
         possible_next = torch.arange(len(X_pen))[acq_mask]
         if len(possible_next) == 0:
