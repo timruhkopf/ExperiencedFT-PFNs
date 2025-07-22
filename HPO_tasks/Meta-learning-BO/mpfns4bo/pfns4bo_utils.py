@@ -252,8 +252,8 @@ def general_acq_function(model: transformer.TransformerModel, x_given, y_given, 
     del logits_list, x_full_feed
     if torch.isnan(logits).any():
         print('nan logits')
-        print(f"y_given: {y_given}, x_given: {x_given}, x_eval: {x_eval}")
-        print(f"logits: {logits}")
+        #print(f"y_given: {y_given}, x_given: {x_given}, x_eval: {x_eval}")
+        #print(f"logits: {logits}")
         return torch.zeros_like(x_eval[:,0])
 
     #logits = model((torch.cat([x_given, x_given, x_eval], dim=0).unsqueeze(1),
