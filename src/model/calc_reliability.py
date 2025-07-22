@@ -111,6 +111,15 @@ def calc_imputed_linalg_reliability(
     padding_mask = related_task_data.padding_mask.to(device)  # shape [num_tasks, num_points]
     num_related = task_context_x.shape[1]
 
+    if context_x.shape[-1] < task_context_x.shape[-1]:
+        diff = task_context_x.shape[-1] - context_x.shape[-1]
+        placeholder = task_context_x[:, :, -diff:].mean(dim=1).mean(dim=0)
+        context_x = torch.cat([
+            context_x,
+            placeholder.repeat(context_x.shape[0],1, 1)
+        ], dim=-1).to(device)
+
+
     # impute target_task y's for conditioned on each related task --------------
     logits = model(
         (

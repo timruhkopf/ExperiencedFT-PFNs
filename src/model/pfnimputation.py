@@ -167,8 +167,8 @@ class PFNPriorImputation(AbstractModel):
         """
         # related ppd for current query points
         num_related = task_context_x.shape[1]
-        print(f"Shapes: task_context_x: {task_context_x.shape} vs "
-              f"x_train.repated: {x_train.repeat(1, num_related, 1).shape}")
+        # print(f"Shapes: task_context_x: {task_context_x.shape} vs "
+        #       f"x_train.repated: {x_train.repeat(1, num_related, 1).shape}")
 
 
         # impute the observed data points --------------------------------------
@@ -253,14 +253,14 @@ class PFNPriorImputation(AbstractModel):
                 placeholder.repeat(x_test.shape[0], 1)
             ], dim=-1).to(self.device)
 
-        elif x_train.shape[-1] > related_context_x.shape[-1]:
-            # the other (unlucky case) is that all the related contexts have fewer features
-            diff = x_train.shape[-1] - related_context_x.shape[-1]
-            placeholder = x_train[:, -diff:].mean(dim=0)
-            related_context_x = torch.cat([
-                related_context_x,
-                placeholder.repeat(related_context_x.shape[0], 1)
-            ], dim=-1).to(self.device)
+        # elif x_train.shape[-1] > related_context_x.shape[-1]:
+        #     # the other (unlucky case) is that all the related contexts have fewer features
+        #     diff = x_train.shape[-1] - related_context_x.shape[-1]
+        #     placeholder = x_train[:, -diff:].mean(dim=0)
+        #     related_context_x = torch.cat([
+        #         related_context_x,
+        #         placeholder.repeat(related_context_x.shape[0], 1)
+        #     ], dim=-1).to(self.device)
 
 
         if padding_mask is not None:
