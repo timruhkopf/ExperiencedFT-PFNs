@@ -13,6 +13,8 @@ import pandas as pd
 import os
 
 experiment_ids = ["MALIBO", "PFNs4BO", "PFNs4BO-PI", "PFNs4BO-EI", "mPFNs4BO"]
+experiment_ids = ["PFNs4BO-EI-IW"]
+
 seeds = ["test0", "test1", "test2", "test3", "test4"]
 results_path = "results/hpob"
 
