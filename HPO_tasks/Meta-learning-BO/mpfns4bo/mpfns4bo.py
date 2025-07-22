@@ -40,9 +40,8 @@ class MPFNs4BO(nn.Module):
             if task_uid in validation_task_data:
                 evaluations_val = validation_task_data[task_uid]
                 X_val = np.array([self.search_space.to_numerical(e.configuration) for e in evaluations_val])
-                Y_val = np.array([e.objectives["loss"] for e in evaluations_val]).reshape(-1) # return to maximization (performance)
-                Y_val = 1 - (Y_val-np.min(Y_val))/(np.max(Y_val)-np.min(Y_val))
-                print( task_uid, Y_val.max(), Y_val.min())
+                Y_val = -np.array([e.objectives["loss"] for e in evaluations_val]).reshape(-1) # return to maximization (performance)
+                Y_val = (Y_val-np.min(Y_val))/(np.max(Y_val)-np.min(Y_val))
                 X = np.concatenate([X, X_val], axis=0)
                 Y = np.concatenate([Y, Y_val], axis=0)
             max_length = max(max_length, len(Y))

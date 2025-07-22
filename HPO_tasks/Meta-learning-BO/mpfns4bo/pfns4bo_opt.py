@@ -16,18 +16,18 @@ class PFNs4BO:
 
 
     @torch.no_grad()
-    def observe_and_suggest(self, X_obs, y_obs, X_pen, return_actual_ei=False, minimize=True):
+    def observe_and_suggest(self, X_observed, y_observed, X_pending, return_actual_ei=False, minimize=True):
         # assert X_pen is not None
         # assumptions about X_obs and X_pen:
         # X_obs is a numpy array of shape (n_samples, n_features)
         # y_obs is a numpy array of shape (n_samples,), between 0 and 1
         # X_pen is a numpy array of shape (n_samples_left, n_features)
         if minimize:
-            y_obs = to_tensor(1 - y_obs, device=self.device).to(torch.float32).view(-1) # data are normalized between 0 and 1
+            y_obs = to_tensor(1 - y_observed, device=self.device).to(torch.float32).view(-1) # data are normalized between 0 and 1
         else:
-            y_obs = to_tensor(y_obs, device=self.device).to(torch.float32).view(-1)
-        X_obs = to_tensor(X_obs, device=self.device).to(torch.float32)
-        X_pen = to_tensor(X_pen, device=self.device).to(torch.float32)
+            y_obs = to_tensor(y_observed, device=self.device).to(torch.float32).view(-1)
+        X_obs = to_tensor(X_observed, device=self.device).to(torch.float32)
+        X_pen = to_tensor(X_pending, device=self.device).to(torch.float32)
 
         #print(f"X_obs shape: {X_obs.min()}, {X_obs.max()}: {X_pen.min()}, {X_pen.max()}")
         #print(len(X_obs), len(y_obs), len(X_pen))
@@ -43,7 +43,7 @@ class PFNs4BO:
 
         with (torch.cuda.amp.autocast() if self.device[:3] != 'cpu' else contextlib.nullcontext()):
             acq_values = self.acq_function(self.model, X_obs, y_obs,
-                                           X_pen, apply_power_transform = True, input_power_transform = True, acq_function= self.acq_function_type, **self.kwargs).cpu().clone()  # bool array
+                                           X_pen, apply_power_transform = True, input_power_transform = False, acq_function= self.acq_function_type, **self.kwargs).cpu().clone()  # bool array
             acq_mask = acq_values.max() == acq_values
         possible_next = torch.arange(len(X_pen))[acq_mask]
         if len(possible_next) == 0:
