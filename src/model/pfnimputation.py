@@ -167,13 +167,13 @@ class PFNPriorImputation(AbstractModel):
         """
         # related ppd for current query points
         num_related = task_context_x.shape[1]
+        print(f"Shapes: task_context_x: {task_context_x.shape} vs "
+              f"x_train.repated: {x_train.repeat(1, num_related, 1).shape}")
 
-        if task_context_x.shape[1:] != x_train.repeat(1, num_related, 1).shape[1:]:
-            print(f"Shape mismatch: {task_context_x.shape[1:]} vs"
-                  f"{x_train.repeat(1, num_related, 1).shape[1:]}")
 
         # impute the observed data points --------------------------------------
         # TODO Cache these values, when we optimize over the acquisition function?
+
         imputed_logits = self.model(
             (
                 # fixme: slurm error: ifbo_array_5565440_5.err
@@ -185,6 +185,7 @@ class PFNPriorImputation(AbstractModel):
             single_eval_pos=task_context_x.shape[0],
             src_key_padding_mask=padding_mask
         )
+
 
         if self.imputation_mode == 'median':
             imputed_y = self.criterion.median(imputed_logits)
@@ -235,6 +236,32 @@ class PFNPriorImputation(AbstractModel):
         x_test = x_test.to(self.device)
         related_context_x = related_context_x.to(self.device)
         related_context_y = related_context_y.to(self.device)
+
+        # in case the search spaces are supersets of each other, we need to augment the
+        # x_train data to match the related context (we need to drop the dim later for the
+        # acquisition function to not notice)
+        if x_train.shape[-1] < related_context_x.shape[-1]:
+            diff = related_context_x.shape[-1] - x_train.shape[-1]
+            placeholder = related_context_x[:, :, -diff:].mean(dim=1).mean(dim=0)
+            x_train = torch.cat([
+                x_train,
+                placeholder.repeat(x_train.shape[0], 1)
+            ], dim=-1).to(self.device)
+
+            x_test = torch.cat([
+                x_test,
+                placeholder.repeat(x_test.shape[0], 1)
+            ], dim=-1).to(self.device)
+
+        elif x_train.shape[-1] > related_context_x.shape[-1]:
+            # the other (unlucky case) is that all the related contexts have fewer features
+            diff = x_train.shape[-1] - related_context_x.shape[-1]
+            placeholder = x_train[:, -diff:].mean(dim=0)
+            related_context_x = torch.cat([
+                related_context_x,
+                placeholder.repeat(related_context_x.shape[0], 1)
+            ], dim=-1).to(self.device)
+
 
         if padding_mask is not None:
             padding_mask = padding_mask.to(self.device)
