@@ -89,8 +89,8 @@ def linear_alg_main(num_tasks, context_x, context_y, imputed_y, device):
     imputed_y_ordered = imputed_y.transpose(0, 1).contiguous().view(-1)  # [num_tasks*num_points]
 
     beta = torch.linalg.lstsq(X_design_block, imputed_y_ordered).solution
-    beta = torch.clamp(beta, min=0)  # Ensure no negative values in beta
-    print(beta)
+    #beta = torch.clamp(beta, min=0)  # Ensure no negative values in beta
+    #print(beta)
     y_proj = X_design_block @ beta
     y_proj = y_proj.clamp(0, 1)
     return y_proj   
@@ -362,14 +362,14 @@ def calc_imputed_linalg_reliability(
         num_tasks = imputed_y.shape[1]
         num_fidelity = imputed_y.shape[0]
         
-        if based_on_loss := False:
+        if based_on_loss := True:
             # compute the reliability scores (nll) based on the projected y ------------
             # y's associated with query for that task
             # target = context_y.repeat(1, num_related)
             # Reshape y_proj to [num_points, num_tasks] for loss computation
             num_tasks = imputed_y.shape[1]
-            #y_proj = linear_alg(num_tasks, context_y, imputed_y, device).T
-            y_proj = norm_alg(num_tasks, context_y, imputed_y, device).T
+            y_proj = linear_alg(num_tasks, context_y, imputed_y, device).T
+            #y_proj = norm_alg(num_tasks, context_y, imputed_y, device).T
             #y_proj = linear_alg_main(num_tasks, context_x, context_y, imputed_y, device).T
             y_proj_for_loss = y_proj.view(num_tasks, num_fidelity).T  # [num_points, num_tasks]
             loss = criterion(logits, y_proj_for_loss)

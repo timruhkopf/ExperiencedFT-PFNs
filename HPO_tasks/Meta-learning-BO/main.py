@@ -111,13 +111,13 @@ if __name__ == "__main__":
                     import pfns4bo
                     from mpfns4bo.pfns4bo_opt import PFNs4BO
                     from pfns4bo.scripts.tune_input_warping import fit_input_warping
-                    optimizer = PFNs4BO(torch.load( pfns4bo.hebo_plus_model), fit_encoder=fit_input_warping, device=args.device, acq_function_type='ei')
+                    optimizer = PFNs4BO(torch.load( pfns4bo.hebo_plus_model), fit_encoder=fit_input_warping, device=args.device, acq_function_type='ei', apply_power_transform=True, input_power_transform=True)
 
                 elif args.method == "PFNs4BO-PI-IW":
                     import pfns4bo
                     from mpfns4bo.pfns4bo_opt import PFNs4BO
                     from pfns4bo.scripts.tune_input_warping import fit_input_warping
-                    optimizer = PFNs4BO(torch.load( pfns4bo.hebo_plus_model), fit_encoder=fit_input_warping, device=args.device, acq_function_type='pi')
+                    optimizer = PFNs4BO(torch.load( pfns4bo.hebo_plus_model), fit_encoder=fit_input_warping, device=args.device, acq_function_type='pi', apply_power_transform=True, input_power_transform=True)
 
                 elif args.method == "PFNs4BO-PI":
                     import pfns4bo
@@ -129,6 +129,14 @@ if __name__ == "__main__":
                     from mpfns4bo.mpfns4bo import MPFNs4BO
                     meta_data, validation_data = benchmark.get_meta_data()
                     optimizer = MPFNs4BO(torch.load( pfns4bo.hebo_plus_model), benchmark.search_space, meta_data, validation_data, device=args.device)
+
+                elif args.method == "mPFNs4BO-IW":
+                    import pfns4bo
+                    from mpfns4bo.mpfns4bo import MPFNs4BO
+                    meta_data, validation_data = benchmark.get_meta_data()
+                    from pfns4bo.scripts.tune_input_warping import fit_input_warping
+                    optimizer = MPFNs4BO(torch.load( pfns4bo.hebo_plus_model), benchmark.search_space, meta_data, validation_data, device=args.device, fit_encoder=fit_input_warping, apply_power_transform=True, input_power_transform=True)
+
                 else:
                     raise ValueError(f"Unknown method: {args.method}")
                 # run BO loop

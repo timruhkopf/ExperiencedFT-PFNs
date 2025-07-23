@@ -14,7 +14,7 @@ def f(X, shift=0):
     """
     Torch-compatible objective function for the target_task
     """
-    f_X =  0.5 + 0.5 * torch.sin(10*X/2 + math.pi/2 + shift)
+    f_X =  0.5 + ((0.1) * X + 0.5 * torch.sin(10*X/2 + math.pi/2 + shift))*(1- shift*12/ math.pi/20 )
     return f_X
 
 def get_batch(size=10, num_tasks=5):

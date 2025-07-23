@@ -16,7 +16,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 class MPFNs4BO(nn.Module):
-    def __init__(self, model, search_space, related_task_data, validation_task_data = None, device='cpu:0', fit_encoder = None, **kwargs):
+    def __init__(self, model, search_space, related_task_data, validation_task_data = None, device='cpu:0', fit_encoder = None, apply_power_transform =False, input_power_transform=False, **kwargs):
         super().__init__()
         self.model = model
         self.criterion = model.criterion
@@ -24,6 +24,9 @@ class MPFNs4BO(nn.Module):
         self.kwargs = kwargs
         self.fit_encoder = fit_encoder
         self.search_space = search_space
+        self.apply_power_transform = apply_power_transform
+        self.input_power_transform = input_power_transform
+        self.input_power_transform_eps = 0.0
 
         """Meta-learning on meta-data, corresponds to the meta-learning part in Algorithm 1."""
         converted_meta_data = dict()
@@ -40,8 +43,12 @@ class MPFNs4BO(nn.Module):
             if task_uid in validation_task_data:
                 evaluations_val = validation_task_data[task_uid]
                 X_val = np.array([self.search_space.to_numerical(e.configuration) for e in evaluations_val])
+                if self.input_power_transform :
+                    X_val = self.power_transforms(X_val, **self.kwargs).squeeze()
                 Y_val = -np.array([e.objectives["loss"] for e in evaluations_val]).reshape(-1) # return to maximization (performance)
                 Y_val = (Y_val-np.min(Y_val))/(np.max(Y_val)-np.min(Y_val))
+                if self.apply_power_transform:
+                    Y_val = self.power_transforms(Y_val, **self.kwargs).squeeze()
                 X = np.concatenate([X, X_val], axis=0)
                 Y = np.concatenate([Y, Y_val], axis=0)
             max_length = max(max_length, len(Y))
@@ -57,7 +64,6 @@ class MPFNs4BO(nn.Module):
             padding_mask.append(np.concatenate([np.zeros(item["y"].shape[0]),  np.ones(max_length- item["y"].shape[0])]  ))
         x_task_context = to_tensor(np.stack(x_task_context, axis=1)).to(torch.float32).to(device)
         y_task_context =  to_tensor(np.stack(y_task_context, axis=1)).to(torch.float32).to(device)
-        #y_task_context =  self.label_transforms(y_task_context, **self.kwargs)
         padding_mask =  to_tensor(np.stack(padding_mask, axis=1)).to(torch.bool).to(device).T 
 
         self.related_task_data = SimpleNamespace(x=x_task_context, y=y_task_context, padding_mask=padding_mask)
@@ -73,7 +79,6 @@ class MPFNs4BO(nn.Module):
             device=device,
         )
 
-
     @torch.no_grad()
     def observe_and_suggest(self, X_obs, y_obs, X_pen, return_actual_ei=False, minimize=True):
         # X_obs is a numpy array of shape (n_samples, n_features)
@@ -84,11 +89,14 @@ class MPFNs4BO(nn.Module):
             y_obs = to_tensor(1 - y_obs, device=self.device).to(torch.float32).view(-1) # data are normalized between 0 and 1
         else:
             y_obs = to_tensor(y_obs, device=self.device).to(torch.float32).view(-1)
-        #y_obs =  self.label_transforms(y_obs, **self.kwargs).squeeze()
         X_obs = to_tensor(X_obs, device=self.device).to(torch.float32)
         X_pen = to_tensor(X_pen, device=self.device).to(torch.float32)
 
-        
+        if self.apply_power_transform:
+            y_obs = self.power_transforms(y_obs, **self.kwargs).squeeze()
+        if self.input_power_transform:
+            X_obs = general_power_transform(X_obs, X_obs, self.input_power_transform_eps)
+            X_pen = general_power_transform(X_obs, X_pen, self.input_power_transform_eps)
 
         self.model.to(self.device)
 
@@ -115,13 +123,15 @@ class MPFNs4BO(nn.Module):
         else:
             return r
 
-    def label_transforms(
+    def power_transforms(
         self,
         y_given,
         apply_power_transform=True,
         power_transform_eps=0.0,
         unsafe_power_transform=False,
     ):
+        if isinstance(y_given, np.ndarray):
+            y_given = torch.tensor(y_given, device=self.device)
         if len(y_given.shape) == 1:
             y_given = y_given.unsqueeze(1)
         if apply_power_transform:

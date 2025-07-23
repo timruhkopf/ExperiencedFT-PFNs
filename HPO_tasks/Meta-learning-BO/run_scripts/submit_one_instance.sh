@@ -1,6 +1,6 @@
 #!/bin/bash
 search_space_id="6767" #("4796" "5527" "5636" "5859" "5860" "5891" "5906" "5965" "5970" "5971" "6766" "6767" "6794" "7607" "7609" "5889") 
-policies=("PFNs4BO") #  "mPFNs4BO" "MALIBO"
+policies=("mPFNs4BO" "mPFNs4BO-IW") #  "mPFNs4BO" "MALIBO"
 policies_length=${#policies[@]}
 
 seeds=("test0" "test1" "test2" "test3" "test4")

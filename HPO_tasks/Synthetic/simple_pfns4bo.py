@@ -64,9 +64,6 @@ class PFNs4BO:
 
 
 
-
-
-
 class PFNs4BO_discrete:
     def __init__(self, model, acq_f=general_acq_function, device='cpu:0', fit_encoder=None, **kwargs):
         """
@@ -85,7 +82,7 @@ class PFNs4BO_discrete:
     def observe(self, x, y):
         """Add an observation of x (1D array-like) with target y (float)."""
         self.X.append(np.array(x))
-        self.y.append(y)
+        self.y.append(np.array(y))
 
     def suggest(self, candidates, return_actual_ei=True):
         """Suggest the next point to evaluate by sampling."""

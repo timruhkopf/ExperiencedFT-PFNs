@@ -48,6 +48,9 @@ def rank_transform(x_train, x):
 
 
 def general_power_transform(x_train, x_apply, eps, less_safe=False):
+    if isinstance(x_train, np.ndarray) or isinstance(x_apply, np.ndarray):
+        x_train = torch.tensor(x_train)
+        x_apply = torch.tensor(x_apply)
     if eps > 0:
         try:
             pt = PowerTransformer(method='box-cox')

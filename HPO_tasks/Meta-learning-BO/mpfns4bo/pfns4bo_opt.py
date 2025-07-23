@@ -6,13 +6,15 @@ from .pfns4bo_utils import general_acq_function
 import numpy as np
 
 class PFNs4BO:
-    def __init__(self, model, acq_f=general_acq_function, acq_function_type='ei', device='cpu:0', fit_encoder=None, **kwargs):
+    def __init__(self, model, acq_f=general_acq_function, acq_function_type='ei', device='cpu:0', fit_encoder=None, apply_power_transform=False, input_power_transform=False, **kwargs):
         self.model = model
         self.device = device
         self.kwargs = kwargs
         self.acq_function = acq_f
         self.fit_encoder = fit_encoder
         self.acq_function_type = acq_function_type
+        self.apply_power_transform = apply_power_transform
+        self.input_power_transform = input_power_transform
 
 
     @torch.no_grad()
@@ -43,7 +45,7 @@ class PFNs4BO:
 
         with (torch.cuda.amp.autocast() if self.device[:3] != 'cpu' else contextlib.nullcontext()):
             acq_values = self.acq_function(self.model, X_obs, y_obs,
-                                           X_pen, apply_power_transform = True, input_power_transform = False, acq_function= self.acq_function_type, **self.kwargs).cpu().clone()  # bool array
+                                           X_pen, apply_power_transform=self.apply_power_transform, input_power_transform=self.input_power_transform, acq_function=self.acq_function_type, **self.kwargs).cpu().clone()  # bool array
             acq_mask = acq_values.max() == acq_values
         possible_next = torch.arange(len(X_pen))[acq_mask]
         if len(possible_next) == 0:
