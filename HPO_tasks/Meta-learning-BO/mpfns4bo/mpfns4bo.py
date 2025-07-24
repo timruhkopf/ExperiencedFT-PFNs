@@ -14,9 +14,11 @@ from src.model.calc_reliability import calc_imputed_linalg_reliability
 from types import SimpleNamespace
 import logging
 logger = logging.getLogger(__name__)
+from functools import partial
+
 
 class MPFNs4BO(nn.Module):
-    def __init__(self, model, search_space, related_task_data, validation_task_data = None, device='cpu:0', fit_encoder = None, apply_power_transform =False, input_power_transform=False, **kwargs):
+    def __init__(self, model, search_space, related_task_data, validation_task_data = None, device='cpu:0', fit_encoder = None, apply_power_transform =False, input_power_transform=False, tranformation_type=None, **kwargs):
         super().__init__()
         self.model = model
         self.criterion = model.criterion
@@ -27,6 +29,7 @@ class MPFNs4BO(nn.Module):
         self.apply_power_transform = apply_power_transform
         self.input_power_transform = input_power_transform
         self.input_power_transform_eps = 0.0
+        self.transformation_type = tranformation_type
 
         """Meta-learning on meta-data, corresponds to the meta-learning part in Algorithm 1."""
         converted_meta_data = dict()
@@ -72,7 +75,7 @@ class MPFNs4BO(nn.Module):
             model = self,
             criterion = self.criterion, #logger
             logger = None,
-            mixture_strategy = CVMixtureStrategy,
+            mixture_strategy = partial(CVMixtureStrategy, transformation_type=self.transformation_type),
             related_task_data = self.related_task_data,
             min_context_size =1,
             imputation_mode ='mean',

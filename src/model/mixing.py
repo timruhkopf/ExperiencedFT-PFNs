@@ -4,7 +4,7 @@ from src.model.calc_reliability import calc_target_cv_nll, calc_imputed_linalg_r
 
 
 class CVMixtureStrategy:
-    def __init__(self, model, criterion, related_task_data=None, min_num_samples=1, logger=None, multi_fidelity=False):
+    def __init__(self, model, criterion, related_task_data=None, min_num_samples=1, logger=None, multi_fidelity=False, transformation_type=None):
         """This class is a new variant of the MixtureStrategy that consider
         the reliability of related scores in conjunction with cross-valdiated nll scores
         of the target data."""
@@ -14,6 +14,7 @@ class CVMixtureStrategy:
         self.min_num_samples = min_num_samples
         self.logger = logger
         self.multi_fidelity = multi_fidelity
+        self.transformation_type = transformation_type
 
 
     def __call__(self, x_train, y_train, pi_target, pi_related, minimize):
@@ -36,7 +37,8 @@ class CVMixtureStrategy:
                 self.related_task_data,
                 self.criterion,
                 degree_fn=lambda x, y: max(x[:, 0, 1].unique().shape[0] - 3, 0) if self.multi_fidelity else 1,    
-                multi_fidelity = self.multi_fidelity
+                multi_fidelity = self.multi_fidelity,
+                transformation_type=self.transformation_type,
                 # avoid multicollinearity if all have same fidelity. grow polynomial features based on the fidelity availability
             )
             

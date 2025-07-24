@@ -101,7 +101,7 @@ if __name__ == "__main__":
                 elif args.method == "PFNs4BO-EI":
                     import pfns4bo
                     from mpfns4bo.pfns4bo_opt import PFNs4BO
-                    optimizer = PFNs4BO(torch.load( pfns4bo.hebo_plus_model), device=args.device, acq_function_type='ei')
+                    optimizer = PFNs4BO(torch.load( pfns4bo.hebo_plus_model), device=args.device, acq_function_type='ei', apply_power_transform=True)
 
                 elif args.method == "PFNs4BO-EI-IW":
                     import pfns4bo
@@ -124,6 +124,32 @@ if __name__ == "__main__":
                     import pfns4bo
                     from mpfns4bo.pfns4bo_opt import PFNs4BO
                     optimizer = PFNs4BO(torch.load( pfns4bo.hebo_plus_model), device=args.device, acq_function_type='pi')
+
+                elif args.method == "pPFNs4BO":
+                    import pfns4bo
+                    from mpfns4bo.mpfns4bo import MPFNs4BO
+                    meta_data, validation_data = benchmark.get_meta_data()
+                    optimizer = MPFNs4BO(torch.load( pfns4bo.hebo_plus_model), benchmark.search_space, meta_data, validation_data, device=args.device, apply_power_transform=True)
+
+                elif args.method == "pPFNs4BO-cosine":
+                    import pfns4bo
+                    from mpfns4bo.mpfns4bo import MPFNs4BO
+                    meta_data, validation_data = benchmark.get_meta_data()
+                    optimizer = MPFNs4BO(torch.load( pfns4bo.hebo_plus_model), benchmark.search_space, meta_data, validation_data, device=args.device, apply_power_transform=True, tranformation_type='cosine')
+
+                elif args.method == "pPFNs4BO-norm":
+                    import pfns4bo
+                    from mpfns4bo.mpfns4bo import MPFNs4BO
+                    meta_data, validation_data = benchmark.get_meta_data()
+                    optimizer = MPFNs4BO(torch.load( pfns4bo.hebo_plus_model), benchmark.search_space, meta_data, validation_data, device=args.device, apply_power_transform=True, tranformation_type='norm')
+
+
+                elif args.method == "pPFNs4BO-linear":
+                    import pfns4bo
+                    from mpfns4bo.mpfns4bo import MPFNs4BO
+                    meta_data, validation_data = benchmark.get_meta_data()
+                    optimizer = MPFNs4BO(torch.load( pfns4bo.hebo_plus_model), benchmark.search_space, meta_data, validation_data, device=args.device, apply_power_transform=True, tranformation_type='linear')
+
 
                 elif args.method == "mPFNs4BO":
                     import pfns4bo

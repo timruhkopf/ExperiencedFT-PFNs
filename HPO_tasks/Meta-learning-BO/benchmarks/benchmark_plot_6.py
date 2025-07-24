@@ -31,7 +31,7 @@ class BenchmarkPlotter:
         assert n_trials<101,"The maximum value for max_bo_iters is 101" 
 
         self.experiments = experiments
-        self.seeds = seeds if seeds is not None else ["test0", "test1", "test2", "test3"] #, "test4"]
+        self.seeds = seeds if seeds is not None else ["test0", "test1", "test2", "test3", "test4"]
         self.draw_std = draw_std
         self.draw_per_space = draw_per_space
         self.path = output_path

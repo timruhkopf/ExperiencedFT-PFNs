@@ -76,23 +76,20 @@ def linear_alg(num_tasks, context_y, imputed_y, device, lambda_reg=0.1):
     return y_proj
 
 def linear_alg_main(num_tasks, context_x, context_y, imputed_y, device):
-    x = context_x.reshape(-1, 1)  # Ensure x is column vector
+    x = torch.arange(context_x.shape[0], device=context_x.device).reshape(-1, 1)  # [num_points, 1]
     degree = 1
-
     x = torch.cat([x ** i for i in range(degree+1)], dim=1).to(device)  # Polynomial features
     X_design = torch.cat([context_y.unsqueeze(1), x], dim=1).to(device)  # Add context_y as first
 
     # Build block-diagonal design matrix for all tasks
     X_design_block = torch.block_diag(*[X_design for _ in range(num_tasks)])  # [num_tasks*num_points, ...][2][5]
-
     # Reorder imputed_y to match block-diagonal structure: all points for task 0, then task 1, etc.
     imputed_y_ordered = imputed_y.transpose(0, 1).contiguous().view(-1)  # [num_tasks*num_points]
 
     beta = torch.linalg.lstsq(X_design_block, imputed_y_ordered).solution
-    #beta = torch.clamp(beta, min=0)  # Ensure no negative values in beta
-    #print(beta)
     y_proj = X_design_block @ beta
     y_proj = y_proj.clamp(0, 1)
+    
     return y_proj   
 
 
@@ -109,136 +106,10 @@ def norm_alg(num_tasks, context_y, imputed_y, device):
     # Avoid division by zero
     denom = (imputed_y_max - imputed_y_min).clamp(min=1e-3)
     n_imputed_y = (imputed_y - imputed_y_min) / denom  # [num_tasks, num_points ]
-    print(n_imputed_y)
     context_y_min = context_y.min()
     context_y_max = context_y.max()
     y_proj = n_imputed_y * (context_y_max - context_y_min) + context_y_min  # [num_tasks, num_points]
     return y_proj
-
-
-def old_calc_imputed_linalg_reliability(
-        model: TransformerModel,
-        context_x: torch.Tensor,
-        context_y: torch.Tensor,
-        related_task_data: Dict[str, MyBatch],  # type: ignore
-        criterion: BarDistribution,
-        verbose: bool = False,
-        plot_file_path: str = None,  # type: ignore
-        degree_fn=lambda x, y :0,
-        multi_fidelity = True, 
-) -> torch.Tensor:
-    """
-    Compute scale-invariant reliability scores for meta-tasks using block-diagonal regression.
-
-    Performs per-task imputation followed by independent linear regression in a block-diagonal feature space
-    to estimate task reliability while being invariant to linear scaling of learning curves.
-
-        :param model: Transformer meta-model used for cross-task imputation
-        :type model: TransformerModel
-        :param context_x: Target task's context features (fidelity + hyperparameters),
-                          shape [num_points, num_features]
-        :type context_x: torch.Tensor
-        :param context_y: Target task's observed outputs (e.g., validation accuracy),
-                          shape [num_points, 1]
-        :type context_y: torch.Tensor
-        :param related_task_data: Dictionary of batched meta-task data containing:
-            - x: Context features for each meta-task, shape [num_meta_tasks, num_points, num_features]
-            - y: Context outputs for each meta-task, shape [num_meta_tasks, num_points, 1]
-            - padding_mask: Boolean mask for variable-length contexts
-        :type related_task_data: Dict[str, MyBatch]
-        :param criterion: Distribution object providing:
-            - median(): For deterministic imputation
-            - __call__(): For NLL computation between logits and targets
-        :type criterion: BarDistribution
-        :param verbose: If True, save diagnostic plot to specified path.
-        :param plot_file_path: Output path for diagnostic plot when verbose=True.
-
-    :return: Reliability scores (mean NLL) per meta-task, shape [num_meta_tasks]
-    :rtype: torch.Tensor
-
-    :Notes:
-        - Robust to affine transformations: The regression step makes reliability scores invariant to linear scaling/shifting of learning curves
-        - Block-diagonal design: Uses kronecker product to create independent design matrices while maintaining computational efficiency
-        - Debug plotting: Set internal flag to visualize imputed vs projected values per task (uses Matplotlib)
-        - Time complexity: O((num_meta_tasks * num_points)^3) due to block-diagonal least squares
-    """
-    device = context_x.device
-    context_x = context_x.unsqueeze(1)
-
-    # for task_data in related_task_data:
-    task_context_x = related_task_data.x
-    task_context_y = related_task_data.y
-    padding_mask = related_task_data.padding_mask
-    num_related = task_context_x.shape[1]
-
-    # impute target_task y's for conditioned on each related task --------------
-    logits = model(
-        (
-            torch.cat([task_context_x, context_x.repeat(1, num_related, 1)], dim=0),
-            task_context_y
-        ),
-        single_eval_pos=task_context_x.shape[0],
-        src_key_padding_mask=padding_mask
-    )
-    imputed_y = criterion.median(logits)  # shape [num_points, num_tasks]
-
-    # Learn the projection from the related task to the target task ------------
-    if multi_fidelity:
-        target_fidelity = context_x[:, 0, 1]
-        x = target_fidelity.reshape(-1, 1)  # Ensure x is column vector
-        degree = degree_fn(context_x, context_y)
-        
-        x = torch.cat([x ** i for i in range(degree+1)], dim=1).to(device)  # Polynomial features
-        X_design = torch.cat([context_y.unsqueeze(1), x], dim=1).to(device)  # Add context_y as first
-        # column
-
-        # Build block-diagonal design matrix for all tasks
-        X_design_block = torch.block_diag(*[X_design for _ in range(num_related)])  # [num_tasks*num_points, ...][2][5]
-
-        # Reorder imputed_y to match block-diagonal structure: all points for task 0, then task 1, etc.
-        imputed_y_ordered = imputed_y.transpose(0, 1).contiguous().view(-1)  # [num_tasks*num_points]
-
-        beta = torch.linalg.lstsq(X_design_block, imputed_y_ordered).solution
-        y_proj = X_design_block @ beta
-        y_proj = y_proj.clamp(0, 1)
-
-        num_tasks = imputed_y.shape[1]
-        num_fidelity = target_fidelity.shape[0]
-
-    else:
-        target_fidelity = context_x[:, 0, 1]
-        num_tasks = imputed_y.shape[1]
-        num_fidelity = imputed_y.shape[0]
-        y_proj = norm_alg(num_tasks, context_y, imputed_y, device).T
-
-        print(f"y_proj shape: {y_proj}, context_y shape: {context_y}")
-
-    # For plotting and debugging
-    if verbose:
-        plot_projections(
-            target_fidelity=target_fidelity,
-            context_x=context_x,
-            context_y=context_y,
-            imputed_y=imputed_y,
-            y_proj=y_proj,
-            plot_file_path=plot_file_path
-        )
-
-    num_fidelity = target_fidelity.shape[0]
-    num_tasks = imputed_y.shape[1]
-
-    # compute the reliability scores (nll) based on the projected y ------------
-    # y's associated with query for that task
-    # target = context_y.repeat(1, num_related)
-    # Reshape y_proj to [num_points, num_tasks] for loss computation
-    y_proj_for_loss = y_proj.view(num_tasks, num_fidelity).T  # [num_points, num_tasks]
-    loss = criterion(logits, y_proj_for_loss)
-    loss = loss.view(-1, logits.shape[1])  # bar distribution issue
-    loss = loss.mean(dim=0)  # mean over the batch
-
-    return loss  # reliability scores
-
-
 
 
 def calc_imputed_linalg_reliability(
@@ -250,7 +121,8 @@ def calc_imputed_linalg_reliability(
         verbose: bool = False,
         plot_file_path: str = None,  # type: ignore
         degree_fn=lambda x, y :0,
-        multi_fidelity = True, 
+        multi_fidelity = True,
+        transformation_type=None
 ) -> torch.Tensor:
     """
     Compute scale-invariant reliability scores for meta-tasks using block-diagonal regression.
@@ -361,27 +233,34 @@ def calc_imputed_linalg_reliability(
     else:
         num_tasks = imputed_y.shape[1]
         num_fidelity = imputed_y.shape[0]
-        
-        if based_on_loss := True:
-            # compute the reliability scores (nll) based on the projected y ------------
-            # y's associated with query for that task
-            # target = context_y.repeat(1, num_related)
-            # Reshape y_proj to [num_points, num_tasks] for loss computation
-            num_tasks = imputed_y.shape[1]
-            y_proj = linear_alg(num_tasks, context_y, imputed_y, device).T
-            #y_proj = norm_alg(num_tasks, context_y, imputed_y, device).T
-            #y_proj = linear_alg_main(num_tasks, context_x, context_y, imputed_y, device).T
-            y_proj_for_loss = y_proj.view(num_tasks, num_fidelity).T  # [num_points, num_tasks]
-            loss = criterion(logits, y_proj_for_loss)
-            loss = loss.mean(dim=0)  # mean over the batch
-            return loss
-        else:
+
+        if transformation_type == "cosine":
             num_tasks = imputed_y.shape[1]
             num_fidelity = imputed_y.shape[0]
             z_mean_imputed_y = imputed_y - imputed_y.mean(dim=0)
             z_mean_context_y = context_y - context_y.mean(dim=0)
             cosine_similarity = torch.nn.functional.cosine_similarity(z_mean_context_y, z_mean_imputed_y.T)
-        return 1 - cosine_similarity
+            #print(f"Cosine similarity: {cosine_similarity}")
+            return 1 - cosine_similarity
+
+        else:
+            # compute the reliability scores (nll) based on the projected y ------------
+            # y's associated with query for that task
+            # target = context_y.repeat(1, num_related)
+            # Reshape y_proj to [num_points, num_tasks] for loss computation
+            num_tasks = imputed_y.shape[1]
+            if transformation_type == "linear":
+                y_proj = linear_alg(num_tasks, context_y, imputed_y, device).T
+            elif transformation_type == "norm":
+                y_proj = norm_alg(num_tasks, context_y, imputed_y, device).T
+            else:
+                y_proj = linear_alg_main(num_tasks, context_x, context_y, imputed_y, device).T
+            #y_proj = norm_alg(num_tasks, context_y, imputed_y, device).T
+            #y_proj = linear_alg_main(num_tasks, context_x, context_y, imputed_y, device).T
+            y_proj_for_loss = y_proj.view(num_tasks, num_fidelity).T  # [num_points, num_tasks]
+            loss = criterion(logits, y_proj_for_loss)
+            loss = loss.mean(dim=0)  # mean over the batch
+            return loss         
 
 def plot_projections(
         target_fidelity: torch.Tensor,
