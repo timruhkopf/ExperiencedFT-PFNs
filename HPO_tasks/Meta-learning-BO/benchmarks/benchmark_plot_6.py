@@ -46,6 +46,8 @@ class BenchmarkPlotter:
             self.task_list_per_space = json.load(f) 
 
         self.search_spaces = list(self.task_list_per_space.keys())
+        print(self.search_spaces)
+        self.search_spaces = ['4796', '5860', '5906', '5527', '5889', '5859']
 
     def plot(self):
 
@@ -148,12 +150,12 @@ class BenchmarkPlotter:
         name = name if name is not None else self.name
         path = path if path is not None else self.path
 
-        fig, axis_rank = plt.subplots(4,4, figsize=(40,32))
-        fig2, axis_regret = plt.subplots(4,4, figsize=(40,32))
+        fig, axis_rank = plt.subplots(2,3, figsize=(40,32))
+        fig2, axis_regret = plt.subplots(2,3, figsize=(40,32))
 
         for i, search_space in enumerate(self.search_spaces):
-            index0 = i//4
-            index1 = i%4
+            index0 = i//3
+            index1 = i%3
 
             if len(self.rank_per_space[search_space])>0:
                 self.make_rank_and_regret_plot(self.rank_per_space[search_space], self.regret_per_space[search_space], axis_rank[index0, index1], axis_regret[index0, index1], title = "Search space No. "+search_space,)

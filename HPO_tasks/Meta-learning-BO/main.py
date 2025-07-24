@@ -97,10 +97,6 @@ if __name__ == "__main__":
                         # Testing on validation data without training on it is not possible
                         optimizer.meta_fit(meta_data, meta_dir=meta_dir, **train_config)
 
-                elif args.method == "PFNs4BO":
-                    import pfns4bo
-                    from mpfns4bo.pfns4bo_opt import PFNs4BO
-                    optimizer = PFNs4BO(torch.load( pfns4bo.hebo_plus_model), device=args.device)
 
                 elif args.method == "PFNs4BO-EI":
                     import pfns4bo
@@ -120,6 +116,11 @@ if __name__ == "__main__":
                     optimizer = PFNs4BO(torch.load( pfns4bo.hebo_plus_model), fit_encoder=fit_input_warping, device=args.device, acq_function_type='pi', apply_power_transform=True, input_power_transform=True)
 
                 elif args.method == "PFNs4BO-PI":
+                    import pfns4bo
+                    from mpfns4bo.pfns4bo_opt import PFNs4BO
+                    optimizer = PFNs4BO(torch.load( pfns4bo.hebo_plus_model), device=args.device, acq_function_type='pi', apply_power_transform=True)
+
+                elif args.method == "PFNs4BO-PI-o":
                     import pfns4bo
                     from mpfns4bo.pfns4bo_opt import PFNs4BO
                     optimizer = PFNs4BO(torch.load( pfns4bo.hebo_plus_model), device=args.device, acq_function_type='pi')
