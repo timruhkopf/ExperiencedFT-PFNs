@@ -28,7 +28,9 @@ if __name__ == "__main__":
     num_steps = 16
     for i in range(num_steps):
         eval_spec = optimizer.generate_evaluation_specification()
+        print(eval_spec)
         evaluation = benchmark(eval_spec)
+        print(evaluation)
         optimizer.report(evaluation)
         plot_update(
             benchmark,

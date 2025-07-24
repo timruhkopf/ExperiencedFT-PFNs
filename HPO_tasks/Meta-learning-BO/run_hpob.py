@@ -31,6 +31,7 @@ def run_optimization_loop(
     test_seed,
     optimizer,
     max_evaluations: int,
+    run_on_meta_train = False
 ):
     X = np.asarray(benchmark.benchmark_data["X"])
     y = np.asarray(benchmark.benchmark_data["y"])

@@ -267,9 +267,9 @@ def general_acq_function(model: transformer.TransformerModel, x_given, y_given, 
 
     #tau = criterion.mean(logits_given)[torch.argmax(y_given)] # predicted mean at the best y
     if predicted_mean_fbest:
-        tau = criterion.mean(logits_given)[torch.argmin(y_given)].squeeze(0)
+        tau = criterion.mean(logits_given)[torch.argmax(y_given)].squeeze(0)
     else:
-        tau = torch.min(y_given)
+        tau = torch.max(y_given)
     #log_ei = torch.stack([criterion.ei(logits_eval[:,i], noisy_best_f[i]).log() for i in range(len(logits_eval))],0)
 
     def acq_ensembling(acq_values): # (points, ensemble dim)

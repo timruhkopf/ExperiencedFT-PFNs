@@ -116,6 +116,14 @@ class HPOBBench:
     def benchmark_data(self):
         return self._benchmark.meta_test_data[self.search_space_id][self.dataset_id]
 
+    def benchmark_meta_train_data(self):
+        handler = HPOBHandler(
+            root_dir=self.data_dir,
+            mode='v3',
+            surrogates_dir=self.surrogates_dir
+        )
+        return handler.meta_train_data[self.search_space_id][self.dataset_id]
+
     def normalize(self, *args, **kwargs):
         return self._benchmark.normalize(*args, **kwargs)
 

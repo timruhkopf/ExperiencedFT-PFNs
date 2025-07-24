@@ -31,7 +31,7 @@ class BenchmarkPlotter:
         assert n_trials<101,"The maximum value for max_bo_iters is 101" 
 
         self.experiments = experiments
-        self.seeds = seeds if seeds is not None else ["test0", "test1", "test2", "test3", "test4"]
+        self.seeds = seeds if seeds is not None else ["test0", "test1", "test2", "test3"] #, "test4"]
         self.draw_std = draw_std
         self.draw_per_space = draw_per_space
         self.path = output_path
@@ -45,8 +45,7 @@ class BenchmarkPlotter:
         with open(data_path+"meta-test-tasks-per-space.json", "r") as f:
             self.task_list_per_space = json.load(f) 
 
-        self.search_spaces = list(self.task_list_per_space.keys())
-        print(self.search_spaces)
+        #self.search_spaces = list(self.task_list_per_space.keys())
         self.search_spaces = ['4796', '5860', '5906', '5527', '5889', '5859']
 
     def plot(self):
@@ -240,11 +239,11 @@ class BenchmarkPlotter:
 if __name__=="__main__":
 
     data_path = "benchmarks/HPO-B/hpob-data/"
-    results_path = "benchmarks/HPO-B/results/"
+    results_path = "benchmarks/HPO-B/results_6/"
     output_path = "benchmarks/HPO-B/plots/"
-    name = "benchmark_plot"
-    #experiments = ["Random" , "GP", "FSBO", "FSBO2", "RGPE", "MALIBO", "PFNs4BO", "mPFNs4BO", "PFNs4BO-PI", "PFNs4BO-EI"]
-    experiments = ["Random", "GP" , "MALIBO", "PFNs4BO-EI-IW", "PFNs4BO-PI", "PFNs4BO-PI-IW", "mPFNs4BO", "mPFNs4BO-IW"] # "PFNs4BO-EI", "PFNs4BO-PI", "PFNs4BO"
+    name = "benchmark_6_plot"
+    experiments = ["Random" , "GP", "FSBO", "FSBO2", "RGPE", "MALIBO", "OptFormer", "NAP", "PFNs4BO-PI-o", "PFNs4BO-PI", "PFNs4BO-PI-IW", "PFNs4BO-EI-IW"]
+    experiments = ["Random" , "GP", "FSBO", "FSBO2", "RGPE", "MALIBO", "PFNs4BO-PI-o", "PFNs4BO-PI", "PFNs4BO-PI-IW", "PFNs4BO-EI-IW"]
 
     benchmark_plotter  = BenchmarkPlotter(experiments=experiments, 
                                             name = name,
