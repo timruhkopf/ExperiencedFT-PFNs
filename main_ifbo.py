@@ -4,6 +4,7 @@ import logging
 import warnings
 from itertools import product
 
+import yaml
 from neps.search_spaces.parameter import Parameter
 from tqdm import tqdm
 from typing import Any, List
@@ -331,11 +332,36 @@ def main(cfg: DictConfig):
                         raise TypeError(message) from e
 
                 # ---------------------------------------------------
+                neps_dir = Path.cwd() / (f"neps_root_directory_{target_task}_{fold}"
+                                         f"_{cfg.split_seed}_{cfg.seed}_{allocation_seed}")
+                searcher_path = Path(__file__).parent / 'ifBO_icml2024/src/pfns_hpo/pfns_hpo/configs/algorithm/'
+                if cfg.algorithm.name in [ 'dpl-neps-max',  'dyhpo-neps-v2']:
+                    # TO FIX their damn paths!
+                    searcher = cfg.algorithm.name
+                    import tempfile
+                    import yaml
 
-                if cfg.algorithm.searcher.surrogate_model in ['pfn', 'dpl', 'deep_gp']:
+                    with open(searcher_path /(searcher + '.yaml'), 'r') as file:
+                        data = yaml.safe_load(file)
+
+                        data['searcher_kwargs']['surrogate_model_args']['root_directory'] = \
+                        neps_dir.name
+                    tmpdir = tempfile.TemporaryDirectory(prefix="myrun_", suffix="_tmp")
+                    searcher_path = Path(tmpdir.name)
+                    searcher_path.mkdir(parents=True, exist_ok=True)
+                    with open(searcher_path / searcher_path / (searcher + '.yaml'), 'w') as file:
+                        yaml.safe_dump(data, file)
+
+                elif cfg.algorithm.name in ['asha', 'hyperband', 'bohb']:
+                    searcher= cfg.algorithm.name
+
+
+
+                elif cfg.algorithm.searcher.surrogate_model == 'pfn':
                     searcher = cfg.algorithm.name
 
-                if   'surrogate_model' in cfg.algorithm.keys():
+                if   'surrogate_model' in cfg.algorithm.keys() and \
+                        '_target_' in cfg.algorithm.surrogate_model.keys():
 
                     searcher = hydra.utils.instantiate(
                         cfg.algorithm.searcher,
@@ -356,8 +382,7 @@ def main(cfg: DictConfig):
                     searcher.model_policy.surrogate_model_name = surrogate_model.__name__
 
                 # -----------------------------------------------------------------------
-                neps_dir = Path.cwd() / (f"neps_root_directory_{target_task}_{fold}"
-                                         f"_{cfg.split_seed}_{cfg.seed}_{allocation_seed}")
+
                 neps_run(
                     run_pipeline=run_pipeline,
                     pipeline_space=pipeline_space,
@@ -373,8 +398,7 @@ def main(cfg: DictConfig):
                     # FIXME: add in a searcher instantiation (BaseOptimizer subclass), that will also get
                     #  the benchmark instance as info
 
-                    searcher_path=Path(__file__).parent / 'ifBO_icml2024' / 'src' / 'pfns_hpo' /
-                                  'pfns_hpo' / 'configs' / "algorithm",
+                    searcher_path=searcher_path,
                     overwrite_working_directory=OVERWRITE,
                     pre_load_hooks=[set_grid_table_space],  # crucial in allowing tabular grid access
                     post_run_summary=True,  # important for efficient plotting
@@ -383,7 +407,7 @@ def main(cfg: DictConfig):
 
                 logger.info(f"Finished run for fold={fold}, target_task={target_task}, "
                             f"train_ids={train_ids}, seed={cfg.seed}_{allocation_seed}")
-
+                tmpdir.cleanup()
 
                 if "mf" in cfg.algorithm and cfg.algorithm.mf:
                     plotter = Plotter3D(

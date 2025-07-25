@@ -133,7 +133,7 @@ class SyntheticBenchmark(Benchmark):
             config_type=self.config_type,
             result_type=self.result_type,
             fidelity_name="epochs",
-            fidelity_range=(0, self.max_fidelities - 1, 1),
+            fidelity_range=(1, self.max_fidelities - 1, 1),
             space=space,
             seed=seed,
             prior=prior,
