@@ -142,11 +142,13 @@ class MFBenchPrior(TabularBenchmark):
         self.device = device
         
         # for synthetic benchmarks
-        self.bnn_is_fixed = kwargs.get('bnn_is_fixed', True)
+        # self.bnn_is_fixed = kwargs.get('bnn_is_fixed', True)
         self.n_layers = kwargs.get('n_layers', None)
         self.total_tasks = kwargs.get('total_tasks', 6)
         self.reset_kwargs = kwargs.get('reset_kwargs', {})
         self.seed = kwargs.get('seed', None)
+        self.related_ratio = kwargs.get('related_ratio', 0.5)
+        self.dim_hyperparameters = kwargs.get('dim_hyperparameters', 6)
 
     def collect_task_split(
             self,
@@ -158,22 +160,24 @@ class MFBenchPrior(TabularBenchmark):
         if self.name == "synthetic":
             self.target_benchmark = SyntheticBenchmark(value_metric="value",
                                                        cost_metric="fid_cost", seed=seed,
-                                                       bnn_seed=bnn_seed,)
+                                                       bnn_seed=bnn_seed, dim_hyperparameters=self.dim_hyperparameters)
             self.related_benchmarks = []
+            
             for i in range(len(train_ids)):
-                if self.bnn_is_fixed:
+                # if self.bnn_is_fixed:
+                if i / len(train_ids) < self.related_ratio:
                     if self.seed is not None:
-                        self.related_benchmarks.append(SyntheticBenchmark(value_metric="value", cost_metric="fid_cost", seed=seed + i + 1))
+                        self.related_benchmarks.append(SyntheticBenchmark(value_metric="value", cost_metric="fid_cost", seed=seed + i + 1, dim_hyperparameters=self.dim_hyperparameters))
                     else:
-                        self.related_benchmarks.append(SyntheticBenchmark(value_metric="value", cost_metric="fid_cost"))
+                        self.related_benchmarks.append(SyntheticBenchmark(value_metric="value", cost_metric="fid_cost", dim_hyperparameters=self.dim_hyperparameters))
                 else:
-                    related_task = self.target_benchmark.create_related_task(n_layers=self.n_layers, **self.reset_kwargs)
+                    related_task = self.target_benchmark.create_related_task(n_layers=self.n_layers, dim_hyperparameters=self.dim_hyperparameters, **self.reset_kwargs)
                     self.related_benchmarks.append(related_task)
 
-            if self.bnn_is_fixed:
-                assert all(self.target_benchmark.relation_prior.model is
-                           benchmark.relation_prior.model for benchmark in
-                           self.related_benchmarks)
+            # if self.bnn_is_fixed:
+            #     assert all(self.target_benchmark.relation_prior.model is
+            #                benchmark.relation_prior.model for benchmark in
+            #                self.related_benchmarks)
                 
         else:
             
