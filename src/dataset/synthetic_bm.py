@@ -13,6 +13,8 @@ from typing_extensions import override
 import torch
 import copy
 
+from utils.seeding import SeededRandomContext
+
 
 @dataclass(frozen=True, eq=False, unsafe_hash=True)
 class SynstheticConfig(Config):
@@ -67,6 +69,7 @@ class SyntheticBenchmark(Benchmark):
         self,
         *,
         seed: int | None = None,
+        bnn_seed: int | None = None,
         prior: str | Path | Mapping[str, Any] | None = None,
         perturb_prior: float | None = None,
         value_metric: str | None = None,
@@ -83,10 +86,31 @@ class SyntheticBenchmark(Benchmark):
         
         # set up the BNN mapping from the hyperparameter space to the learning curves
         n_curve_param = 23  # Number of parameters for the learning curve basis and their weights
-        self.relation_prior = BNNManager.get_instance(
-            dim_hyperparameters=self.dim_hyperparameters,
-            n_curve_param=n_curve_param,
-        )
+
+        if bnn_seed is None:
+            self.relation_prior = BNNManager.get_instance(
+            dim_hyperparameters = self.dim_hyperparameters,
+            n_curve_param = n_curve_param,
+            )
+
+        else:
+            with SeededRandomContext(bnn_seed):
+                self.relation_prior = BNNManager.get_instance(
+                    dim_hyperparameters=self.dim_hyperparameters,
+                    n_curve_param=n_curve_param,
+                )
+            # # seeding verification: ----------------
+            #     from copy import deepcopy
+            #     BNNManager._instance = None
+            #
+            # with SeededRandomContext(bnn_seed +1):
+            #     relation_prior = BNNManager.get_instance(
+            #         dim_hyperparameters=self.dim_hyperparameters,
+            #         n_curve_param=n_curve_param,
+            #     )
+            #
+            # assert not self.relation_prior.model is relation_prior.model, \
+            #     "The BNNManager should not return the same instance for different seeds."
 
         name = (
             f"SyntheticBenchmark_{self.dim_hyperparameters}D"

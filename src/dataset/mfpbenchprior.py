@@ -154,7 +154,9 @@ class MFBenchPrior(TabularBenchmark):
             train_ids: List[int],
     ):
         if self.name == "synthetic":
-            self.target_benchmark = SyntheticBenchmark(value_metric="value", cost_metric="fid_cost", seed=self.seed)
+            self.target_benchmark = SyntheticBenchmark(value_metric="value",
+                                                       cost_metric="fid_cost", seed=self.seed,
+                                                       bnn_seed=self.seed,)
             self.related_benchmarks = []
             for i in range(len(train_ids)):
                 if self.bnn_is_fixed:
@@ -165,6 +167,11 @@ class MFBenchPrior(TabularBenchmark):
                 else:
                     related_task = self.target_benchmark.create_related_task(n_layers=self.n_layers, **self.reset_kwargs)
                     self.related_benchmarks.append(related_task)
+
+            if self.bnn_is_fixed:
+                assert all(self.target_benchmark.relation_prior.model is
+                           benchmark.relation_prior.model for benchmark in
+                           self.related_benchmarks)
                 
         else:
             
@@ -602,7 +609,7 @@ class MFBenchPrior(TabularBenchmark):
         return x, y
 
     def sample_batch(self, alphas: Optional[Union[List[float], float]] = None,
-                     single_eval_pos=None, target_task=0, train_ids=None, **kwargs, ):
+                     single_eval_pos=None, **kwargs, ):
         """
         Generates a batch of data sampled from multiple tasks.
 
@@ -646,6 +653,7 @@ class MFBenchPrior(TabularBenchmark):
                            map_location=self.device,
                            weights_only=True)
             )
+            assert self.target_benchmark.relation_prior.model is self.related_benchmarks[0].relation_prior.model
             return torch.load(self.data_path / 'batch.pt', map_location=self.device,
                               weights_only=False)
 

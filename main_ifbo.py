@@ -135,7 +135,8 @@ def main(cfg: DictConfig):
                 file_logger.postfix = {
                     'target_task': target_task,
                     'fold': fold,
-                    'allocation_seed': allocation_seed
+                    'allocation_seed': allocation_seed,
+                    'seed': cfg.seed
                 }
 
                 # "instantiate" the task and related task datasets (with no budget allocation yet)
