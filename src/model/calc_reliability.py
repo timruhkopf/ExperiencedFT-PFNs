@@ -64,7 +64,8 @@ def calc_imputed_linalg_reliability(
         projection: bool = True,
         verbose: bool = False,
         plot_file_path: str = None,  # type: ignore
-        degree_fn=lambda x, y: 0
+        degree_fn=lambda x, y: 0,
+        logger=None,
 
 ) -> torch.Tensor:
     """
@@ -152,6 +153,24 @@ def calc_imputed_linalg_reliability(
         beta = torch.linalg.lstsq(X_design_block, imputed_y_ordered).solution
         y_proj = X_design_block @ beta
         y_proj = y_proj.clamp(0, 1)
+
+        if logger is not None:
+            logger.log(
+                {
+                    'metric': 'projection/beta',
+                    'step': context_x.shape[0],
+                    **{f'beta_{i}': b.item() for i, b in enumerate(beta)}
+                }
+            )
+
+            logger.log(
+                {
+                    'metric': 'projection/error',
+                    'step': context_x.shape[0],
+                    'rmse': torch.sqrt(((imputed_y - y_proj.reshape(imputed_y.shape)) ** 2).mean(
+                        axis=0)).cpu().numpy().tolist()
+                }
+            )
     else:
         y_proj = imputed_y  # No projection, use imputed values directly
 

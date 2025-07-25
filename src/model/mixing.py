@@ -51,7 +51,8 @@ class CVMixtureStrategy:
                 self.criterion,
                 # some arbitrary degree function to avoid multicollinearity
                 degree_fn=lambda x, y: max(math.ceil(math.log(x[:, 0, 1].unique().shape[0]))-3, 0),
-                projection=self.projection
+                projection=self.projection,
+                logger= self.logger,
                 # avoid multicollinearity if all have same fidelity. grow polynomial features based on the fidelity availability
             ).to(device)
         else:
@@ -66,7 +67,21 @@ class CVMixtureStrategy:
         )
 
         if self.logger is not None:
-            self.logger.log({'metric':'reliability', 'step': x_train.shape[0],  **{f'reliability_{i}': r.item() for i, r in enumerate(reliability)}})
+            self.logger.log(
+                {
+                    'metric': 'nll',
+                    'step': x_train.shape[0],
+                    'target_nll': target_nll.item(),
+                    **{f'related_nll_{i}': r.item() for i, r in enumerate(related_nll)}
+                }
+            )
+            self.logger.log(
+                {
+                    'metric': 'reliability',
+                    'step': x_train.shape[0],
+                    **{f'softmax_weight_{i}': r.item() for i, r in enumerate(reliability)}
+                }
+            )
 
         pi_values = torch.concat([pi_target.unsqueeze(0), pi_related], dim=0)
         weighted_pi = (pi_values * reliability.unsqueeze(1)).sum(dim=0, keepdim=True)
