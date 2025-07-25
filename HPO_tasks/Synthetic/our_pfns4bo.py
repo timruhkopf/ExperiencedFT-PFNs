@@ -12,6 +12,7 @@ import sys
 sys.path.append("../..")
 from src.model.pfnimputation import PFNPriorImputation
 from src.model.mixing import CVMixtureStrategy
+from functools import partial
 
 #from src.model.calc_reliability import calc_imputed_linalg_reliability
 # from src.model.decay import constant_exponential as decay_fn
@@ -212,10 +213,8 @@ def get_meta_data_of_method_name(meta_data_lists, seeds,  seed):
     return meta_data
 
 
-
-
 class ourPFNs4BO_discrete(nn.Module):
-    def __init__(self, model, related_task_data , device='cpu:0', fit_encoder=None, **kwargs):
+    def __init__(self, model, related_task_data, transformation_type = None, device='cpu:0', fit_encoder=None, **kwargs):
         """
         bounds: List of tuples [(x1_min, x1_max), ..., (xd_min, xd_max)]
         n_candidates: number of random samples for acquisition optimization
@@ -230,6 +229,7 @@ class ourPFNs4BO_discrete(nn.Module):
 
         self.kwargs = kwargs
         self.fit_encoder = fit_encoder
+        self.transformation_type = transformation_type
         self.evaluated_indices = []  # To keep track of already evaluated candidates
 
         x_task_context = to_tensor(np.stack([ item["X"]   for k, item in related_task_data.items()], axis=1)).to(torch.float32)
@@ -243,11 +243,12 @@ class ourPFNs4BO_discrete(nn.Module):
             model = self,
             criterion = self.criterion, #logger
             logger = None,
-            mixture_strategy = CVMixtureStrategy,
+            mixture_strategy = partial(CVMixtureStrategy, transformation_type=self.transformation_type),
             related_task_data = self.related_task_data,
             min_context_size =1,
             imputation_mode ='mean',
             device=device,
+
         )
 
         self.reliability_scores = torch.zeros(len(related_task_data.items())).to(device) 

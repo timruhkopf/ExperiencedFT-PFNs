@@ -1,6 +1,61 @@
 import torch
-
+import numpy as np
 from src.model.calc_reliability import calc_target_cv_nll, calc_imputed_linalg_reliability
+
+class myCVMixtureStrategy:
+    def __init__(self, model, criterion, related_task_data=None, min_num_samples=1, logger=None, multi_fidelity=False, transformation_type=None):
+        """This class is a new variant of the MixtureStrategy that consider
+        the reliability of related scores in conjunction with cross-valdiated nll scores
+        of the target data."""
+        self.model = model
+        self.criterion = criterion
+        self.related_task_data = related_task_data
+        self.min_num_samples = min_num_samples
+        self.logger = logger
+        self.multi_fidelity = multi_fidelity
+        self.transformation_type = transformation_type
+        self.num_related = None
+        self.num_pullings = None
+        self.t = 0
+
+
+    def __call__(self, x_train, y_train, pi_target, pi_related, minimize):
+        # fixme what do we need to do with the minimize flag?
+
+        device = x_train.device
+
+        if x_train.shape[0] > self.min_num_samples:
+            target_nll = calc_target_cv_nll(
+                x_train,
+                y_train,
+                self.model,
+                self.criterion,
+                splits=min(5, x_train.shape[0]),
+                random_state=42,
+                start_feature_indx=2 if self.multi_fidelity else 0,
+            ).unsqueeze(0).to(device)
+            related_nll = calc_imputed_linalg_reliability(
+                self.model, x_train, y_train,
+                self.related_task_data,
+                self.criterion,
+                degree_fn=lambda x, y: max(x[:, 0, 1].unique().shape[0] - 3, 0) if self.multi_fidelity else 1,    
+                multi_fidelity = self.multi_fidelity,
+                transformation_type=self.transformation_type,
+                # avoid multicollinearity if all have same fidelity. grow polynomial features based on the fidelity availability
+            )
+            related_nll = related_nll.to(device)
+        else:
+            # uniform scores
+            num_related = pi_related.shape[0]
+            target_nll = torch.zeros(1, device=device)
+            related_nll = torch.zeros(num_related, device=device)
+
+        # weigh the target and related scores by the reliability
+        reliability = torch.nn.functional.softmax(torch.concat([-target_nll, -related_nll], dim=0), dim=0)
+
+        pi_values = torch.concat([pi_target.unsqueeze(0), pi_related/x_train.shape[0]], dim=0)
+        weighted_pi = (pi_values * reliability.unsqueeze(1)).sum(dim=0, keepdim=True)
+        return weighted_pi, reliability
 
 
 class CVMixtureStrategy:
@@ -21,7 +76,6 @@ class CVMixtureStrategy:
         # fixme what do we need to do with the minimize flag?
 
         device = x_train.device
-
         if x_train.shape[0] > self.min_num_samples:
             target_nll = calc_target_cv_nll(
                 x_train,

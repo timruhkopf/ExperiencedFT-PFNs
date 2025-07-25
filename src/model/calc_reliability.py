@@ -77,7 +77,7 @@ def linear_alg(num_tasks, context_y, imputed_y, device, lambda_reg=0.1):
 
 def linear_alg_main(num_tasks, context_x, context_y, imputed_y, device):
     x = torch.arange(context_x.shape[0], device=context_x.device).reshape(-1, 1)  # [num_points, 1]
-    degree = 1
+    degree = 0
     x = torch.cat([x ** i for i in range(degree+1)], dim=1).to(device)  # Polynomial features
     X_design = torch.cat([context_y.unsqueeze(1), x], dim=1).to(device)  # Add context_y as first
 
@@ -87,8 +87,10 @@ def linear_alg_main(num_tasks, context_x, context_y, imputed_y, device):
     imputed_y_ordered = imputed_y.transpose(0, 1).contiguous().view(-1)  # [num_tasks*num_points]
 
     beta = torch.linalg.lstsq(X_design_block, imputed_y_ordered).solution
+    mask = beta[0::2] < 0
+    beta[0::2][mask] = 0
+
     y_proj = X_design_block @ beta
-    y_proj = y_proj.clamp(0, 1)
     
     return y_proj   
 
@@ -368,7 +370,7 @@ def kfold_hp_split(context_x, context_y, n_splits=5, random_state=42, start_feat
     hp_indices = list(curve_indices.values())
 
     # KFold split on HP configs
-    kf = KFold(n_splits=n_splits, shuffle=True, random_state=random_state)
+    kf = KFold(n_splits=min(n_splits, len(hp_tuples)), shuffle=True, random_state=random_state)
     splits = []
     train_groups = []
     test_groups = []
@@ -400,7 +402,6 @@ def kfold_hp_split(context_x, context_y, n_splits=5, random_state=42, start_feat
         padded_query_x, padded_query_y, ~query_mask
 
 def calc_target_cv_nll(context_x, context_y, model, criterion, splits=5, random_state=42, start_feature_indx=2):
-
     device = context_x.device
 
     padded_context_x, padded_context_y, context_mask, \

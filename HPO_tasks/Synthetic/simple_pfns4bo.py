@@ -65,7 +65,7 @@ class PFNs4BO:
 
 
 class PFNs4BO_discrete:
-    def __init__(self, model, acq_f=general_acq_function, device='cpu:0', fit_encoder=None, **kwargs):
+    def __init__(self, model, acq_f=general_acq_function, acq_function_type='ei', device='cpu:0', fit_encoder=None, **kwargs):
         """
         bounds: List of tuples [(x1_min, x1_max), ..., (xd_min, xd_max)]
         n_candidates: number of random samples for acquisition optimization
@@ -76,6 +76,7 @@ class PFNs4BO_discrete:
         self.device = device
         self.kwargs = kwargs
         self.acq_function = acq_f
+        self.acq_function_type = acq_function_type
         self.fit_encoder = fit_encoder
         self.evaluated_indices = []  # To keep track of already evaluated candidates
 
@@ -103,7 +104,7 @@ class PFNs4BO_discrete:
 
         with (torch.cuda.amp.autocast() if self.device[:3] != 'cpu' else contextlib.nullcontext()):
             acq_values = self.acq_function(self.model, X_obs, y_obs,
-                                           X_pen, return_actual_ei=return_actual_ei, **self.kwargs).cpu().clone()  # bool array
+                                           X_pen, acq_function=self.acq_function_type, return_actual_ei=return_actual_ei, **self.kwargs).cpu().clone()  # bool array
 
         if self.evaluated_indices:
             idx_tensor = torch.tensor(self.evaluated_indices, dtype=torch.long, device=acq_values.device)

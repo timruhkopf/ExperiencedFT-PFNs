@@ -65,8 +65,8 @@ class PFNPriorImputation(AbstractModel):
     __name__ = "PFNPriorImputation"
 
     def __init__(self, model, criterion, logger, mixture_strategy,
-                 related_task_data, min_context_size, imputation_mode='mean',
-                 device=None, verbose=True):
+                 related_task_data, min_context_size, imputation_mode='mean',only_obs_incumbents = True,
+                 device=None, verbose=False):
 
         if "MPFNs4BO" in type(model).__name__ or "ourPFNs4BO" in type(model).__name__:
             self.model = model
@@ -91,8 +91,7 @@ class PFNPriorImputation(AbstractModel):
 
         self.min_context_size = min_context_size
         self.imputation_mode = imputation_mode
-
-        self.mixture_strategy = mixture_strategy
+        self.only_obs_incumbents = only_obs_incumbents  
         self.call_counter = 0
         self.verbose = verbose
 
@@ -105,6 +104,13 @@ class PFNPriorImputation(AbstractModel):
                         *[f'related_reliability_{i}' for i in range(num_related)]],
                 postfix=[]
             )
+
+        self.mixture_strategy =  mixture_strategy(
+            model=self.model,
+            criterion=self.criterion,
+            related_task_data=related_task_data,
+            logger=self.mixture_logger if self.verbose else None,
+        )
 
     def _forward(self, context_x, context_y, query_x, *args, **kwargs) -> torch.Tensor:
 
@@ -225,7 +231,7 @@ class PFNPriorImputation(AbstractModel):
         return imputed_y
 
     def get_pi_related(self, x_train, x_test, related_context_x=None, related_context_y=None,
-                       padding_mask=None,minimize = False, only_obs_incumbents= True):
+                       padding_mask=None,minimize = False):
         """
         First impute the y values for the target task under the related prior context,
         then calculate the incumbent under the imputed data and finally collect the
@@ -271,9 +277,9 @@ class PFNPriorImputation(AbstractModel):
 
         B = prior_logits.shape[1]
 
-        if only_obs_incumbents:
+        if self.only_obs_incumbents:
             incumbents = imputed_y
-        else:
+        else: # the problem is PI gets clipped if we use only the imputed_y
             incumbents = torch.cat([related_context_y, imputed_y, ], dim=0)
         
         if minimize:
@@ -376,12 +382,7 @@ class PFNPriorImputation(AbstractModel):
         self.pi_related = pi_related
 
         # 4.
-        scores, reliability_scores = self.mixture_strategy(
-            model=self.model,
-            criterion=self.criterion,
-            related_task_data=related_task_data,
-            logger=self.mixture_logger if self.verbose else None,
-        )(
+        scores, reliability_scores =self.mixture_strategy(
             x_train=x_train,
             y_train=y_train,
             pi_target=pi_target,

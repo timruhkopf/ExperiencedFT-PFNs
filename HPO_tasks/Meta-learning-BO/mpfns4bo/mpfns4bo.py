@@ -8,6 +8,7 @@ import sys
 sys.path.append("../../")
 from src.model.pfnimputation import PFNPriorImputation
 from src.model.mixing import CVMixtureStrategy
+from src.model.mixing import myCVMixtureStrategy
 from src.model.calc_reliability import calc_imputed_linalg_reliability
 # from src.model.decay import constant_exponential as decay_fn
 # from src.model.mixing import argmin as mixture_fn
@@ -18,7 +19,7 @@ from functools import partial
 
 
 class MPFNs4BO(nn.Module):
-    def __init__(self, model, search_space, related_task_data, validation_task_data = None, device='cpu:0', fit_encoder = None, apply_power_transform =False, input_power_transform=False, tranformation_type=None, **kwargs):
+    def __init__(self, model, search_space, related_task_data, validation_task_data = [], device='cpu:0', fit_encoder = None, apply_power_transform =False, input_power_transform=False, tranformation_type=None, mixing_strategy="default", only_obs_incumbents=True, **kwargs):
         super().__init__()
         self.model = model
         self.criterion = model.criterion
@@ -30,6 +31,7 @@ class MPFNs4BO(nn.Module):
         self.input_power_transform = input_power_transform
         self.input_power_transform_eps = 0.0
         self.transformation_type = tranformation_type
+        self.only_obs_incumbents = only_obs_incumbents
 
         """Meta-learning on meta-data, corresponds to the meta-learning part in Algorithm 1."""
         converted_meta_data = dict()
@@ -71,15 +73,23 @@ class MPFNs4BO(nn.Module):
 
         self.related_task_data = SimpleNamespace(x=x_task_context, y=y_task_context, padding_mask=padding_mask)
 
+        if mixing_strategy == "default":
+            mixing_class = CVMixtureStrategy
+        elif mixing_strategy == "my":
+            mixing_class = myCVMixtureStrategy
+        else:
+            raise ValueError(f"Unknown mixing strategy: {mixing_strategy}")
+
         self.pfnimputation = PFNPriorImputation(
             model = self,
-            criterion = self.criterion, #logger
+            criterion = self.criterion,
             logger = None,
-            mixture_strategy = partial(CVMixtureStrategy, transformation_type=self.transformation_type),
+            mixture_strategy = partial(mixing_class, transformation_type=self.transformation_type),
             related_task_data = self.related_task_data,
             min_context_size =1,
             imputation_mode ='mean',
             device=device,
+            only_obs_incumbents=self.only_obs_incumbents
         )
 
     @torch.no_grad()

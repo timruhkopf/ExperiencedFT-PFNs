@@ -1,7 +1,7 @@
 #!/bin/bash
 search_space_ids=('4796' '5860' '5906'  '5527'  '5889'  '5859')
 
-policies=("mPFNs4BO" "PFNs4BO-EI" "pPFNs4BO" "pPFNs4BO-norm" "pPFNs4BO-linear" "pPFNs4BO-cosine") #("PFNs4BO-PI-o" "PFNs4BO-PI" "PFNs4BO-PI-IW" "PFNs4BO-EI-IW") #  "mPFNs4BO" "MALIBO"
+policies=("PFNs4BO-PI-o") #("PFNs4BO-PI-o" "PFNs4BO-PI" "PFNs4BO-PI-IW" "PFNs4BO-EI-IW") #  "mPFNs4BO" "MALIBO"
 
 seeds=("test0" "test1" "test2" "test3" "test4")
 
