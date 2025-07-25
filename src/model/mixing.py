@@ -53,7 +53,7 @@ class myCVMixtureStrategy:
         # weigh the target and related scores by the reliability
         reliability = torch.nn.functional.softmax(torch.concat([-target_nll, -related_nll], dim=0), dim=0)
 
-        pi_values = torch.concat([pi_target.unsqueeze(0), pi_related/x_train.shape[0]], dim=0)
+        pi_values = torch.concat([pi_target.unsqueeze(0), pi_related/x_train.shape[0]**2], dim=0)
         weighted_pi = (pi_values * reliability.unsqueeze(1)).sum(dim=0, keepdim=True)
         return weighted_pi, reliability
 

@@ -173,8 +173,8 @@ if __name__ == "__main__":
                 elif args.method == "pPFNs4BO-decay":
                     import pfns4bo
                     from mpfns4bo.mpfns4bo import MPFNs4BO
-                    meta_data = benchmark.get_meta_data()
-                    optimizer = MPFNs4BO(torch.load( pfns4bo.hebo_plus_model), benchmark.search_space, meta_data, device=args.device, apply_power_transform=False, mixing_strategy="my")
+                    meta_data, validation_data  = benchmark.get_meta_data()
+                    optimizer = MPFNs4BO(torch.load( pfns4bo.hebo_plus_model), benchmark.search_space, meta_data, validation_data, device=args.device, apply_power_transform=False, mixing_strategy="my")
 
 
                 else:
