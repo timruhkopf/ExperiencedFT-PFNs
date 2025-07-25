@@ -145,8 +145,8 @@ def main(cfg: DictConfig):
 
                     if hasattr(benchmark, 'collect_task_split'):
                         # FIXME if for compat. reasons in debugging
-                        with SeededRandomContext(cfg.seed):
-                            benchmark.collect_task_split(target_id=target_task, train_ids=train_ids)
+                        benchmark.collect_task_split(target_id=target_task, train_ids=train_ids,
+                                                     seed=allocation_seed, bnn_seed=cfg.seed)
 
                 with (SeededRandomContext(allocation_seed)):
                     config = dict(

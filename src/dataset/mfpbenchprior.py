@@ -152,16 +152,18 @@ class MFBenchPrior(TabularBenchmark):
             self,
             target_id: [int],
             train_ids: List[int],
+            seed=None,
+            bnn_seed=None,
     ):
         if self.name == "synthetic":
             self.target_benchmark = SyntheticBenchmark(value_metric="value",
-                                                       cost_metric="fid_cost", seed=self.seed,
-                                                       bnn_seed=self.seed,)
+                                                       cost_metric="fid_cost", seed=seed,
+                                                       bnn_seed=bnn_seed,)
             self.related_benchmarks = []
             for i in range(len(train_ids)):
                 if self.bnn_is_fixed:
                     if self.seed is not None:
-                        self.related_benchmarks.append(SyntheticBenchmark(value_metric="value", cost_metric="fid_cost", seed=self.seed + i + 1))
+                        self.related_benchmarks.append(SyntheticBenchmark(value_metric="value", cost_metric="fid_cost", seed=seed + i + 1))
                     else:
                         self.related_benchmarks.append(SyntheticBenchmark(value_metric="value", cost_metric="fid_cost"))
                 else:
