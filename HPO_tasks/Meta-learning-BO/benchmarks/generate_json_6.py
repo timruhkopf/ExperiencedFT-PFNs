@@ -12,7 +12,7 @@ import json
 import pandas as pd
 import os
 
-experiment_ids = ["PFNs4BO-PI-o", "PFNs4BO-PI", "PFNs4BO-PI-IW", "PFNs4BO-EI-IW", "mPFNs4BO", "PFNs4BO-EI", "pPFNs4BO"]
+experiment_ids = ["PFNs4BO-PI-o", "PFNs4BO-PI", "PFNs4BO-PI-IW", "PFNs4BO-EI-IW", "mPFNs4BO", "PFNs4BO-EI", "pPFNs4BO", "pPFNs4BO-decay"]
 
 seeds = ["test0", "test1", "test2", "test3", "test4"]
 results_path = "results/hpob6"

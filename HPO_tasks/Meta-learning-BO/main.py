@@ -176,6 +176,24 @@ if __name__ == "__main__":
                     meta_data, validation_data  = benchmark.get_meta_data()
                     optimizer = MPFNs4BO(torch.load( pfns4bo.hebo_plus_model), benchmark.search_space, meta_data, validation_data, device=args.device, apply_power_transform=False, mixing_strategy="my")
 
+                elif args.method == "pPFNs4BO-o":
+                    import pfns4bo
+                    from mpfns4bo.mpfns4bo import MPFNs4BO
+                    meta_data, validation_data  = benchmark.get_meta_data()
+                    optimizer = MPFNs4BO(torch.load( pfns4bo.hebo_plus_model), benchmark.search_space, meta_data, validation_data, device=args.device, apply_power_transform=False)
+
+                elif args.method == "pPFNs4BO-p":
+                    import pfns4bo
+                    from mpfns4bo.mpfns4bo import MPFNs4BO
+                    meta_data, validation_data  = benchmark.get_meta_data()
+                    optimizer = MPFNs4BO(torch.load( pfns4bo.hebo_plus_model), benchmark.search_space, meta_data, validation_data, device=args.device, apply_power_transform=True)
+
+
+                elif args.method == "pPFNs4BO-decay-p":
+                    import pfns4bo
+                    from mpfns4bo.mpfns4bo import MPFNs4BO
+                    meta_data, validation_data  = benchmark.get_meta_data()
+                    optimizer = MPFNs4BO(torch.load( pfns4bo.hebo_plus_model), benchmark.search_space, meta_data, validation_data, device=args.device, apply_power_transform=True, mixing_strategy="my")
 
                 else:
                     raise ValueError(f"Unknown method: {args.method}")

@@ -31,7 +31,7 @@ class BenchmarkPlotter:
         assert n_trials<101,"The maximum value for max_bo_iters is 101" 
 
         self.experiments = experiments
-        self.seeds = seeds if seeds is not None else ["test0", "test1", "test2"]#, "test3", "test4"]
+        self.seeds = seeds if seeds is not None else ["test0", "test1", "test2", "test3", "test4"]
         self.draw_std = draw_std
         self.draw_per_space = draw_per_space
         self.path = output_path
@@ -245,7 +245,7 @@ if __name__=="__main__":
     experiments = ["Random" , "GP", "FSBO", "FSBO2", "RGPE", "MALIBO", "OptFormer", "NAP", "PFNs4BO-PI-o", "PFNs4BO-PI", "PFNs4BO-PI-IW", "PFNs4BO-EI-IW"]
     experiments = ["Random" , "GP", "FSBO", "FSBO2", "RGPE", "MALIBO", "PFNs4BO-PI-o", "PFNs4BO-PI", "PFNs4BO-PI-IW", "PFNs4BO-EI-IW", "mPFNs4BO", "PFNs4BO-EI", "pPFNs4BO", "pPFNs4BO-norm", "pPFNs4BO-linear", "pPFNs4BO-cosine"]
 
-    experiments = ["Random" , "GP", "FSBO", "FSBO2", "RGPE", "MALIBO",  "PFNs4BO-PI", "PFNs4BO-EI", "pPFNs4BO", "pPFNs4BO-linear"]
+    experiments = ["Random" , "GP", "FSBO", "FSBO2", "RGPE", "MALIBO",  "PFNs4BO-PI", "PFNs4BO-PI-o","pPFNs4BO", "pPFNs4BO-decay"]#, "PFNs4BO-EI", "pPFNs4BO-linear"]
 
     benchmark_plotter  = BenchmarkPlotter(experiments=experiments, 
                                             name = name,
