@@ -1,7 +1,7 @@
 #!/bin/bash
 search_space_ids=('4796' '5860' '5906'  '5527'  '5889'  '5859')
 
-policies=("PFNs4BO-PI-o") #("PFNs4BO-PI-o" "PFNs4BO-PI" "PFNs4BO-PI-IW" "PFNs4BO-EI-IW") #  "mPFNs4BO" "MALIBO"
+policies=("pPFNs4BO-decay") #("PFNs4BO-PI-o" "PFNs4BO-PI" "PFNs4BO-PI-IW" "PFNs4BO-EI-IW") #  "mPFNs4BO" "MALIBO"
 
 seeds=("test0" "test1" "test2" "test3" "test4")
 
