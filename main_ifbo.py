@@ -11,7 +11,7 @@ from typing import Any, List
 import torch
 import numpy as np
 import pandas as pd
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, KFold
 
 import hydra
 from omegaconf import DictConfig
@@ -61,26 +61,12 @@ warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 @hydra.main(config_path="configs", config_name="base_ifbo", version_base="1.1")
 def main(cfg: DictConfig):
-    """
-    This main function is basically the meta-task version of
-    ifbo_icml2024/src/pfns_hpo/pfns_hpo/run.py run_neps
-    :param cfg:
-    :return:
-    """
-
     import shutil
     logger.info(f'Sweep dir: {Path.cwd()}')
     logger.info(OmegaConf.to_yaml(cfg))
 
-    # TODO: for fair experimentation, make this a benchmark property overriding algo
     if hasattr(cfg.benchmark, "api"):
         delattr(cfg.benchmark.api, "step_size")
-
-        # TODO:  make MFPBENCHPRIOR a proper benchmark class and add api to config
-        #  lcbench-126026.yaml
-        #  pd1-tabular-cifar10_wideresnet_256.yaml
-        #  taskset-tabular-nlp-1-4p.yaml
-        #  as example for the benchmark.api
 
         benchmark: Benchmark = hydra.utils.instantiate(cfg.benchmark.api)  # type: ignore
 
@@ -103,8 +89,6 @@ def main(cfg: DictConfig):
             drop_step_0=drop_0_epoch,
         )
 
-    # OUR CODE to sample the related tasks of the benchmark and inform the model about them ahead
-    # of the actual deployment in the MFHPO scenario ---------------------------
     # setting up the reference model:
     logger.info(f'Sweep dir: {Path.cwd()}')
     logger.info(f"Running with config: \n {OmegaConf.to_yaml(cfg, resolve=True)}")
@@ -117,353 +101,302 @@ def main(cfg: DictConfig):
         device=device
     )
     pfn_backend: TransformerModel = ftpfn.model
-    criterion = pfn_backend.criterion.to(device)
 
     file_logger = BufferedDictLogger(
         file_path=Path.cwd() / 'results.jsonl', buffer_size=10,
     )
 
-    # Generate and select the folds (meta-train-test splits)
-    all_train_ids, test_ids = train_test_split(
-        # FIXME: default is just for compatability reasons in debug
-        list(range(len(benchmark))) if hasattr(benchmark, '__len__') else list(range(100)),
-        test_size=cfg.test_size,
-        random_state=cfg.split_seed,  # train test split seed
-        shuffle=True
-    )
+    kf = KFold(n_splits=cfg.n_splits, shuffle=True, random_state=42)
+    folds = kf.split(benchmark)
+    if hasattr(cfg, 'fold_idx'):
+        # if fold_idx is specified, we only run that fold
+        folds = list(folds)
+        folds = [folds[cfg.fold_idx]]
 
-    # allow ourself to rerun certain experiments with specific folds
-    folds: List[List[int]] = folds_of_size(all_train_ids, size=cfg.fold_size, drop=True)
-    #    folds: List[List[int]] = k_folds(train_ids, k=cfg.k_folds)
-    if "fold" in cfg.keys():
-        assert len(folds) >= cfg.fold, \
-            "Not enough folds generated, please increase fold_size or k_folds"
-        folds = [folds[cfg.fold]]
+    for fold, (train_ids, test_ids) in enumerate(folds):
+        train_ids = [int(i) for i in train_ids]
+        test_ids = [int(i) for i in test_ids]  # convert to int if needed
 
-    if "target_idx" in cfg.keys():
-        test_ids = [test_ids[cfg.target_idx]]
+        # some debug option for fast execution
+        if hasattr(cfg, 'target_idx'):
+            # if target_idx is specified, we only run that target task
+            test_ids = [test_ids[cfg.target_idx]]
 
-    # select the target task and the split of context tasks
-    # TODO for loop over the alpha repetitions of the context tasks
-    allocation_seeds = cfg.allocation_seeds
-    for fold, (train_ids, target_task, seed) in tqdm(
-            enumerate(product(folds, test_ids, allocation_seeds)),
-            total=len(test_ids) * len(folds) * len(allocation_seeds)
-    ):
-        logger.info(f"Running task: target_task={target_task}, train_ids={train_ids}, seed={seed}")
+        if hasattr(cfg, 'train_idx'):
+            # if train_ids is specified, we only run that set of train tasks
+            train_ids = [train_ids[i] for i in cfg.train_idx]
 
-        file_logger.postfix = {'target_task': target_task, 'train_ids': train_ids, 'seed': seed}
+        for target_task in test_ids:
+            for allocation_seed in cfg.allocation_seeds:
 
+                logger.info(f"Running task: target_task={target_task}, train_ids={train_ids},"
+                            f"fold {fold}, allocation_seed={allocation_seed}")
 
-        # "instantiate" the task and related task datasets (with no budget allocation yet)
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", DeprecationWarning)
+                file_logger.postfix = {
+                    'target_task': target_task,
+                    'fold': fold,
+                    'allocation_seed': allocation_seed
+                }
 
-            if hasattr(benchmark, 'collect_task_split'):
-                # FIXME if for compat. reasons in debugging
-                with SeededRandomContext(cfg.seed):
-                    benchmark.collect_task_split(target_id=target_task, train_ids=train_ids)
+                # "instantiate" the task and related task datasets (with no budget allocation yet)
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", DeprecationWarning)
 
-        with (SeededRandomContext(seed)):
-            config = dict(
-                single_eval_pos=[1000] * (len(train_ids)),
-                alphas=[10 ** np.random.uniform(-4, -1) for _ in range(len(train_ids))],
-                **cfg.benchmark.sample_config if hasattr(cfg.benchmark, 'sample_config') else {},
-            )
-            # sample the dirichlet distributed data
-            if hasattr(benchmark, 'sample_batch'):
-                batch = benchmark.sample_batch(**config)
+                    if hasattr(benchmark, 'collect_task_split'):
+                        # FIXME if for compat. reasons in debugging
+                        with SeededRandomContext(cfg.seed):
+                            benchmark.collect_task_split(target_id=target_task, train_ids=train_ids)
 
-                # parse the batch ---------------------------------------------
-                related_task_data = parse_batch_for_padded_train_data(batch)
-
-                if False:
-                    # notice, that in this plot, the query points are not shown anymore ! (they
-                    # were sampled with the dirichlet distirbution prior but the single_eval_pos
-                    # cuts the 1k sequence to 500 train and 500 query points).
-                    import matplotlib.pyplot as plt
-                    num_tasks = related_task_data.x.shape[1]
-                    fig, axes = plt.subplots(
-                        nrows=1, ncols=num_tasks, figsize=(2 * num_tasks, 5), sharex=True,
-                        sharey=True
+                with (SeededRandomContext(allocation_seed)):
+                    config = dict(
+                        single_eval_pos=[1000] * (len(train_ids)),
+                        alphas=[10 ** np.random.uniform(-4, -1) for _ in range(len(train_ids))],
+                        **cfg.benchmark.sample_config if hasattr(cfg.benchmark, 'sample_config') else {},
                     )
-                    train_x = related_task_data.x
-                    train_y = related_task_data.y
+                    # sample the dirichlet distributed data
+                    if hasattr(benchmark, 'sample_batch'):
+                        batch = benchmark.sample_batch(**config)
 
-                    for i in range(num_tasks ):
-                        ax = axes[i] if num_tasks > 1 else axes
-                        ax.plot(train_x[:config['single_eval_pos'][i], i, 1].cpu().numpy(),
-                                train_y[:config['single_eval_pos'][i], i].cpu().numpy(), 'o')
-                        ax.set_title(f'Task {i + 1}')
-                        ax.set_xlabel('Fidelity')
-                        ax.set_ylabel('y')
+                        # parse the batch ---------------------------------------------
+                        related_task_data = parse_batch_for_padded_train_data(batch)
 
-                    plt.tight_layout()
-                    plt.show()
 
-                    from src.utils.plot_curve_tensor import plot_curve_tensor
-                    plot_curve_tensor(related_task_data.x, related_task_data.y, idx=1,
-                                      single_eval_pos=[500] * (len(train_ids)))
+                # --------------------------------------------------------------------------
 
-        # --------------------------------------------------------------------------
-
-        # CRUCIAL check to determine if the benchmark is tabular (list of configs)
-        bench_is_tabular = (
-            True if hasattr(cfg.benchmark, "tabular") and cfg.benchmark.tabular else False
-        )
-
-        # TODO collect_task_split, sample_batch, parse and pass to the model for "train"
-
-        def run_pipeline(previous_pipeline_directory: Path, **config: Any) -> dict:
-            start = time.time()
-            if benchmark.fidelity_name in config:
-                fidelity = config.pop(benchmark.fidelity_name)
-            else:
-                fidelity = benchmark.fidelity_range[1]
-
-            if bench_is_tabular:  # declared in parent scope
-                # IMPORTANT to handle tabular benchmarks to query using only IDs
-                # if "tabular" in cfg.benchmark.name:
-                config = int(config["id"])
-                # TODO: handle other tabular benchmarks
-
-            full_trajectory = benchmark.trajectory(config)
-
-            trajectory_to_query = [r for r in full_trajectory if r.fidelity <= fidelity]
-
-            result = trajectory_to_query[-1]
-            max_fidelity_result = full_trajectory[-1]
-
-            # best seen till the fidelity specified
-            _result, min_valid_seen, min_test_seen = process_mfpbench_trajectories(
-                trajectory_to_query)
-            # best seen ever for the config till max fidelity
-            _, min_valid_ever, min_test_ever = process_mfpbench_trajectories(full_trajectory)
-
-            end = time.time()
-
-            # df = benchmark.table
-            # import matplotlib.pyplot as plt
-            # # Assume your DataFrame is called df with MultiIndex (id, epoch)
-            # # and a column named 'val_accuracy'
-            # for id_value, group in df.groupby(level='id'):
-            #     group = group.reset_index()
-            #     plt.plot(group['epoch'], group['val_accuracy'], label=f'id={id_value}')
-            # plt.xlabel('epoch')
-            # plt.ylabel('val_accuracy')
-            # plt.legend()
-            # plt.show()
-
-            return {
-                "loss": result.error,
-                "cost": result.cost,
-                "info_dict": {
-                    "cost": result.cost,
-                    "val_score": result.val_score,
-                    "test_score": result.test_score,
-                    "fidelity": result.fidelity,
-                    "continuation_fidelity": None,
-                    "start_time": start,
-                    "end_time": end,  # + fidelity,
-                    "max_fidelity_loss": float(max_fidelity_result.error),
-                    "max_fidelity_cost": float(max_fidelity_result.cost),
-                    "process_id": os.getpid(),
-                    "min_valid_seen": min_valid_seen,
-                    "min_test_seen": min_test_seen,
-                    "min_valid_ever": min_valid_ever,
-                    "min_test_ever": min_test_ever,
-                    "learning_curve": _result["valid"],
-                    "learning_curves": _result,
-                },
-            }
-
-        pipeline_space = {
-            "search_space": benchmark.space
-        }
-        lower, upper, _ = benchmark.fidelity_range
-        fidelity_name = benchmark.fidelity_name
-        if "mf" in cfg.algorithm and cfg.algorithm.mf:
-            if isinstance(lower, float):
-                fidelity_param = neps.FloatParameter(
-                    lower=lower, upper=upper, is_fidelity=True
+                # CRUCIAL check to determine if the benchmark is tabular (list of configs)
+                bench_is_tabular = (
+                    True if hasattr(cfg.benchmark, "tabular") and cfg.benchmark.tabular else False
                 )
-            else:
-                fidelity_param = neps.IntegerParameter(
-                    lower=lower, upper=upper, is_fidelity=True
-                )
-            pipeline_space = {**pipeline_space, **{fidelity_name: fidelity_param}}
-            logger.info(f"Using fidelity space: \n {fidelity_param}")
-        logger.info(f"Using search space: \n {pipeline_space}")
 
-        if 'nepsnevals' in cfg.keys():
-            max_evaluations_total = cfg.nepsnevals
-        elif "mf" in cfg.algorithm and cfg.algorithm.mf:
-            max_evaluations_total = NEPS_MF_MAX_EVALS if cfg.algorithm.sh_based else (
-                NEPS_MF_EI_MAX_EVALS)
-        else:
-            max_evaluations_total = NEPS_SF_MAX_EVALS
+                # TODO collect_task_split, sample_batch, parse and pass to the model for "train"
 
-        # placeholder pre_load hook
-        def set_grid_table_space(
-                obj,
-                **kwargs
-        ) -> Any:
-            return obj
-
-        # snippet to handle tabular benchmarks
-        if bench_is_tabular:
-            # extracting and processing the tabular data and raw space
-            #
-            if hasattr(benchmark, 'sample_batch'):
-                _table = preprocess_tabular(cfg.benchmark.meta.name, benchmark.table)
-            else:
-                _table = preprocess_tabular(cfg.benchmark.name, benchmark.table)
-            # updates the pipeline_space to be only config IDs mapping to tabular data
-            pipeline_space = {
-                "id": neps.IntegerParameter(
-                    lower=_table.index.min(), upper=_table.index.max()
-                )
-            }
-            # include the fidelity in the spaces
-            if "mf" in cfg.algorithm and cfg.algorithm.mf:
-                pipeline_space.update({fidelity_name: fidelity_param})
-                # include fidelity in the raw benchmark space
-                if isinstance(benchmark.space, CS.ConfigurationSpace):
-                    _space = pipeline_space_from_configspace(benchmark.space)
-                    _space.update({fidelity_name: fidelity_param})
-                    benchmark.space = SearchSpace(**_space)
-                elif isinstance(benchmark.space, dict):
-                    benchmark.space.update({fidelity_name: fidelity_param})
-                elif isinstance(benchmark.space, SearchSpace):
-                    benchmark.space.add_hyperparameter(name=fidelity_name, hp=fidelity_param)
-                else:
-                    raise ValueError("Unknown benchmark space type!")
-            else:
-                benchmark.space = SearchSpace(**pipeline_space_from_configspace(benchmark.space))
-
-            # (re-)defines a pre_load_hook to handle tabular data explicitly
-            # CRUCIAL for tabular benchmarks with a fixed list of configs
-            def set_grid_table_space(
-                    # overwrites the placeholder in the parent scope
-                    obj,
-                    table: pd.DataFrame | pd.Series = _table,
-                    space: CS.ConfigurationSpace = benchmark.space,
-            ) -> Any:
-                # both table and space are required to handle tabular spaces
-                # hps = list(set(space.keys()).intersection(set(table.columns)))
-
-                # obj.pipeline_space.set_custom_grid_space(table[hps], space)
-                obj.pipeline_space.set_custom_grid_space(table, space)
-                if SET_BOUNDS_FROM_TABLE_FLAG:
-                    obj = set_bounds_from_table(obj, table, space)
-                return obj
-        # end of tabular check block
-
-        print("MAX EVALUATIONS:", max_evaluations_total)
-
-        # ---------------------------------------------------
-        # Manual edit of the search space accoding to  neps.api._run_args l 324
-        if hasattr(benchmark, 'sample_batch'):
-            try:
-                # Support pipeline space as ConfigurationSpace definition
-                if isinstance(pipeline_space, CS.ConfigurationSpace):
-                    pipeline_space = pipeline_space_from_configspace(pipeline_space)
-
-                # Support pipeline space as mix of ConfigurationSpace and neps parameters
-                new_pipeline_space: dict[str, Parameter] = dict()
-                for key, value in pipeline_space.items():
-                    if isinstance(value, CS.ConfigurationSpace):
-                        config_space_parameters = pipeline_space_from_configspace(value)
-                        new_pipeline_space = {**new_pipeline_space, **config_space_parameters}
+                def run_pipeline(previous_pipeline_directory: Path, **config: Any) -> dict:
+                    start = time.time()
+                    if benchmark.fidelity_name in config:
+                        fidelity = config.pop(benchmark.fidelity_name)
                     else:
-                        new_pipeline_space[key] = value
-                pipeline_space = new_pipeline_space
+                        fidelity = benchmark.fidelity_range[1]
 
-                # Transform to neps internal representation of the pipeline space
-                pipeline_space = SearchSpace(**pipeline_space)
-            except TypeError as e:
-                message = f"The pipeline_space has invalid type: {type(pipeline_space)}"
-                raise TypeError(message) from e
+                    if bench_is_tabular:  # declared in parent scope
+                        # IMPORTANT to handle tabular benchmarks to query using only IDs
+                        # if "tabular" in cfg.benchmark.name:
+                        config = int(config["id"])
+                        # TODO: handle other tabular benchmarks
 
-        # ---------------------------------------------------
+                    full_trajectory = benchmark.trajectory(config)
 
-        if cfg.algorithm.searcher.surrogate_model in ['pfn', 'dpl', 'deep_gp']:
-            searcher = cfg.algorithm.name
+                    trajectory_to_query = [r for r in full_trajectory if r.fidelity <= fidelity]
 
-        if   'surrogate_model' in cfg.algorithm.keys():
+                    result = trajectory_to_query[-1]
+                    max_fidelity_result = full_trajectory[-1]
 
-            searcher = hydra.utils.instantiate(
-                cfg.algorithm.searcher,
-                pipeline_space=pipeline_space,
-                # surrogate_model=surrogate_model
-            )
+                    # best seen till the fidelity specified
+                    _result, min_valid_seen, min_test_seen = process_mfpbench_trajectories(
+                        trajectory_to_query)
+                    # best seen ever for the config till max fidelity
+                    _, min_valid_ever, min_test_ever = process_mfpbench_trajectories(full_trajectory)
+
+                    end = time.time()
+
+                    return {
+                        "loss": result.error,
+                        "cost": result.cost,
+                        "info_dict": {
+                            "cost": result.cost,
+                            "val_score": result.val_score,
+                            "test_score": result.test_score,
+                            "fidelity": result.fidelity,
+                            "continuation_fidelity": None,
+                            "start_time": start,
+                            "end_time": end,  # + fidelity,
+                            "max_fidelity_loss": float(max_fidelity_result.error),
+                            "max_fidelity_cost": float(max_fidelity_result.cost),
+                            "process_id": os.getpid(),
+                            "min_valid_seen": min_valid_seen,
+                            "min_test_seen": min_test_seen,
+                            "min_valid_ever": min_valid_ever,
+                            "min_test_ever": min_test_ever,
+                            "learning_curve": _result["valid"],
+                            "learning_curves": _result,
+                        },
+                    }
+
+                pipeline_space = {
+                    "search_space": benchmark.space
+                }
+                lower, upper, _ = benchmark.fidelity_range
+                fidelity_name = benchmark.fidelity_name
+                if "mf" in cfg.algorithm and cfg.algorithm.mf:
+                    if isinstance(lower, float):
+                        fidelity_param = neps.FloatParameter(
+                            lower=lower, upper=upper, is_fidelity=True
+                        )
+                    else:
+                        fidelity_param = neps.IntegerParameter(
+                            lower=lower, upper=upper, is_fidelity=True
+                        )
+                    pipeline_space = {**pipeline_space, **{fidelity_name: fidelity_param}}
+                    logger.info(f"Using fidelity space: \n {fidelity_param}")
+                logger.info(f"Using search space: \n {pipeline_space}")
+
+                if 'nepsnevals' in cfg.keys():
+                    max_evaluations_total = cfg.nepsnevals
+                elif "mf" in cfg.algorithm and cfg.algorithm.mf:
+                    max_evaluations_total = NEPS_MF_MAX_EVALS if cfg.algorithm.sh_based else (
+                        NEPS_MF_EI_MAX_EVALS)
+                else:
+                    max_evaluations_total = NEPS_SF_MAX_EVALS
+
+                # placeholder pre_load hook
+                def set_grid_table_space(
+                        obj,
+                        **kwargs
+                ) -> Any:
+                    return obj
+
+                # snippet to handle tabular benchmarks
+                if bench_is_tabular:
+                    # extracting and processing the tabular data and raw space
+                    #
+                    if hasattr(benchmark, 'sample_batch'):
+                        _table = preprocess_tabular(cfg.benchmark.meta.name, benchmark.table)
+                    else:
+                        _table = preprocess_tabular(cfg.benchmark.name, benchmark.table)
+                    # updates the pipeline_space to be only config IDs mapping to tabular data
+                    pipeline_space = {
+                        "id": neps.IntegerParameter(
+                            lower=_table.index.min(), upper=_table.index.max()
+                        )
+                    }
+                    # include the fidelity in the spaces
+                    if "mf" in cfg.algorithm and cfg.algorithm.mf:
+                        pipeline_space.update({fidelity_name: fidelity_param})
+                        # include fidelity in the raw benchmark space
+                        if isinstance(benchmark.space, CS.ConfigurationSpace):
+                            _space = pipeline_space_from_configspace(benchmark.space)
+                            _space.update({fidelity_name: fidelity_param})
+                            benchmark.space = SearchSpace(**_space)
+                        elif isinstance(benchmark.space, dict):
+                            benchmark.space.update({fidelity_name: fidelity_param})
+                        elif isinstance(benchmark.space, SearchSpace):
+                            benchmark.space.add_hyperparameter(name=fidelity_name, hp=fidelity_param)
+                        else:
+                            raise ValueError("Unknown benchmark space type!")
+                    else:
+                        benchmark.space = SearchSpace(**pipeline_space_from_configspace(benchmark.space))
+
+                    # (re-)defines a pre_load_hook to handle tabular data explicitly
+                    # CRUCIAL for tabular benchmarks with a fixed list of configs
+                    def set_grid_table_space(
+                            # overwrites the placeholder in the parent scope
+                            obj,
+                            table: pd.DataFrame | pd.Series = _table,
+                            space: CS.ConfigurationSpace = benchmark.space,
+                    ) -> Any:
+                        # both table and space are required to handle tabular spaces
+                        # hps = list(set(space.keys()).intersection(set(table.columns)))
+
+                        # obj.pipeline_space.set_custom_grid_space(table[hps], space)
+                        obj.pipeline_space.set_custom_grid_space(table, space)
+                        if SET_BOUNDS_FROM_TABLE_FLAG:
+                            obj = set_bounds_from_table(obj, table, space)
+                        return obj
+                # end of tabular check block
+
+                print("MAX EVALUATIONS:", max_evaluations_total)
+
+                # ---------------------------------------------------
+                # Manual edit of the search space accoding to  neps.api._run_args l 324
+                if hasattr(benchmark, 'sample_batch'):
+                    try:
+                        # Support pipeline space as ConfigurationSpace definition
+                        if isinstance(pipeline_space, CS.ConfigurationSpace):
+                            pipeline_space = pipeline_space_from_configspace(pipeline_space)
+
+                        # Support pipeline space as mix of ConfigurationSpace and neps parameters
+                        new_pipeline_space: dict[str, Parameter] = dict()
+                        for key, value in pipeline_space.items():
+                            if isinstance(value, CS.ConfigurationSpace):
+                                config_space_parameters = pipeline_space_from_configspace(value)
+                                new_pipeline_space = {**new_pipeline_space, **config_space_parameters}
+                            else:
+                                new_pipeline_space[key] = value
+                        pipeline_space = new_pipeline_space
+
+                        # Transform to neps internal representation of the pipeline space
+                        pipeline_space = SearchSpace(**pipeline_space)
+                    except TypeError as e:
+                        message = f"The pipeline_space has invalid type: {type(pipeline_space)}"
+                        raise TypeError(message) from e
+
+                # ---------------------------------------------------
+
+                if cfg.algorithm.searcher.surrogate_model in ['pfn', 'dpl', 'deep_gp']:
+                    searcher = cfg.algorithm.name
+
+                if   'surrogate_model' in cfg.algorithm.keys():
+
+                    searcher = hydra.utils.instantiate(
+                        cfg.algorithm.searcher,
+                        pipeline_space=pipeline_space,
+                        # surrogate_model=surrogate_model
+                    )
 
 
-            surrogate_model = hydra.utils.instantiate(
-                cfg.algorithm.surrogate_model.cls,
-                logger=file_logger,
-                device=device,
-                related_task_data=related_task_data
-            )
-
-            # cfgmodel = cfg.algorithm.surrogate_model
-
-            # train_config = dict(
-            #     query_task_x=target_task_query_x,
-            #     query_task_y=target_task_query_y
-            # )
-            # if 'train_call' in cfgmodel.keys():
-            #     train_config.update(cfgmodel.train_call)
-
-            # distillation will return a prefix, pfn_mixture won't
-            # surrogate_model.train(**train_config)
-
-            searcher.model_policy.surrogate_model.nn = surrogate_model
-            searcher.model_policy.surrogate_model_name = surrogate_model.__name__
-
-        # -----------------------------------------------------------------------
-        neps_dir = Path.cwd() / (f"neps_root_directory_{target_task}_{fold}"
-                                 f"_{cfg.split_seed}_{seed}")
-        neps_run(
-            run_pipeline=run_pipeline,
-            pipeline_space=pipeline_space,
-            root_directory=neps_dir,
-            # TODO: figure out how to pass runtime budget and if metahyper internally
-            #  calculates continuation costs to subtract from optimization budget
-            # **budget_args,
-            max_evaluations_total=max_evaluations_total,
-
-            # FIXME: backward compat: hasattr(cfg.algorithm, 'searcher') for
-            searcher=searcher,
-
-            # FIXME: add in a searcher instantiation (BaseOptimizer subclass), that will also get
-            #  the benchmark instance as info
-
-            searcher_path=Path(__file__).parent / 'ifBO_icml2024' / 'src' / 'pfns_hpo' /
-                          'pfns_hpo' / 'configs' / "algorithm",
-            overwrite_working_directory=OVERWRITE,
-            pre_load_hooks=[set_grid_table_space],  # crucial in allowing tabular grid access
-            post_run_summary=True,  # important for efficient plotting
-        )
-        file_logger.flush()
-
-        logger.info(f"Finished run for target_task={target_task}, "
-                    f"train_ids={train_ids}, seed={seed}")
+                    surrogate_model = hydra.utils.instantiate(
+                        cfg.algorithm.surrogate_model.cls,
+                        logger=file_logger,
+                        device=device,
+                        related_task_data=related_task_data
+                    )
 
 
-        if "mf" in cfg.algorithm and cfg.algorithm.mf:
-            plotter = Plotter3D(
-                algorithm=cfg.algorithm.name,
-                benchmark=cfg.benchmark.name if 'name' in cfg.benchmark.keys() else
-                cfg.benchmark.meta.name,
-                experiment_group=cfg.experiment_group,
-                seed=cfg.seed
-            )
-            _df = pd.read_csv(
-                neps_dir / "summary_csv" / "config_data.csv",
-                float_precision="round_trip"
-            )
-            plotter.plot3D(data=_df, run_path=Path().cwd())
+                    searcher.model_policy.surrogate_model.nn = surrogate_model
+                    searcher.model_policy.surrogate_model_name = surrogate_model.__name__
+
+                # -----------------------------------------------------------------------
+                neps_dir = Path.cwd() / (f"neps_root_directory_{target_task}_{fold}"
+                                         f"_{cfg.split_seed}_{cfg.seed}_{allocation_seed}")
+                neps_run(
+                    run_pipeline=run_pipeline,
+                    pipeline_space=pipeline_space,
+                    root_directory=neps_dir,
+                    # TODO: figure out how to pass runtime budget and if metahyper internally
+                    #  calculates continuation costs to subtract from optimization budget
+                    # **budget_args,
+                    max_evaluations_total=max_evaluations_total,
+
+                    # FIXME: backward compat: hasattr(cfg.algorithm, 'searcher') for
+                    searcher=searcher,
+
+                    # FIXME: add in a searcher instantiation (BaseOptimizer subclass), that will also get
+                    #  the benchmark instance as info
+
+                    searcher_path=Path(__file__).parent / 'ifBO_icml2024' / 'src' / 'pfns_hpo' /
+                                  'pfns_hpo' / 'configs' / "algorithm",
+                    overwrite_working_directory=OVERWRITE,
+                    pre_load_hooks=[set_grid_table_space],  # crucial in allowing tabular grid access
+                    post_run_summary=True,  # important for efficient plotting
+                )
+                file_logger.flush()
+
+                logger.info(f"Finished run for fold={fold}, target_task={target_task}, "
+                            f"train_ids={train_ids}, seed={cfg.seed}_{allocation_seed}")
+
+
+                if "mf" in cfg.algorithm and cfg.algorithm.mf:
+                    plotter = Plotter3D(
+                        algorithm=cfg.algorithm.name,
+                        benchmark=cfg.benchmark.name if 'name' in cfg.benchmark.keys() else
+                        cfg.benchmark.meta.name,
+                        experiment_group=cfg.experiment_group,
+                        seed=cfg.seed
+                    )
+                    _df = pd.read_csv(
+                        neps_dir / "summary_csv" / "config_data.csv",
+                        float_precision="round_trip"
+                    )
+                    plotter.plot3D(data=_df, run_path=Path().cwd())
 
     logger.info(f"All runs finished, results saved to {Path.cwd()}")
 
