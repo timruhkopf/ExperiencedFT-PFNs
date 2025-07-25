@@ -2,24 +2,20 @@
 
 defaults:
   - benchmark: lcbench
-
-
   - override hydra/job_logging: full
   - _self_
 
 split_seed: 42 # train-test split seed
-test_size: 0.33 # share of the meta tasks for testing
 allocation_seeds: [42, 43] # refers to the budget sizes and budget allocations on each task; defines an actual MFHPO task.
 device: 'cuda'
-#k_folds: 5
-fold_size: 5
-#fold: 0
+
 
 repo_root: ${resolve_path:''}
 experiment_name: base
 commit_hash: ${git_commit:''}
 slurm_id: 999
 
+n_splits: 5
 
 experiment_group: test
 #experiment_name: benchmark=${benchmark.name}/algorithm=${algorithm.name}/seed=${seed}
