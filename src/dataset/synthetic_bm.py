@@ -13,24 +13,42 @@ from typing_extensions import override
 import torch
 import copy
 
-from utils.seeding import SeededRandomContext
+from src.utils.seeding import SeededRandomContext
 
 
-@dataclass(frozen=True, eq=False, unsafe_hash=True)
-class SynstheticConfig(Config):
-    """Configuration for the synthetic benchmark."""
+def create_synthetic_config_class(dim_hyperparameters: int):
+    """Factory function to create a synthetic config class with dynamic hyperparameters."""
+    
+    annotations = {}
+    for i in range(dim_hyperparameters):
+        annotations[f"X_{i}"] = float
+    
+    SyntheticConfig = type(
+        'SyntheticConfig',
+        (Config,),
+        {
+            '__annotations__': annotations,
+            '__dataclass_fields__': {},
+        }
+    )
+    
+    return dataclass(frozen=True, eq=False, unsafe_hash=True)(SyntheticConfig)
 
-    # Define the hyperparameters for the synthetic benchmark
-    X_0: float
-    X_1: float
-    X_2: float
-    X_3: float
-    X_4: float
-    X_5: float
+# @dataclass(frozen=True, eq=False, unsafe_hash=True)
+# class SyntheticConfig(Config):
+#     """Configuration for the synthetic benchmark."""
+
+#     # Define the hyperparameters for the synthetic benchmark
+#     X_0: float
+#     X_1: float
+#     X_2: float
+#     X_3: float
+#     X_4: float
+#     X_5: float
 
 
 @dataclass(frozen=True)
-class SyntheticBenchmarkResult(Result[SynstheticConfig, int]):
+class SyntheticBenchmarkResult(Result["SyntheticConfig", int]):
     metric_defs: ClassVar[Mapping[str, Metric]] = {
         "value": Metric(minimize=False, bounds=(0.0, 1.0)),
         "fid_cost": Metric(minimize=True, bounds=(0.05, 1.0)),
@@ -62,8 +80,8 @@ class BNNManager:
 
 class SyntheticBenchmark(Benchmark):
 
-    config_type: type[C] = SynstheticConfig
-    result_type: type[R] = SyntheticBenchmarkResult
+    # config_type: type[C] = "SyntheticConfig"
+    # result_type: type[R] = SyntheticBenchmarkResult
 
     def __init__(
         self,
@@ -87,6 +105,9 @@ class SyntheticBenchmark(Benchmark):
         # set up the BNN mapping from the hyperparameter space to the learning curves
         n_curve_param = 23  # Number of parameters for the learning curve basis and their weights
 
+        self.config_type = create_synthetic_config_class(self.dim_hyperparameters)
+        self.result_type = SyntheticBenchmarkResult
+        
         if bnn_seed is None:
             self.relation_prior = BNNManager.get_instance(
             dim_hyperparameters = self.dim_hyperparameters,
@@ -133,7 +154,7 @@ class SyntheticBenchmark(Benchmark):
             config_type=self.config_type,
             result_type=self.result_type,
             fidelity_name="epochs",
-            fidelity_range=(0, self.max_fidelities - 1, 1),
+            fidelity_range=(1, self.max_fidelities, 1),
             space=space,
             seed=seed,
             prior=prior,
@@ -152,13 +173,13 @@ class SyntheticBenchmark(Benchmark):
 
         curves = self.relation_prior.curves_for_configs(config[np.newaxis, :])
         # what should be the first argument?
-        return {"value": curves(np.array([at/self.max_fidelities]), 0)[0], "fid_cost": self._fidelity_cost(at)}
+        return {"value": curves(np.array([at-1/self.max_fidelities-1]), 0)[0], "fid_cost": self._fidelity_cost(at)}
     
     def _fidelity_cost(self, at: int) -> float:
         return 0.05 + (1 - 0.05) * (at / self.fidelity_range[1]) ** 2
         
 
-    def create_related_task(self, n_layers, **reset_kwargs):
+    def create_related_task(self, dim_hyperparameters, n_layers, **reset_kwargs):
         if n_layers is None:
             AssertionError(
                 "n_layers must be specified to create a related task.")
@@ -167,6 +188,7 @@ class SyntheticBenchmark(Benchmark):
             prior=self.prior,
             perturb_prior=self.perturb_prior,
             value_metric=self.value_metric,
+            dim_hyperparameters=dim_hyperparameters,
         )
 
         original_bnn = self.relation_prior.model
@@ -251,14 +273,14 @@ class SyntheticBenchmark(Benchmark):
     
     
 if __name__ == "__main__":
-    benchmark = SyntheticBenchmark(value_metric="value", cost_metric="fid_cost", seed=42)
+    benchmark = SyntheticBenchmark(value_metric="value", cost_metric="fid_cost", seed=42, dim_hyperparameters=10)
 
     configs = benchmark.configs
-    print(f"Number of Configs: {len(configs)}")
-    print(f"Configs: {configs}")
+    # print(f"Number of Configs: {len(configs)}")
+    # print(f"Configs: {configs}")
     config = configs["0"]  # Get the first config
-    print(f"Sampled Config: {config}")
-    # result = benchmark.query(config, at=49)
+    # print(f"Sampled Config: {config}")
+    result = benchmark.query(config, at=49)
     trajectory = benchmark.trajectory(
         config, frm=benchmark.start, to=benchmark.end)
     # np_config = np.array([config[f"X_{i}"]
@@ -272,7 +294,7 @@ if __name__ == "__main__":
     # print(f"Trajectory: {trajectory}")
     # print(f"Max Fidelity: {benchmark.end}")
     # print(f"Error: {benchmark.query(config, at=99).error}")
-    related_benchmark = SyntheticBenchmark(value_metric="value", cost_metric="fid_cost", seed=42)
+    related_benchmark = SyntheticBenchmark(value_metric="value", cost_metric="fid_cost", seed=42, dim_hyperparameters=10)
     
     # check if the model of the related benchmark is the same as the original benchmark
     if benchmark.relation_prior.model is not related_benchmark.relation_prior.model:
@@ -284,7 +306,7 @@ if __name__ == "__main__":
     import matplotlib.pyplot as plt
     values = []
     values_related = []
-    fidelities = np.arange(benchmark.start, benchmark.end + 1, 1)
+    fidelities = np.arange(benchmark.start, benchmark.end+1, 1)
     for f in trajectory:
         values.append(f.value.value)
     for f in trajectory_related:
