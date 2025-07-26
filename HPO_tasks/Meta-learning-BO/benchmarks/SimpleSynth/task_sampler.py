@@ -14,7 +14,7 @@ def f(X, shift=0):
     """
     Torch-compatible objective function for the target_task
     """
-    f_X =  0.2 + ((0.1) * X + 0.5 * torch.sin(10*X/2 + math.pi/2 + shift))*(1- shift*12/ math.pi/20 ) + 0.2 * torch.sin(10*X+ shift)
+    f_X =  0.5 + (0.2 * torch.sin(10*X/2 + math.pi/2 + shift) + (0.01) * (X-5) ) + 0.2 * torch.sin(10*X+ shift)
     f_X = f_X.clamp(0, 1)  # Ensure the output is between 0 and 1
     return f_X
 

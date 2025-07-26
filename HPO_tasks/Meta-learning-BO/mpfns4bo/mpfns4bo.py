@@ -19,7 +19,7 @@ from functools import partial
 
 
 class MPFNs4BO(nn.Module):
-    def __init__(self, model, search_space, related_task_data, validation_task_data = [], device='cpu:0', fit_encoder = None, apply_power_transform =False, input_power_transform=False, tranformation_type=None, mixing_strategy="default", only_obs_incumbents=True, **kwargs):
+    def __init__(self, model, search_space, related_task_data, validation_task_data = [], device='cpu:0', fit_encoder = None, apply_power_transform =False, apply_power_transform_pi =False, input_power_transform=False, tranformation_type=None, mixing_strategy="default", only_obs_incumbents=True, **kwargs):
         super().__init__()
         self.model = model
         self.criterion = model.criterion
@@ -32,6 +32,7 @@ class MPFNs4BO(nn.Module):
         self.input_power_transform_eps = 0.0
         self.transformation_type = tranformation_type
         self.only_obs_incumbents = only_obs_incumbents
+        self.apply_power_transform_pi = apply_power_transform_pi
 
         """Meta-learning on meta-data, corresponds to the meta-learning part in Algorithm 1."""
         converted_meta_data = dict()
@@ -124,6 +125,7 @@ class MPFNs4BO(nn.Module):
             x_train=X_obs,
             y_train=y_obs,
             minimize= False,
+            apply_power_transform = self.apply_power_transform_pi
         ).squeeze()
         acq_mask = acq_values.max() == acq_values
         possible_next = torch.arange(len(X_pen))[acq_mask]

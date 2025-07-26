@@ -124,7 +124,8 @@ def calc_imputed_linalg_reliability(
         plot_file_path: str = None,  # type: ignore
         degree_fn=lambda x, y :0,
         multi_fidelity = True,
-        transformation_type=None
+        transformation_type=None,
+        return_average_loss= True
 ) -> torch.Tensor:
     """
     Compute scale-invariant reliability scores for meta-tasks using block-diagonal regression.
@@ -261,7 +262,8 @@ def calc_imputed_linalg_reliability(
             #y_proj = linear_alg_main(num_tasks, context_x, context_y, imputed_y, device).T
             y_proj_for_loss = y_proj.view(num_tasks, num_fidelity).T  # [num_points, num_tasks]
             loss = criterion(logits, y_proj_for_loss)
-            loss = loss.mean(dim=0)  # mean over the batch
+            if return_average_loss: 
+                loss = loss.mean(dim=0)  # mean over the batch
             return loss         
 
 def plot_projections(

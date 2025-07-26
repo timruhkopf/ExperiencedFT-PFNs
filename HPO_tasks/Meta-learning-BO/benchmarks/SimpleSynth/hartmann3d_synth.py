@@ -2,7 +2,6 @@ import numpy as np
 import pandas as pd
 import parameterspace as ps
 from blackboxopt import Evaluation, EvaluationSpecification, Objective
-from benchmarks.SimpleSynth.task_sampler import get_batch_test
 import json
 import time
 import torch
@@ -10,11 +9,77 @@ from typing import Dict, List, Union, Optional
 import random
 
 
-class SimpleSynth:
+def hartmann3d(x, task=0):
+    """
+    Hartmann 3-dimensional test function.
+    The function is usually evaluated on the unit cube x_i ∈ (0, 1), for all i = 1, 2, 3.
+    Global minimum: f(x*) = -3.86278 at x* ≈ [0.114614, 0.555649, 0.852547]
+    """
+    alphas = [
+    [1.0, 1.2, 3.0, 3.2],         # Original (default)
+    [0.5, 0.5, 0.5, 0.5],         # Uniform low weight
+    [2.0, 2.0, 2.0, 2.0],         # Uniform high weight
+    [1.0, 2.0, 3.0, 4.0],         # Linearly increasing
+    [4.0, 3.0, 2.0, 1.0],         # Linearly decreasing
+    [1.0, 0.0, 0.0, 0.0],         # Only first term active
+    [0.0, 0.0, 0.0, 1.0],         # Only last term active
+    [0.1, 10.0, 0.1, 10.0],       # Alternating small and large
+    [5.0, 1.0, 0.2, 2.5],         # Arbitrary varying weights
+    [0.3, 0.7, 1.1, 0.9],         # Smooth varying low weights
+    ]
+
+    alpha = alphas[task]  # Choose the first set of weights for the function
+
+    A = np.array([
+        [3.0, 10.0, 30.0],
+        [0.1, 10.0, 35.0],
+        [3.0, 10.0, 30.0],
+        [0.1, 10.0, 35.0]
+    ])
+
+    P = 1e-4 * np.array([
+        [3689, 1170, 2673],
+        [4699, 4387, 7470],
+        [1091, 8732, 5547],
+        [381, 5743, 8828]
+    ])
+
+    if isinstance(x, list):
+        x = np.array(x)
+    x = np.atleast_2d(x)
+    
+    assert x.shape[1] == 3, "Input must have shape (n_samples, 3)"
+
+    # Compute (X - P)^2 * A, shape: (n_samples, 4)
+    diff = x[:, np.newaxis, :] - P[np.newaxis, :, :]         # (n, 4, 3)
+    prod = A[np.newaxis, :, :] * diff**2                     # (n, 4, 3)
+    exp_term = np.exp(-np.sum(prod, axis=2))                 # (n, 4)
+    result = -np.dot(exp_term, alpha)                        # (n,)
+
+    return result if x.shape[0] > 1 else result[0]
+
+
+def get_batch_test(spt_size=4, task=0, step=0.1):
+
+    # Generate 3D query points in the unit cube [0, 1]^3
+    grid = np.arange(0, 1, step)
+    mesh = np.meshgrid(grid, grid, grid)
+    X_qry = torch.Tensor(np.stack([m.flatten() for m in mesh], axis=1))
+    ix = [random.sample(grid.tolist(), spt_size) for _ in range(3)]
+    ix = np.stack(ix, axis=1)
+    X_spt = torch.Tensor(ix)
+
+    y_spt = hartmann3d(X_spt, task=task)
+    y_qry = hartmann3d(X_qry, task=task)
+
+    return X_spt, y_spt, X_qry, y_qry
+
+
+class Hartmann3D:
     def __init__(
         self,
         seed: Optional[int] = None,
-        start_task: int = 8,
+        start_task: int = 0,
         initializations: int = 3,
     ):
         
@@ -59,7 +124,7 @@ class SimpleSynth:
     def benchmark_data(self):
         return self.data
 
-    def get_meta_data(self, task_ids=[3, 4, 5, 7, 9]):
+    def get_meta_data(self, task_ids= range(1, 5)):
         meta_data: Dict[Union[str, int, List[Evaluation]]] = dict()
 
         for task_id in task_ids:
@@ -81,7 +146,6 @@ class SimpleSynth:
                 )
                 meta_data[task_id].append(evaluation)
         return meta_data
-
 
 def run_optimization_loop(
     benchmark,

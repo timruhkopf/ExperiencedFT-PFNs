@@ -2,6 +2,42 @@ import torch
 import numpy as np
 from src.model.calc_reliability import calc_target_cv_nll, calc_imputed_linalg_reliability
 
+
+from sklearn.neighbors import KernelDensity
+import numpy as np
+
+import torch
+
+import torch
+import numpy as np
+from sklearn.neighbors import NearestNeighbors
+
+def weighted_lcb_avg(X, k=3):
+    """
+    Computes the weighted average of LCB values, with more weight on sparse regions.
+
+    Args:
+        X (torch.Tensor): shape (n_samples, n_features)
+        y (torch.Tensor): shape (n_samples,)
+        model: PyTorch model with output (mean, std) for uncertainty. If None, use y directly.
+        kappa (float): Confidence multiplier
+        k (int): k-NN parameter for density estimation
+
+    Returns:
+        torch scalar: Weighted average of LCBs
+    """
+    X_np = X.detach().cpu().numpy()
+    nbrs = NearestNeighbors(n_neighbors=k+1).fit(X_np)
+    dists, _ = nbrs.kneighbors(X_np)
+    avg_knn_dist = torch.tensor(dists[:, 1:].mean(axis=1), dtype=torch.float32)  # exclude self-distance
+
+    # Inverse distance = density proxy → sparse regions = higher distances = lower density
+    weights = avg_knn_dist / (avg_knn_dist.sum() + 1e-6)
+    return weights
+
+
+
+
 class myCVMixtureStrategy:
     def __init__(self, model, criterion, related_task_data=None, min_num_samples=1, logger=None, multi_fidelity=False, transformation_type=None):
         """This class is a new variant of the MixtureStrategy that consider
@@ -17,6 +53,7 @@ class myCVMixtureStrategy:
         self.num_related = None
         self.num_pullings = None
         self.t = 0
+        self.return_average_loss = True
 
 
     def __call__(self, x_train, y_train, pi_target, pi_related, minimize):
@@ -41,6 +78,7 @@ class myCVMixtureStrategy:
                 degree_fn=lambda x, y: max(x[:, 0, 1].unique().shape[0] - 3, 0) if self.multi_fidelity else 1,    
                 multi_fidelity = self.multi_fidelity,
                 transformation_type=self.transformation_type,
+                return_average_loss=self.return_average_loss,
                 # avoid multicollinearity if all have same fidelity. grow polynomial features based on the fidelity availability
             )
             related_nll = related_nll.to(device)
@@ -50,10 +88,19 @@ class myCVMixtureStrategy:
             target_nll = torch.zeros(1, device=device)
             related_nll = torch.zeros(num_related, device=device)
 
+
+        # weights = weighted_lcb_avg(x_train)**2
+
+        # normalized_weights = weights / (weights.sum() + 1e-8)  # normalize the weights to sum to 1
+        # related_nll = (normalized_weights.unsqueeze(1) * related_nll).mean(dim=0)  # average the related nlls based on the weights
+
         # weigh the target and related scores by the reliability
         reliability = torch.nn.functional.softmax(torch.concat([-target_nll, -related_nll], dim=0), dim=0)
 
-        pi_values = torch.concat([pi_target.unsqueeze(0), pi_related/x_train.shape[0]**2], dim=0)
+        t = x_train.shape[0]
+        reliability[1:] = reliability[1:] / t
+
+        pi_values = torch.concat([pi_target.unsqueeze(0), pi_related], dim=0)
         weighted_pi = (pi_values * reliability.unsqueeze(1)).sum(dim=0, keepdim=True)
         return weighted_pi, reliability
 
@@ -71,7 +118,6 @@ class CVMixtureStrategy:
         self.multi_fidelity = multi_fidelity
         self.transformation_type = transformation_type
 
-
     def __call__(self, x_train, y_train, pi_target, pi_related, minimize):
         # fixme what do we need to do with the minimize flag?
 
@@ -91,7 +137,7 @@ class CVMixtureStrategy:
                 self.related_task_data,
                 self.criterion,
                 degree_fn=lambda x, y: max(x[:, 0, 1].unique().shape[0] - 3, 0) if self.multi_fidelity else 1,    
-                multi_fidelity = self.multi_fidelity,
+                multi_fidelity=self.multi_fidelity,
                 transformation_type=self.transformation_type,
                 # avoid multicollinearity if all have same fidelity. grow polynomial features based on the fidelity availability
             )
@@ -105,7 +151,6 @@ class CVMixtureStrategy:
             target_nll = torch.zeros(1, device=device)
             related_nll = torch.zeros(num_related, device=device)
 
-        #print(f"Target NLL: {target_nll}, Related NLL: {related_nll}")
 
         # filtering out low reliability scores (e.g., unrelated tasks  )
 

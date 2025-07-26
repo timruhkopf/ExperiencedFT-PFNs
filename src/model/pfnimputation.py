@@ -10,6 +10,7 @@ import logging
 
 from src.utils.dotdict import DotDict
 from src.utils.filelogger import BufferedFileLogger
+from src.model.utils import general_power_transform
 
 log = logging.getLogger(__name__)
 
@@ -231,7 +232,7 @@ class PFNPriorImputation(AbstractModel):
         return imputed_y
 
     def get_pi_related(self, x_train, x_test, related_context_x=None, related_context_y=None,
-                       padding_mask=None,minimize = False):
+                       padding_mask=None,minimize = False, apply_power_transform=False):
         """
         First impute the y values for the target task under the related prior context,
         then calculate the incumbent under the imputed data and finally collect the
@@ -259,6 +260,10 @@ class PFNPriorImputation(AbstractModel):
 
         # 2.
         # TODO key-value-cache here on related tasks and incremental x_train
+
+        y_values = torch.cat([related_context_y, imputed_y, ], dim=0)
+        if apply_power_transform:
+            y_values = general_power_transform(y_values, y_values)
         prior_logits = self.model(
             (
                 torch.cat([
@@ -266,7 +271,7 @@ class PFNPriorImputation(AbstractModel):
                     x_train.unsqueeze(1).repeat(1, num_related, 1),
                     x_test.unsqueeze(1).repeat(1, num_related, 1)
                 ], dim=0),
-                torch.cat([related_context_y, imputed_y, ], dim=0)
+                y_values
             ),
             single_eval_pos=related_context_x.shape[0] + x_train.shape[0],
             src_key_padding_mask=torch.cat([
@@ -278,9 +283,9 @@ class PFNPriorImputation(AbstractModel):
         B = prior_logits.shape[1]
 
         if self.only_obs_incumbents:
-            incumbents = imputed_y
+            incumbents = y_values[related_context_y.shape[0]:]
         else: # the problem is PI gets clipped if we use only the imputed_y
-            incumbents = torch.cat([related_context_y, imputed_y, ], dim=0)
+            incumbents = y_values
         
         if minimize:
             prior_incumbents = incumbents.min(dim=0).values
@@ -297,7 +302,7 @@ class PFNPriorImputation(AbstractModel):
 
         return pi_related
 
-    def get_pi_target(self, x_train, y_train, x_test, inc, minimize=False):
+    def get_pi_target(self, x_train, y_train, x_test, inc, minimize=False, apply_power_transform=False):
         """
         Calculate the Probability of Improvement (PI) acquisition function for the
         query points under the target task.
@@ -307,10 +312,16 @@ class PFNPriorImputation(AbstractModel):
         :param inc: incumbent under the target task
         :return:
         """
+
+        if apply_power_transform:
+            y = general_power_transform(y_train.unsqueeze(1), y_train.unsqueeze(1))
+            inc = y.min() if minimize else y.max()
+        else:
+            y = y_train.unsqueeze(1)
         target_logits = self.model(
             (
                 torch.cat([x_train.unsqueeze(1), x_test.unsqueeze(1)], dim=0),
-                y_train.unsqueeze(1)
+                y
             ),
             single_eval_pos=x_train.shape[0],
 
@@ -319,7 +330,7 @@ class PFNPriorImputation(AbstractModel):
         return pi_target
 
     @torch.no_grad()
-    def get_pi(self, x_test, inc, x_train=None, y_train=None, minimize=False):
+    def get_pi(self, x_test, inc, x_train=None, y_train=None, minimize=False, apply_power_transform=False):
         """
         Get the Probability of Improvement (PI) acquisition function for the
         query points under the target task and the related tasks.
@@ -368,6 +379,7 @@ class PFNPriorImputation(AbstractModel):
             related_context_y=related_context_y,
             padding_mask=padding_mask,
             minimize = minimize,
+            apply_power_transform=apply_power_transform
         )
         # 3 # FIXME: with proper stacking, the prior and target logits could be calculated in one go
         #      this implementation here is just to keep the code simple and readable for debugging
@@ -376,7 +388,8 @@ class PFNPriorImputation(AbstractModel):
             y_train=y_train,
             x_test=x_test,
             inc=inc,
-            minimize=minimize
+            minimize=minimize,
+            apply_power_transform=apply_power_transform
         )
         self.pi_target = pi_target
         self.pi_related = pi_related
@@ -387,7 +400,7 @@ class PFNPriorImputation(AbstractModel):
             y_train=y_train,
             pi_target=pi_target,
             pi_related=pi_related,
-            minimize=minimize  # fixme: do we need this?
+            minimize=minimize,  # fixme: do we need this?
         )
         self.reliability_scores = reliability_scores  
         #print(f"Reliability scores: {self.reliability_scores}")
