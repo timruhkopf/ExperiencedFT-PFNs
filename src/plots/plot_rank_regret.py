@@ -151,12 +151,12 @@ def main(input_file, output_file=None, figsize=(15, 6),
 
     reliab_df = reliab_df[reliab_df['metric'] == 'reliability']
     del reliab_df['metric']  # drop metric column
-    reliab_df.rename(columns={'reliability_0': 'target_reliability'}, inplace=True)
+    reliab_df.rename(columns={'softmax_weight_0': 'target_reliability'}, inplace=True)
 
-    reliab_df = parse_reliab_df(reliab_df)
+    # reliab_df = parse_reliab_df(reliab_df)
 
     # get the highest and second highest weights
-    others = reliab_df.filter(like='reliability_')
+    others = reliab_df.filter(like='softmax_weight_')
     # Row-wise max
     row_max_series = others.max(axis=1)
 
@@ -244,7 +244,7 @@ def plot_single_benchmark(args):
 
     # Save to bytes buffer in memory
     buf = io.BytesIO()
-    fig.savefig(buf, format='png', bbox_inches='tight')
+    fig.savefig(buf, format='pdf', bbox_inches='tight')
     plt.close(fig)
     buf.seek(0)
     return bench, buf.read()
