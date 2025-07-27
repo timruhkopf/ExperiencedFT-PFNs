@@ -1,0 +1,32 @@
+defaults:
+  - ifbo
+
+name: ppfn
+mf: True
+sh_based: False
+
+
+surrogate_model:
+  meta:
+    name: 'ppfn'
+
+  cls:
+    _target_: src.model.ppfn.PPFN
+    min_context_size: 3
+    imputation_mode: median
+    incumbent_calculation: imputation-only
+    flippable_related: False
+    verbose: True
+
+    model:
+      _target_:  ifbo.surrogate.FTPFN
+      version: "0.0.1"
+      device: ${device}
+      target_path: ${repo_root}/data/.model
+
+
+    criterion: Null
+
+
+
+

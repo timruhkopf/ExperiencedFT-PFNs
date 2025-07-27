@@ -357,7 +357,7 @@ def main(cfg: DictConfig):
 
 
 
-                elif cfg.algorithm.searcher.surrogate_model == 'pfn':
+                elif cfg.algorithm.searcher.surrogate_model in 'pfn' :
                     searcher = cfg.algorithm.name
 
                 if   'surrogate_model' in cfg.algorithm.keys() and \

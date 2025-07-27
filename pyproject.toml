@@ -68,6 +68,7 @@ dependencies = [
     "tensorflow==2.14.1",
     "psutil==6.0.0",
     "hickle==5.0.3",
+    "pfns4bo==0.1.5"
 ]
 
 

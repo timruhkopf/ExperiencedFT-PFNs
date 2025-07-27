@@ -43,6 +43,7 @@ from neps.search_spaces.search_space import (
 
 import logging
 
+from src.model.ppfn import PPFN
 from src.model.mixture_ppd import PFNPPDMixture
 from src.model.pfnimputation import PFNPriorImputation
 
@@ -173,7 +174,9 @@ class MyPFN_SURROGATE(PFN_SURROGATE):
 
 
     def get_pi(self, x_test, inc, x_train=None, y_train=None):
-        if isinstance(self.nn, PFNPriorImputation) or isinstance(self.nn, PFNPPDMixture):
+        if isinstance(self.nn, PFNPriorImputation) or \
+                isinstance(self.nn, PFNPPDMixture) or \
+                isinstance(self.nn, PPFN):
             inc = inc.unsqueeze(1).to(self.device)
 
             inc = (1 - inc) if self.minimize else inc
