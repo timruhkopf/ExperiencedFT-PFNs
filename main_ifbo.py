@@ -361,7 +361,7 @@ def main(cfg: DictConfig):
                     searcher = cfg.algorithm.name
 
                 if   'surrogate_model' in cfg.algorithm.keys() and \
-                        '_target_' in cfg.algorithm.surrogate_model.keys():
+                        '_target_' in cfg.algorithm.surrogate_model.cls.keys():
 
                     searcher = hydra.utils.instantiate(
                         cfg.algorithm.searcher,
@@ -407,7 +407,10 @@ def main(cfg: DictConfig):
 
                 logger.info(f"Finished run for fold={fold}, target_task={target_task}, "
                             f"train_ids={train_ids}, seed={cfg.seed}_{allocation_seed}")
-                tmpdir.cleanup()
+
+                # if tmpdir exists, remove it
+                if 'tmpdir' in locals():
+                    tmpdir.cleanup()
 
                 if "mf" in cfg.algorithm and cfg.algorithm.mf:
                     plotter = Plotter3D(
