@@ -3,7 +3,7 @@ import numpy as np
 from src.model.calc_reliability import calc_target_cv_nll, calc_imputed_linalg_reliability
 
 class myCVMixtureStrategy:
-    def __init__(self, model, criterion, related_task_data=None, min_num_samples=1, logger=None, multi_fidelity=False, transformation_type=None):
+    def __init__(self, model, criterion, related_task_data=None, min_num_samples=1, logger=None, multi_fidelity=False, transformation_type=None, mixing_type=None):
         """This class is a new variant of the MixtureStrategy that consider
         the reliability of related scores in conjunction with cross-valdiated nll scores
         of the target data."""
@@ -18,6 +18,8 @@ class myCVMixtureStrategy:
         self.num_pullings = None
         self.t = 0
         self.return_average_loss = True
+
+        self.mixing_type = mixing_type
 
 
     def __call__(self, x_train, y_train, pi_target, pi_related, minimize):
@@ -54,13 +56,17 @@ class myCVMixtureStrategy:
 
         # weigh the target and related scores by the reliability
         reliability = torch.nn.functional.softmax(torch.concat([-target_nll, -related_nll], dim=0), dim=0)
-
-        t = x_train.shape[0]
-        reliability[1:] = reliability[1:] / t
-
         pi_values = torch.concat([pi_target.unsqueeze(0), pi_related], dim=0)
-        weighted_pi = (pi_values * reliability.unsqueeze(1)).sum(dim=0, keepdim=True)
-        return weighted_pi, reliability
+        
+        if self.mixing_type == "ts":
+            t = x_train.shape[0]
+            samples = np.random.normal(reliability, 1/t, size=reliability.shape[0])
+            return pi_values[np.argmax(samples)], reliability
+        else:
+            t = x_train.shape[0]
+            reliability[1:] = reliability[1:] / t
+            weighted_pi = (pi_values * reliability.unsqueeze(1)).sum(dim=0, keepdim=True)
+            return weighted_pi, reliability
 
 
 class CVMixtureStrategy:

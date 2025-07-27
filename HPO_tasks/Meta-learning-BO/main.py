@@ -103,6 +103,12 @@ if __name__ == "__main__":
                     meta_data, validation_data = benchmark.get_meta_data()
                     optimizer = MPFNs4BO(torch.load( pfns4bo.hebo_plus_model), benchmark.search_space, meta_data, validation_data, device=args.device, apply_power_transform_pi=True, mixing_strategy="my")
 
+                elif args.method == "pPFNs4BO-ts":
+                    import pfns4bo
+                    from mpfns4bo.mpfns4bo import MPFNs4BO
+                    meta_data, validation_data = benchmark.get_meta_data()
+                    optimizer = MPFNs4BO(torch.load( pfns4bo.hebo_plus_model), benchmark.search_space, meta_data, validation_data, device=args.device, apply_power_transform_pi=True, mixing_strategy="ts")
+
                 elif args.method == "pPFNs4BO-pp":
                     import pfns4bo
                     from mpfns4bo.mpfns4bo import MPFNs4BO

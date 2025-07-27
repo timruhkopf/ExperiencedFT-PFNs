@@ -69,8 +69,8 @@ class MPFNs4BO(nn.Module):
 
         if mixing_strategy == "default":
             mixing_class = CVMixtureStrategy
-        elif mixing_strategy == "my":
-            mixing_class = myCVMixtureStrategy
+        elif mixing_strategy == "my" or mixing_strategy == "ts":
+            mixing_class = partial(myCVMixtureStrategy, mixing_type="ts") 
         else:
             raise ValueError(f"Unknown mixing strategy: {mixing_strategy}")
 
