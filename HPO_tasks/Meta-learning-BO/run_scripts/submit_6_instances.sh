@@ -3,7 +3,8 @@ search_space_ids=('4796' '5860' '5906'  '5527'  '5889'  '5859')
 search_space_ids=('4796' '5889'  '5859')
 #9 test 5965, 7609, 5889, 6794, 5859, 4796, 7607, 5636, and 5970.
 #9 valid 5527, 5891, 5906, 5971, 6767, 6766, and 5860
-policies=("pPFNs4BO-dp" "pPFNs4BO-pp") #("PFNs4BO-PI-o" "PFNs4BO-PI" "PFNs4BO-PI-IW" "PFNs4BO-EI-IW") #  "mPFNs4BO" "MALIBO"
+policies=("MALIBO" "PFNs4BO-PI" "pPFNs4BO-pp") #("PFNs4BO-PI-o" "PFNs4BO-PI" "PFNs4BO-PI-IW" "PFNs4BO-EI-IW") #  "mPFNs4BO" "MALIBO"
+evaluations=60
 
 seeds=("test0" "test1" "test2" "test3" "test4")
 
@@ -40,10 +41,10 @@ for ((i=0; i<seeds_length; i++)); do
             # fi
             partition="2080-galvani"
 
-            output=$(eval sbatch --partition=$partition --error=$error_path --output=$output_path --exclude=galvani-cn119 runoncluster.sh $search_space_id $policy $seed "results/hpob6")
+            output=$(eval sbatch --partition=$partition --error=$error_path --output=$output_path --exclude=galvani-cn119 runoncluster.sh $search_space_id $policy $seed "results/hpob6" $evaluations)
             if [[ $output == *"Submitted batch job"* ]]; then
                 echo $output
-                echo "Succesfully"
+                echo "Successfully submitted job"
                 sleep 1
             else
                 echo "Oh no! Detected error. Wait 5 mins and try again."

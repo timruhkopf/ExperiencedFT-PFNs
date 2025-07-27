@@ -56,7 +56,7 @@ class myCVMixtureStrategy:
         reliability = torch.nn.functional.softmax(torch.concat([-target_nll, -related_nll], dim=0), dim=0)
 
         t = x_train.shape[0]
-        reliability[1:] = reliability[1:] / t**2
+        reliability[1:] = reliability[1:] / t
 
         pi_values = torch.concat([pi_target.unsqueeze(0), pi_related], dim=0)
         weighted_pi = (pi_values * reliability.unsqueeze(1)).sum(dim=0, keepdim=True)

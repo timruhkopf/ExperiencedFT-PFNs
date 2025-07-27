@@ -37,22 +37,15 @@ class MPFNs4BO(nn.Module):
         """Meta-learning on meta-data, corresponds to the meta-learning part in Algorithm 1."""
         converted_meta_data = dict()
         max_length = 0
-        # for task_uid, evaluations in related_task_data.items():
-        #     X = np.array([self.search_space.to_numerical(e.configuration) for e in evaluations])
-        #     Y = -np.array([e.objectives["loss"] for e in evaluations]).reshape(-1) # return to maximization (performance)
-        #     max_length = max(max_length, len(Y))
-        #     converted_meta_data[task_uid] = {"X": X, "y": Y}
-        #     print(Y.shape, X.shape, task_uid, Y.max(), Y.min())
         for task_uid, evaluations in related_task_data.items():
             X = np.array([self.search_space.to_numerical(e.configuration) for e in evaluations])
-            Y = -np.array([e.objectives["loss"] for e in evaluations]).reshape(-1) # return to maximization (performance)
+            Y = 1 - self.normalize(np.array([e.objectives["loss"] for e in evaluations]).reshape(-1)) # return to maximization (performance)
             if task_uid in validation_task_data:
                 evaluations_val = validation_task_data[task_uid]
                 X_val = np.array([self.search_space.to_numerical(e.configuration) for e in evaluations_val])
                 if self.input_power_transform :
                     X_val = self.power_transforms(X_val, **self.kwargs).squeeze()
-                Y_val = -np.array([e.objectives["loss"] for e in evaluations_val]).reshape(-1) # return to maximization (performance)
-                Y_val = (Y_val-np.min(Y_val))/(np.max(Y_val)-np.min(Y_val))
+                Y_val = 1 - self.normalize(np.array([e.objectives["loss"] for e in evaluations_val]).reshape(-1)) # return to maximization (performance)
                 if self.apply_power_transform:
                     Y_val = self.power_transforms(Y_val, **self.kwargs).squeeze()
                 X = np.concatenate([X, X_val], axis=0)
@@ -92,6 +85,8 @@ class MPFNs4BO(nn.Module):
             device=device,
             only_obs_incumbents=self.only_obs_incumbents
         )
+    def normalize(self, y):
+        return (y-np.min(y))/(np.max(y)-np.min(y))
 
     @torch.no_grad()
     def observe_and_suggest(self, X_obs, y_obs, X_pen, return_actual_ei=False, minimize=True):
@@ -158,7 +153,8 @@ class MPFNs4BO(nn.Module):
         src: tuple,
         single_eval_pos: int | None = None,
         src_key_padding_mask=None,
-        style = None,):
+        style = None,
+        max_num_samples=500,):
         assert isinstance(
             src, tuple
         ), "inputs (src) have to be given as (x,y) or (style,x,y) tuple"
@@ -188,8 +184,8 @@ class MPFNs4BO(nn.Module):
                 x_full_masked = x_full[:, batch_index:batch_index+1, :][~src_x_padding_mask]
                 y_full_masked = y_full[:, batch_index:batch_index+1][~src_y_padding_mask]
                 single_eval_pos_masked = single_eval_pos - int(src_y_padding_mask.sum())
-                if single_eval_pos_masked > 1000:
-                    idx = torch.randperm(single_eval_pos_masked)[:1000]
+                if single_eval_pos_masked > max_num_samples:
+                    idx = torch.randperm(single_eval_pos_masked)[:max_num_samples]
                     y_full_masked = y_full_masked[idx]
 
                     idx = torch.cat([
@@ -198,7 +194,7 @@ class MPFNs4BO(nn.Module):
                     ])
                     x_full_masked = x_full_masked[idx] 
                     
-                    single_eval_pos_masked = 1000
+                    single_eval_pos_masked = max_num_samples
 
                 res = self.model(
                     (style,

@@ -10,10 +10,11 @@ search_space_id=$1
 policy=$2
 test_seed=$3
 output_results=$4
+evaluations=$5
 
 # Set the output and error file paths for SLURM
 #SBATCH --output=${output_path}
 #SBATCH --error=${error_path}
 
 cd ..
-conda run -n ft-pfn python3 -u main.py  --search_space_id $search_space_id --method $policy --test_seed  $test_seed --no-continuous --evaluations 100 --output $output_results 
+conda run -n ft-pfn python3 -u main.py  --search_space_id $search_space_id --method $policy --test_seed  $test_seed --no-continuous --evaluations $evaluations --output $output_results 

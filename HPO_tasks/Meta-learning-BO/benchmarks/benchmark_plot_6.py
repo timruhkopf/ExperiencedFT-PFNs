@@ -249,7 +249,7 @@ if __name__=="__main__":
 
     benchmark_plotter  = BenchmarkPlotter(experiments=experiments, 
                                             name = name,
-                                            seeds=["test0", "test1", "test2", "test3"],#, "test4"],
+                                            seeds=["test0", "test1", "test2", "test3", "test4"],
                                             results_path=results_path, 
                                             output_path=output_path, 
                                             data_path = data_path)
