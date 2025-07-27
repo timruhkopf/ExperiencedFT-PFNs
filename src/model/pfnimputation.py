@@ -232,7 +232,7 @@ class PFNPriorImputation(AbstractModel):
         return imputed_y
 
     def get_pi_related(self, x_train, x_test, related_context_x=None, related_context_y=None,
-                       padding_mask=None,minimize = False, apply_power_transform=False):
+                       padding_mask=None,minimize = False, apply_power_transform=False, y_train=None):
         """
         First impute the y values for the target task under the related prior context,
         then calculate the incumbent under the imputed data and finally collect the
@@ -263,7 +263,9 @@ class PFNPriorImputation(AbstractModel):
 
         y_values = torch.cat([related_context_y, imputed_y, ], dim=0)
         if apply_power_transform:
-            y_values = general_power_transform(y_values, y_values)
+            transformed_cols = [general_power_transform(y_train.unsqueeze(1), y_values[:, i].unsqueeze(1)) for i in range(y_values.shape[1])]
+            y_values = torch.cat(transformed_cols, dim=1)
+
         prior_logits = self.model(
             (
                 torch.cat([
@@ -379,7 +381,8 @@ class PFNPriorImputation(AbstractModel):
             related_context_y=related_context_y,
             padding_mask=padding_mask,
             minimize = minimize,
-            apply_power_transform=apply_power_transform
+            apply_power_transform=apply_power_transform,
+            y_train=y_train,
         )
         # 3 # FIXME: with proper stacking, the prior and target logits could be calculated in one go
         #      this implementation here is just to keep the code simple and readable for debugging
