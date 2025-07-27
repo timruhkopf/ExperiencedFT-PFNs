@@ -12,7 +12,7 @@ surrogate_model:
 
   cls:
     _target_: src.model.ppfn.PPFN
-    min_context_size: 3
+    min_context_size: 10
     imputation_mode: median
     incumbent_calculation: imputation-only
     flippable_related: False

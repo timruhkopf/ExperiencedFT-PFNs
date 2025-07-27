@@ -23,7 +23,7 @@ if [[ $HOME == /mnt/home* ]]; then
     BIGWORK=~
 else
 
-  conda activate $BIGWORK/envs/eft-pfn2
+  conda activate $BIGWORK/envs/ft-pfn-experimental
 fi
 
 export PYTHONPATH=$BIGWORK/$REPONAME/src:$PYTHONPATH

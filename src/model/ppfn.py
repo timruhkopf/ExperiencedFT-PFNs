@@ -400,7 +400,7 @@ class PPFN(AbstractModel):
             # prediction: p(y|.) = \sum_i  p(y|M_i) p(M_i | D)
             bma_prediction = (predictions * weights).sum(dim=1)
 
-        elif self.model_avg == 'mean': # equally weighted average
+        elif self.model_avg == 'eqw': # equally weighted average
             # here we simply average the predictions over the related tasks
             bma_prediction = predictions.mean(dim=1)
 
