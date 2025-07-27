@@ -245,10 +245,11 @@ if __name__=="__main__":
     experiments = ["Random" , "GP", "FSBO", "FSBO2", "RGPE", "MALIBO", "OptFormer", "NAP", "PFNs4BO-PI-o", "PFNs4BO-PI", "PFNs4BO-PI-IW", "PFNs4BO-EI-IW"]
     experiments = ["Random" , "GP", "FSBO", "FSBO2", "RGPE", "MALIBO", "PFNs4BO-PI-o", "PFNs4BO-PI", "PFNs4BO-PI-IW", "PFNs4BO-EI-IW", "mPFNs4BO", "PFNs4BO-EI", "pPFNs4BO", "pPFNs4BO-norm", "pPFNs4BO-linear", "pPFNs4BO-cosine"]
 
-    experiments = ["Random" , "GP", "FSBO", "FSBO2", "RGPE", "MALIBO",  "PFNs4BO-PI", "PFNs4BO-PI-o","pPFNs4BO", "pPFNs4BO-decay"]#, "PFNs4BO-EI", "pPFNs4BO-linear"]
+    experiments = ["GP", "FSBO2", "RGPE", "MALIBO",  "PFNs4BO-PI", "PFNs4BO-PI-o","pPFNs4BO", "pPFNs4BO-decay", "pPFNs4BO-dp", "pPFNs4BO-pp"]#, ]#, "PFNs4BO-EI", "pPFNs4BO-linear"]
 
     benchmark_plotter  = BenchmarkPlotter(experiments=experiments, 
                                             name = name,
+                                            seeds=["test0", "test1", "test2", "test3"],#, "test4"],
                                             results_path=results_path, 
                                             output_path=output_path, 
                                             data_path = data_path)

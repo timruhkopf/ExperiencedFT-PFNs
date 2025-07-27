@@ -84,6 +84,11 @@ if __name__ == "__main__":
             from mpfns4bo.mpfns4bo import MPFNs4BO
             optimizer = MPFNs4BO(torch.load( pfns4bo.hebo_plus_model), benchmark.search_space, meta_data, device=args.device, apply_power_transform_pi=True, mixing_strategy="my")
 
+        elif args.method == "pPFNs4BO-pp":
+            import pfns4bo
+            from mpfns4bo.mpfns4bo import MPFNs4BO
+            optimizer = MPFNs4BO(torch.load( pfns4bo.hebo_plus_model), benchmark.search_space, meta_data, device=args.device, apply_power_transform_pi=True)
+
         elif args.method == "PFNs4BO-PI":
             import pfns4bo
             from mpfns4bo.pfns4bo_opt import PFNs4BO
@@ -98,7 +103,6 @@ if __name__ == "__main__":
             import pfns4bo
             from mpfns4bo.mpfns4bo import MPFNs4BO
             optimizer = MPFNs4BO(torch.load( pfns4bo.hebo_plus_model), benchmark.search_space, meta_data, device=args.device, apply_power_transform=False)
-
 
 
         elif args.method == "PFNs4BO-EI":

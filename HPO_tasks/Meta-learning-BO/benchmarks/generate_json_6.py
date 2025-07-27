@@ -12,9 +12,9 @@ import json
 import pandas as pd
 import os
 
-experiment_ids = ["PFNs4BO-PI-o", "PFNs4BO-PI", "PFNs4BO-PI-IW", "PFNs4BO-EI-IW", "mPFNs4BO", "PFNs4BO-EI", "pPFNs4BO", "pPFNs4BO-decay"]
+experiment_ids = ["PFNs4BO-PI-o", "PFNs4BO-PI", "PFNs4BO-PI-IW", "PFNs4BO-EI-IW", "mPFNs4BO", "PFNs4BO-EI", "pPFNs4BO", "pPFNs4BO-decay", "pPFNs4BO-dp", "pPFNs4BO-pp"]
 
-seeds = ["test0", "test1", "test2", "test3", "test4"]
+seeds = ["test0", "test1", "test2", "test3"]#, "test4"]
 results_path = "results/hpob6"
 
 for experiment_id in experiment_ids:
