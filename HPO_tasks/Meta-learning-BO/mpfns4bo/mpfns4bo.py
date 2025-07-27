@@ -86,7 +86,7 @@ class MPFNs4BO(nn.Module):
             only_obs_incumbents=self.only_obs_incumbents
         )
     def normalize(self, y):
-        return (y-np.min(y))/(np.max(y)-np.min(y))
+        return (y-np.min(y))/(np.max(y)-np.min(y)+ 1e-8)
 
     @torch.no_grad()
     def observe_and_suggest(self, X_obs, y_obs, X_pen, return_actual_ei=False, minimize=True):

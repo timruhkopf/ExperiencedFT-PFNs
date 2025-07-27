@@ -18,6 +18,8 @@ import pandas as pd
 from matplotlib.ticker import MaxNLocator
 from hpob_handler import HPOBHandler
 
+minimal = True
+
 
 class BenchmarkPlotter:
 
@@ -47,6 +49,9 @@ class BenchmarkPlotter:
 
         #self.search_spaces = list(self.task_list_per_space.keys())
         self.search_spaces = ['4796', '5860', '5906', '5527', '5889', '5859']
+        if minimal:
+            self.search_spaces = ['4796', '5889', '5859']
+            self.n_trials = 61
 
     def plot(self):
 
@@ -245,7 +250,7 @@ if __name__=="__main__":
     experiments = ["Random" , "GP", "FSBO", "FSBO2", "RGPE", "MALIBO", "OptFormer", "NAP", "PFNs4BO-PI-o", "PFNs4BO-PI", "PFNs4BO-PI-IW", "PFNs4BO-EI-IW"]
     experiments = ["Random" , "GP", "FSBO", "FSBO2", "RGPE", "MALIBO", "PFNs4BO-PI-o", "PFNs4BO-PI", "PFNs4BO-PI-IW", "PFNs4BO-EI-IW", "mPFNs4BO", "PFNs4BO-EI", "pPFNs4BO", "pPFNs4BO-norm", "pPFNs4BO-linear", "pPFNs4BO-cosine"]
 
-    experiments = ["GP", "FSBO2", "RGPE", "MALIBO",  "PFNs4BO-PI", "PFNs4BO-PI-o","pPFNs4BO", "pPFNs4BO-decay", "pPFNs4BO-dp", "pPFNs4BO-pp"]#, ]#, "PFNs4BO-EI", "pPFNs4BO-linear"]
+    experiments = ["Random" , "GP", "FSBO2", "RGPE", "MALIBO",  "PFNs4BO-PI", "pPFNs4BO-pp", "pPFNs4BO-dp"]#, ]#, "PFNs4BO-EI", "pPFNs4BO-linear"]
 
     benchmark_plotter  = BenchmarkPlotter(experiments=experiments, 
                                             name = name,

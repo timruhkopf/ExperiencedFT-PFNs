@@ -47,9 +47,9 @@ class myCVMixtureStrategy:
             )
             related_nll = related_nll.to(device)
         else:
-            # uniform scores
+            # only relay on the target scores
             num_related = pi_related.shape[0]
-            target_nll = torch.zeros(1, device=device)
+            target_nll = torch.ones(1, device=device)
             related_nll = torch.zeros(num_related, device=device)
 
         # weigh the target and related scores by the reliability
