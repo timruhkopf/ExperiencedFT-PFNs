@@ -20,7 +20,7 @@ class PPFN(AbstractModel):
     def __init__(self, model, criterion, logger,
                  related_task_data, min_context_size, imputation_mode='median',
                  incumbent_calculation='imputation-only', flippable_related=False,
-                 acquisition='pi', model_avg='bma',
+                 model_avg='bma',
                  device=None, verbose=True):
         """
 
@@ -56,21 +56,14 @@ class PPFN(AbstractModel):
         self.imputation_mode = imputation_mode
         self.incumbent_calculation = incumbent_calculation
         self.flippable_related = flippable_related
-        self.acquisition = acquisition
-        self.acquisition_fn = getattr(self.model.criterion, self.acquisition)
-        self.model_avg = model_avg
 
-        assert self.acquisition in ['pi', 'ei', 'ucb'], \
-            f'Unknown acquisition function: {self.acquisition}. '
+        self.model_avg = model_avg
 
         self.verbose = verbose
 
-    @torch.no_grad()
-    def get_pi(
-            self,
-            x_test, inc, x_train=None, y_train=None, minimize=True
-    ):
+        log.info(f'Instantiated {self.__name__}')
 
+    def _preprocess(self, x_train, y_train, x_test, inc, minimize=True):
         related_context_x = self.related_task_data.x
         related_context_y = self.related_task_data.y
         padding_mask = self.related_task_data.padding_mask
@@ -93,8 +86,6 @@ class PPFN(AbstractModel):
 
         if minimize and self.flippable_related:
             related_context_y = (1 - related_context_y)
-
-        step = x_train.shape[0]
 
         related_context_x = related_context_x.to(self.device)
         related_context_y = related_context_y.to(self.device)
@@ -119,6 +110,16 @@ class PPFN(AbstractModel):
         if padding_mask is not None:
             padding_mask = padding_mask.to(self.device)
 
+        return x_train, y_train, x_test, inc, \
+            related_context_x, related_context_y, padding_mask
+
+    @torch.no_grad()
+    def get_ei(self, x_test, inc, x_train=None, y_train=None, minimize=True):
+        step = x_train.shape[0]
+        x_train, y_train, x_test, inc, \
+            related_context_x, related_context_y, padding_mask = \
+            self._preprocess(x_train, y_train, x_test, inc, minimize=minimize)
+
         # (Impute related tasks) -----------------------------------------------
         imputed_y = self.impute(
             related_context_x,
@@ -128,7 +129,8 @@ class PPFN(AbstractModel):
         )
 
         if step < self.min_context_size:
-            return self.warmstart_pi(
+            # FIXME: EI values!
+            return self.warmstart(
                 imputed_y,
                 related_context_x,
                 related_context_y,
@@ -139,7 +141,7 @@ class PPFN(AbstractModel):
                 inc
             )
         else:
-            return self.mixture_strategy(
+            bma_predictions = self.mixture_strategy(
                 imputed_y,
                 related_context_x,
                 related_context_y,
@@ -149,6 +151,56 @@ class PPFN(AbstractModel):
                 y_train,
                 inc,
             )
+            # (Collect the PI of the mixture) ----------------------------------
+            return self.criterion.ei(
+                bma_predictions.squeeze(1), best_f=inc,
+                maximize=True)
+
+    @torch.no_grad()
+    def get_pi(
+            self,
+            x_test, inc, x_train=None, y_train=None, minimize=True
+    ):
+        step = x_train.shape[0]
+        x_train, y_train, x_test, inc, \
+            related_context_x, related_context_y, padding_mask = \
+            self._preprocess(x_train, y_train, x_test, inc, minimize=minimize)
+
+        # (Impute related tasks) -----------------------------------------------
+        imputed_y = self.impute(
+            related_context_x,
+            related_context_y,
+            padding_mask,
+            x_train
+        )
+
+        if step < self.min_context_size:
+            return self.warmstart(
+                imputed_y,
+                related_context_x,
+                related_context_y,
+                padding_mask,
+                x_train,
+                x_test,
+                y_train,
+                inc,
+                acquisition_fn='pi'
+            )
+        else:
+            bma_predictions = self.mixture_strategy(
+                imputed_y,
+                related_context_x,
+                related_context_y,
+                padding_mask,
+                x_train,
+                x_test,
+                y_train,
+                inc,
+            )
+            # (Collect the PI of the mixture) ----------------------------------
+            return self.criterion.pi(
+                bma_predictions.squeeze(1), best_f=inc,
+                maximize=True)
 
     def impute(
             self, related_context_x, related_context_y, padding_mask, x_train
@@ -194,7 +246,7 @@ class PPFN(AbstractModel):
 
         return imputed_y
 
-    def warmstart_pi(
+    def warmstart(
             self,
             imputed_y,
             related_context_x,
@@ -204,6 +256,7 @@ class PPFN(AbstractModel):
             x_test,
             y_train,
             inc,
+            acquisition_fn='pi'
 
     ):
         num_related = related_context_x.shape[1]
@@ -239,11 +292,9 @@ class PPFN(AbstractModel):
 
         # get the pi at the query points under the related tasks,
         prior_incumbents = prior_incumbents.unsqueeze(1).repeat(1, x_test.shape[0])
-
-
-
-        pi_related = torch.stack([
-            self.acquisition_fn(
+        acq_fn = getattr(self.model.criterion, acquisition_fn)
+        acq_related = torch.stack([
+            acq_fn(
                 prior_logits[:, b, :].squeeze(1),
                 best_f=prior_incumbents[b, :].unsqueeze(1),
                 maximize=True
@@ -260,14 +311,14 @@ class PPFN(AbstractModel):
             single_eval_pos=x_train.shape[0],
 
         )
-        pi_target = self.acquisition_fn(
+        acq_target = acq_fn(
             target_logits.squeeze(1), best_f=inc,
             maximize=True
         )
 
         # here we want to be maximally aggressive from the perspective of the priors,
         # and encourage exploring successful incumbents under the related tasks
-        return torch.cat([pi_target.unsqueeze(0), pi_related], dim=0).max(axis=0).values
+        return torch.cat([acq_target.unsqueeze(0), acq_related], dim=0).max(axis=0).values
 
     def mixture_strategy(
             self,
@@ -298,7 +349,7 @@ class PPFN(AbstractModel):
             single_eval_pos=x_train.shape[0],
             src_key_padding_mask=None
         )
-        target_evidence = target_logits[-step:] # logits for BMA: p(D|M)
+        target_evidence = target_logits[-step:]  # logits for BMA: p(D|M)
         target_evidence = self.criterion(target_evidence, y_train).mean(dim=0)
         target_logits = target_logits[:-step]
 
@@ -310,7 +361,7 @@ class PPFN(AbstractModel):
                     related_context_x,
                     x_train.repeat(1, num_related, 1),
                     x_test.repeat(1, num_related, 1),
-                    x_train.repeat(1, num_related, 1) # for BMA: p(D|M)
+                    x_train.repeat(1, num_related, 1)  # for BMA: p(D|M)
                 ], dim=0),
                 torch.cat([related_context_y, imputed_y, ], dim=0)
             ),
@@ -320,7 +371,7 @@ class PPFN(AbstractModel):
                 torch.zeros(num_related, x_train.shape[0], dtype=torch.bool).to(self.device)
             ], dim=1)
         )
-        
+
         # (Collect difference function) ------------------------------------
         # we calcualte the difference function between the related tasks and target task
         # anchored in the imputed values. Since we are only interested in the
@@ -329,7 +380,7 @@ class PPFN(AbstractModel):
                 torch.cat([
                     x_train.repeat(1, num_related, 1),
                     x_test.repeat(1, num_related, 1),
-                    x_train.repeat(1, num_related, 1) 
+                    x_train.repeat(1, num_related, 1)  # as query for BMA: p(D|M)
                 ], dim=0),
                 y_train.repeat(1, num_related) - imputed_y
             ),
@@ -340,10 +391,6 @@ class PPFN(AbstractModel):
             #     torch.zeros(num_related, x_train.shape[0], dtype=torch.bool).to(self.device)
             # ], dim=1)
         )
-
-        # TODO: if the BMA needs point predictors for the logit, we can simply append
-        #  the position in the forward, adjust the padding mask length and finally split
-        #  the output logits into those requested by the BMA and the acquisition's query points
 
         # (Project prior logits into target task) --------------------------
         # Here we take the predicted prior logits of the x_test and need to adjust them
@@ -370,13 +417,12 @@ class PPFN(AbstractModel):
         convolved_logits = convolve_probs_with_error(
             prior_probs.view(-1, D),
             error_probs.view(-1, D),
-            bin_centers=target_borders[1:]- target_borders[:-1] /2
+            bin_centers=target_borders[1:] - target_borders[:-1] / 2
         ).reshape(T, B, -1)
-
 
         # (Bayesian model averaging) -----------
         # logits for BMA: p(D|M)
-        prior_evidence = convolved_logits[-step:]  
+        prior_evidence = convolved_logits[-step:]
         prior_evidence = torch.stack([
             self.criterion(prior_evidence[:, b, :].squeeze(1), y_train)
             for b in range(B)
@@ -391,8 +437,8 @@ class PPFN(AbstractModel):
             unnormalized_posteriors = torch.exp(evidence)
             # p(M_i | D) = p(D|M_i) p(M_i) / [\sum_j p(D|M_j) p(M_j)]
             # here we assume that the prior probabilities are uniform, i.e. p(M_i) = 1 / n_related
-               # p(y|M_i)
-            posterior_model_probs = unnormalized_posteriors / unnormalized_posteriors.sum(dim=0 )
+            # p(y|M_i)
+            posterior_model_probs = unnormalized_posteriors / unnormalized_posteriors.sum(dim=0)
             # Expand posterior probabilities to match prediction dims for weighting
             weights = posterior_model_probs.unsqueeze(-1)
 
@@ -400,15 +446,19 @@ class PPFN(AbstractModel):
             # prediction: p(y|.) = \sum_i  p(y|M_i) p(M_i | D)
             bma_prediction = (predictions * weights).sum(dim=1)
 
-        elif self.model_avg == 'eqw': # equally weighted average
+            self.logger.log(
+                {'metrics': 'bma_weights', 'step': step,
+                 'target_weight': weights[0].item(),
+                 **{f'bma_weight_{i}': w.item()
+                    for i, w in enumerate(weights[1:], )}},
+            )
+
+        elif self.model_avg == 'eqw':  # equally weighted average
             # here we simply average the predictions over the related tasks
             bma_prediction = predictions.mean(dim=1)
 
+        return bma_prediction
 
-        # (Collect the PI of the mixture) ----------------------------------
-        return self.acquisition_fn(
-            bma_prediction.squeeze(1), best_f=inc,
-            maximize=True)
 
 def convolve_probs_with_error(probs, error_probs, bin_centers):
     batch_size, length = probs.shape
@@ -496,7 +546,9 @@ def project_probs_to_common_bins_batch(orig_probs, orig_bounds, target_bounds):
     target_rights = target_bounds[1:].unsqueeze(0)  # (1, M)
 
     # Calculate overlaps (N x M)
-    overlaps = torch.clamp(torch.min(orig_rights, target_rights) - torch.max(orig_lefts, target_lefts), min=0.0)  # (N,M)
+    overlaps = torch.clamp(
+        torch.min(orig_rights, target_rights) - torch.max(orig_lefts, target_lefts),
+        min=0.0)  # (N,M)
     orig_widths = (orig_rights - orig_lefts)  # (N,1)
     fractions = overlaps / orig_widths  # (N,M)
 
@@ -515,4 +567,3 @@ def project_probs_to_common_bins_batch(orig_probs, orig_bounds, target_bounds):
     projected_probs = projected_flat.reshape(projected_shape)
 
     return projected_probs
-

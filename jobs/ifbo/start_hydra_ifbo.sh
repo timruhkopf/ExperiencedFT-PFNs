@@ -189,7 +189,7 @@ eval "$FINAL_CMD" # 2>&1 | tee "$HYDRA_LOG_OUTPUT_FILE"
 #$BIGWORK/ExperiencedFT-PFNs/jobs/ifbo/start_hydra_ifbo.sh   device=cuda benchmark=taskset  +algorithm=ifbo-pfnimpute   split_seed=0    experiment_name=test     +target_idx=0
 #
 #
-#salloc --partition=gpu.test --time=02:00:00 --gres=gpu:1 --cpus-per-task=8 --mem=8GB
+#salloc --partition=gpu.test --time=02:00:00 --gres=gpu:1
 #
 #benchmark=taskset +algorithm=ifbo-pfnsoftmax-cv split_seed=0 experiment_name=pfnsoftmax-cv split_seed=0 +target_idx=0
 #
