@@ -1,10 +1,16 @@
-import io
 import os
 from pathlib import Path
+
+import numpy as np
 import pandas as pd
+
+import fire
+
 import matplotlib.pyplot as plt
 import seaborn as sns
-import fire
+import multiprocessing
+import io
+from PIL import Image
 
 from plots.plot_acq_task_improvement import compute_anytime_performance
 
@@ -25,6 +31,7 @@ def parse_neps_dir(df: pd.DataFrame, pattern, column) -> pd.DataFrame:
     parsed = parsed.apply(pd.to_numeric, errors='ignore')
     df = df.join(parsed, rsuffix='_parsed')
     return df
+
 
 def parse_reliab_df(df: pd.DataFrame) -> pd.DataFrame:
     # Collect the target task reliability and entropy of the related reliability scores ------------
@@ -78,6 +85,7 @@ def parse_reliab_df(df: pd.DataFrame) -> pd.DataFrame:
 
     return df
 
+
 def main(input_file, output_file=None, figsize=(15, 6),
          pattern=(
                  r'neps_root_directory_(?P<target_task>[^_]+)_(?P<fold>[^_]+)_(?P<split_seed>[^_]+)_(?P<seed>[^_]+)')):
@@ -120,7 +128,9 @@ def main(input_file, output_file=None, figsize=(15, 6),
     group_cols = ['benchmark.meta.name', 'target_task', 'fold', 'split_seed']
 
     # Create a pivot table: index by group_cols + 'epoch', columns are algorithms, values are anytime_performance
-    pivot_df = df.pivot_table(index=group_cols + ['step'], columns='algoname',
+    pivot_df = df.pivot_table(index=group_cols + ['step'], columns='algoname' if 'algoname' in
+                                                                                 df.columns else 'algorithm.surrogate_model.meta.name'
+                                                                                                 'algortihm.',
                               values='anytime_performance')
 
     algonames = pivot_df.columns  # Algorithm column names
@@ -143,66 +153,71 @@ def main(input_file, output_file=None, figsize=(15, 6),
     )
 
     # Weight time series of reliability scores ----------------------
-    reliab_df = [pd.read_csv(f.parent / 'joint_results.csv') for f in input_paths]
-    if len(input_paths) > 1:
-        reliab_df = pd.concat(reliab_df, ignore_index=True)
+    if (input_paths[0].parent / 'joint_results.csv').exists():
+        reliab_df = [pd.read_csv(f.parent / 'joint_results.csv') for f in input_paths]
+        if len(input_paths) > 1:
+            reliab_df = pd.concat(reliab_df, ignore_index=True)
+        else:
+            reliab_df = reliab_df[0]
+
+        reliab_df = reliab_df[reliab_df['metrics'] == 'bma_weights']
+        del reliab_df['metrics']  # drop metric column
+        # reliab_df.rename(columns={'softmax_weight_0': 'target_weight'}, inplace=True)
+
+        # reliab_df = parse_reliab_df(reliab_df)
+
+        # get the highest and second highest weights
+        others = reliab_df.filter(like='bma_weight_')
+        # Row-wise max
+        row_max_series = others.max(axis=1)
+
+        # Row-wise second max
+        # Sort each row descending and take the second value
+        row_sorted = others.apply(lambda row: row.sort_values(ascending=False).values, axis=1)
+        second_max_series = row_sorted.apply(lambda x: x[1])
+
+        # Add these as new columns
+        reliab_df['max_reliability'] = row_max_series
+        reliab_df['second_max_reliability'] = second_max_series
+
     else:
-        reliab_df = reliab_df[0]
-
-    reliab_df = reliab_df[reliab_df['metric'] == 'reliability']
-    del reliab_df['metric']  # drop metric column
-    reliab_df.rename(columns={'softmax_weight_0': 'target_reliability'}, inplace=True)
-
-    # reliab_df = parse_reliab_df(reliab_df)
-
-    # get the highest and second highest weights
-    others = reliab_df.filter(like='softmax_weight_')
-    # Row-wise max
-    row_max_series = others.max(axis=1)
-
-    # Row-wise second max
-    # Sort each row descending and take the second value
-    row_sorted = others.apply(lambda row: row.sort_values(ascending=False).values, axis=1)
-    second_max_series = row_sorted.apply(lambda x: x[1])
-
-    # Add these as new columns
-    reliab_df['max_reliability'] = row_max_series
-    reliab_df['second_max_reliability'] = second_max_series
-
-
+        reliab_df = pd.DataFrame()
 
     # Plotting --------------------------------
-    import matplotlib.pyplot as plt
-    import seaborn as sns
-    import multiprocessing
-    import io
-    from PIL import Image
-    import numpy as np
-
-
     # Main code
     benchmarks = pivot_df_reset['benchmark.meta.name'].unique()
-    figsize = (5 * len(benchmarks), 4)  # example sizing
 
-    args_list = [(bench, pivot_df_reset, reliab_df, algonames) for bench in benchmarks]
-
-    with multiprocessing.Pool() as pool:
-        results = pool.map(plot_single_benchmark, args_list)
 
     # Create final figure to assemble images
-    fig, axes = plt.subplots(1, len(benchmarks), figsize=figsize, sharey=True)
-    if len(benchmarks) == 1:
-        axes = [axes]
+    figsize = (10 * len(benchmarks), 8)  # example sizing
+    nrows = 1 if reliab_df.empty else 2
+    fig, axes = plt.subplots(nrows=nrows, ncols=len(benchmarks), figsize=figsize, sharey=True)
 
-    for ax, (bench, img_bytes) in zip(axes, results):
-        # Read image from bytes
-        image = Image.open(io.BytesIO(img_bytes))
-        ax.imshow(image)
-        ax.axis('off')
-        ax.set_title(f'Benchmark: {bench}')
+    # axes shape fix for single benchmark
+    if len(benchmarks) == 1:
+        if nrows == 2:
+            axes = np.reshape(axes, (2, 1))
+        else:
+            axes = np.reshape(axes, (1, 1))
+
+    if nrows == 2:
+        # first row: anytime plots
+        for bench, ax in zip(benchmarks, axes[0]):
+            ax.set_xlabel('Step')
+            plot_anytime(bench, pivot_df_reset, algonames, ax)
+
+        # second row: weight plots
+        for bench, ax in zip(benchmarks, axes[1]):
+            ax.set_xlabel('Step')
+            plot_weights(bench, reliab_df, ax)
+    else:
+        # only one row of anytime plots
+        for bench, ax in zip(benchmarks, axes):
+            ax.set_xlabel('Step')
+            plot_anytime(bench, pivot_df_reset, algonames, ax)
 
     # Optional: set only the first y-label for normalized regret
-    axes[0].set_ylabel('Normalized Regret')
+    axes[0][0].set_ylabel('Regret')
 
     plt.tight_layout()
 
@@ -213,14 +228,10 @@ def main(input_file, output_file=None, figsize=(15, 6),
     else:
         plt.show()
 
-def plot_single_benchmark(args):
-    bench, pivot_df_reset, reliab_df, algonames = args
 
+def plot_anytime(bench, pivot_df_reset, algonames, ax):
     # Filter data for this benchmark
     bench_data = pivot_df_reset[pivot_df_reset['benchmark.meta.name'] == bench]
-    rel_data = reliab_df[reliab_df['benchmark.meta.name'] == bench]
-
-    fig, ax = plt.subplots(figsize=(6, 4))
 
     # Primary axis: normalized regret lines for each alg
     ax.axhline(0, color='black', linestyle='--', linewidth=0.8)
@@ -230,24 +241,24 @@ def plot_single_benchmark(args):
         sns.lineplot(data=bench_data, x='step', y=alg, label=alg, ax=ax)
     ax.set_ylabel('Normalized Regret')
 
-    # Secondary y-axis
-    ax2 = ax.twinx()
-    sns.lineplot(data=rel_data, x='step', y='target_reliability', color='red',
-                 label='Target Reliability', ax=ax2)
-    sns.lineplot(data=reliab_df, x='step', y='max_reliability',
-                 label='highest "other" weight', ax=ax2)
-    sns.lineplot(data=reliab_df, x='step', y='second_max_reliability',
-                 label='second highest "other" weight', ax=ax2)
 
-    ax2.set_ylabel('Target Reliability')
-    ax2.grid(False)
 
-    # Save to bytes buffer in memory
-    buf = io.BytesIO()
-    fig.savefig(buf, format='pdf', bbox_inches='tight')
-    plt.close(fig)
-    buf.seek(0)
-    return bench, buf.read()
+def plot_weights(bench, reliab_df, ax):
+    rel_data = reliab_df[reliab_df['benchmark.meta.name'] == bench]
+
+    sns.lineplot(data=rel_data, x='step', y='target_weight', color='red',
+                 label='Target weight', ax=ax)
+    for col in [col for col in rel_data.columns if col.startswith('bma_weight_')]:
+        sns.lineplot(data=rel_data, x='step', y=col, label=col, ax=ax)
+    # sns.lineplot(data=reliab_df, x='step', y='max_reliability',
+    #              label='highest "other" weight', ax=ax)
+    # sns.lineplot(data=reliab_df, x='step', y='second_max_reliability',
+    #              label='second highest "other" weight', ax=ax)
+
+    ax.set_ylabel('Weight')
+    ax.grid(False)
+
+
 
 if __name__ == '__main__':
     fire.Fire(main)

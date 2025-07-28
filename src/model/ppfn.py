@@ -195,7 +195,6 @@ class PPFN(AbstractModel):
                 x_train,
                 x_test,
                 y_train,
-                inc,
             )
             # (Collect the PI of the mixture) ----------------------------------
             return self.criterion.pi(
@@ -214,7 +213,7 @@ class PPFN(AbstractModel):
                 torch.cat([related_context_y, ], dim=0)
             ),
             single_eval_pos=related_context_x.shape[0],
-            src_key_padding_mask=padding_mask
+            # src_key_padding_mask=padding_mask
         )
 
         if self.imputation_mode == 'median':
@@ -257,7 +256,6 @@ class PPFN(AbstractModel):
             y_train,
             inc,
             acquisition_fn='pi'
-
     ):
         num_related = related_context_x.shape[1]
 
@@ -284,10 +282,10 @@ class PPFN(AbstractModel):
                 torch.cat([related_context_y, imputed_y, ], dim=0)
             ),
             single_eval_pos=related_context_x.shape[0] + x_train.shape[0],
-            src_key_padding_mask=torch.cat([
-                padding_mask,
-                torch.zeros(num_related, x_train.shape[0], dtype=torch.bool).to(self.device)
-            ], dim=1)
+            # src_key_padding_mask=torch.cat([
+            #     padding_mask,
+            #     torch.zeros(num_related, x_train.shape[0], dtype=torch.bool).to(self.device)
+            # ], dim=1)
         )
 
         # get the pi at the query points under the related tasks,
@@ -329,7 +327,6 @@ class PPFN(AbstractModel):
             x_train,
             x_test,
             y_train,
-            inc,
     ):
         step = x_train.shape[0]
         num_related = related_context_x.shape[1]
@@ -366,11 +363,17 @@ class PPFN(AbstractModel):
                 torch.cat([related_context_y, imputed_y, ], dim=0)
             ),
             single_eval_pos=related_context_x.shape[0] + x_train.shape[0],
-            src_key_padding_mask=torch.cat([
-                padding_mask,
-                torch.zeros(num_related, x_train.shape[0], dtype=torch.bool).to(self.device)
-            ], dim=1)
+            # src_key_padding_mask=torch.cat([
+            #     padding_mask,
+            #     torch.zeros(num_related, x_train.shape[0], dtype=torch.bool).to(self.device)
+            # ], dim=1)
         )
+
+        if self.model_avg == 'ppd_mixture':
+            query_size = x_test.shape[0]
+            logits = torch.concat([prior_logits[:query_size], target_logits[:query_size]], dim=1)
+            prediction = logits.mean(dim=1)
+            return prediction
 
         # (Collect difference function) ------------------------------------
         # we calcualte the difference function between the related tasks and target task
@@ -391,6 +394,66 @@ class PPFN(AbstractModel):
             #     torch.zeros(num_related, x_train.shape[0], dtype=torch.bool).to(self.device)
             # ], dim=1)
         )
+
+        if self.verbose:
+            imputation_diffs = y_train.repeat(1, num_related) - imputed_y
+
+            import torch
+            import matplotlib.pyplot as plt
+
+            # # Imputation differences histogram at the current time step
+            # fig, axes = plt.subplots(2, 2, figsize=(12, 8))
+            # axes = axes.flatten()
+            #
+            # for i in range(imputation_diffs.shape[1]):
+            #     data = imputation_diffs[:, i].numpy()  # convert tensor column to numpy
+            #     axes[i].hist(data, bins=20, edgecolor='black')
+            #     axes[i].set_title(f'Histogram of imputation_diffs column {i + 1}')
+            #     axes[i].set_xlabel(f'Column {i + 1} values')
+            #     axes[i].set_ylabel('Frequency')
+            #
+            # plt.tight_layout()
+            # plt.show()
+
+            imputation_diffs = imputation_diffs.mean(dim=0)
+            self.logger.log({
+                'metrics': 'imputation_diff',
+                'step': step,
+                **{f'imputation_diff{i}': imputation_diffs[i].item()
+                   for i in range(imputation_diffs.shape[0])}
+            })
+            # # Plotting the average imputation differences over time
+            # import pandas as pd
+            # import matplotlib.pyplot as plt
+            # df = pd.DataFrame(self.logger.logs)
+            # df = df[df['metrics'] == 'imputation_diff']
+            # cols = list(df.columns[df.columns.str.startswith('imputation_diff')]) + ['step']
+            # subset = df.loc[:, cols]
+            # subset.plot(x='step')
+            # plt.show()
+
+            y = (y_train.repeat(1, num_related) - imputed_y)
+            y_hat = self.error_model.criterion.median(
+                error_logits[x_test.shape[0]:]  # y_train error logits!
+            )
+
+            rmse = torch.sqrt(torch.mean((y - y_hat) ** 2, dim=0))
+
+            self.logger.log({
+                'metrics': 'rmse',
+                'step': step,
+                **{f'rmse_{i}': rmse[i].item()
+                   for i in range(rmse.shape[0])}
+            })
+            # # Plotting the error_model's RMSE over time
+            # import pandas as pd
+            # import matplotlib.pyplot as plt
+            # df = pd.DataFrame(self.logger.logs)
+            # df = df[df['metrics'] == 'rmse']
+            # cols = list(df.columns[df.columns.str.startswith('rmse')]) + ['step']
+            # subset = df.loc[:, cols]
+            # subset.plot(x='step')
+            # plt.show()
 
         # (Project prior logits into target task) --------------------------
         # Here we take the predicted prior logits of the x_test and need to adjust them
@@ -431,6 +494,7 @@ class PPFN(AbstractModel):
 
         # p(y|M_i) = p(y|M_i, D) p(D|M_i) but as logits!
         predictions = torch.concat([target_logits, prior_predictions], dim=1).to(self.device)
+
         if self.model_avg == 'bma':
             # p(D|M_i)
             evidence = torch.cat([target_evidence, prior_evidence], dim=0).to(self.device)
@@ -444,7 +508,7 @@ class PPFN(AbstractModel):
 
             # Weighted average of predictive probabilities
             # prediction: p(y|.) = \sum_i  p(y|M_i) p(M_i | D)
-            bma_prediction = (predictions * weights).sum(dim=1)
+            prediction = (predictions * weights).sum(dim=1)
 
             self.logger.log(
                 {'metrics': 'bma_weights', 'step': step,
@@ -455,9 +519,9 @@ class PPFN(AbstractModel):
 
         elif self.model_avg == 'eqw':  # equally weighted average
             # here we simply average the predictions over the related tasks
-            bma_prediction = predictions.mean(dim=1)
+            prediction = predictions.mean(dim=1)
 
-        return bma_prediction
+        return prediction
 
 
 def convolve_probs_with_error(probs, error_probs, bin_centers):
