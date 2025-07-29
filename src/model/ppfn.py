@@ -378,14 +378,21 @@ class PPFN(AbstractModel):
         # (Collect difference function) ------------------------------------
         # we calcualte the difference function between the related tasks and target task
         # anchored in the imputed values. Since we are only interested in the
+        target_borders = self.criterion.borders
+        error_borders = self.error_model.criterion.borders
+
+        y_target =  y_train.repeat(1, num_related) - imputed_y
+        y_error = (y_target - target_borders[0]) / (target_borders[-1] - target_borders[0]) * \
+                  (error_borders[-1] - error_borders[0]) + error_borders[0]
+
         error_logits = self.error_model(
             (
                 torch.cat([
-                    x_train.repeat(1, num_related, 1),
-                    x_test.repeat(1, num_related, 1),
-                    x_train.repeat(1, num_related, 1)  # as query for BMA: p(D|M)
+                    x_train[:,:, 1:].repeat(1, num_related, 1),
+                    x_test[:,:, 1:].repeat(1, num_related, 1),
+                    x_train[:,:, 1:].repeat(1, num_related, 1)  # as query for BMA: p(D|M)
                 ], dim=0),
-                y_train.repeat(1, num_related) - imputed_y
+                y_error
             ),
             single_eval_pos=x_train.shape[0],
             # fixme: this model is not capable of accepting padding masks yet!
@@ -398,9 +405,9 @@ class PPFN(AbstractModel):
         if self.verbose:
             imputation_diffs = y_train.repeat(1, num_related) - imputed_y
 
-            import torch
-            import matplotlib.pyplot as plt
-
+            # import torch
+            # import matplotlib.pyplot as plt
+            #
             # # Imputation differences histogram at the current time step
             # fig, axes = plt.subplots(2, 2, figsize=(12, 8))
             # axes = axes.flatten()
@@ -467,6 +474,10 @@ class PPFN(AbstractModel):
         # now let us move the error logits into the prior logits space
         target_borders = self.criterion.borders
         error_borders = self.error_model.criterion.borders
+
+        # normalize the error borders to the target borders range:
+        error_borders = (error_borders - error_borders[0]) / (error_borders[-1] - error_borders[0]) * \
+                        (target_borders[-1] - target_borders[0]) + target_borders[0]
 
         error_probs = project_probs_to_common_bins_batch(
             F.softmax(error_logits, dim=-1),
@@ -631,3 +642,73 @@ def project_probs_to_common_bins_batch(orig_probs, orig_bounds, target_bounds):
     projected_probs = projected_flat.reshape(projected_shape)
 
     return projected_probs
+
+
+if __name__ == '__main__':
+    import numpy as np
+    import matplotlib.pyplot as plt
+
+    # Original probability distribution and bin edges
+    orig_probs = np.array([0.05, 0.15, 0.3, 0.2, 0.1, 0.2])
+    orig_bounds = np.array([0, 1, 2, 3, 4, 5, 6])  # 6 bins
+
+    # Target bin edges (non-uniform widths)
+    target_bounds = np.array([0, 0.5, 2.5, 3, 4.5, 6])  # 5 bins
+
+    N = len(orig_probs)
+    M = len(target_bounds) - 1
+
+    # Step 1: Compute overlaps between each original and target bin
+    orig_lefts = orig_bounds[:-1][:, None]  # (N, 1)
+    orig_rights = orig_bounds[1:][:, None]  # (N, 1)
+    target_lefts = target_bounds[:-1][None, :]  # (1, M)
+    target_rights = target_bounds[1:][None, :]  # (1, M)
+
+    # Overlap lengths for each (orig_bin, target_bin) pair
+    overlaps = np.clip(
+        np.minimum(orig_rights, target_rights) - np.maximum(orig_lefts, target_lefts),
+        0, None
+    )  # shape (N, M)
+
+    orig_widths = orig_rights - orig_lefts  # (N, 1)
+    fractions = overlaps / orig_widths  # (N, M)
+
+    # Step 2: Redistribute probabilities using the fractions matrix
+    # (orig_probs shape (N,), fractions (N, M))
+    projected_probs = orig_probs @ fractions  # shape (M,)
+
+    # Step 3: Normalize (optional—should already sum to 1, but for safety)
+    projected_probs /= projected_probs.sum()
+
+    # --- Visualization ---
+    bin_centers_orig = (orig_bounds[:-1] + orig_bounds[1:]) / 2
+    bin_centers_proj = (target_bounds[:-1] + target_bounds[1:]) / 2
+
+    plt.figure(figsize=(8, 5))
+
+    # Plot original histogram
+    plt.bar(bin_centers_orig, orig_probs, width=1, alpha=0.7, label='Original', color='royalblue',
+            edgecolor='black')
+
+    # Plot projected histogram (shifted a bit for clarity)
+    widths_proj = target_bounds[1:] - target_bounds[:-1]
+    plt.bar(target_bounds[:-1], projected_probs,
+            width=widths_proj,
+            align='edge',
+            alpha=0.6,
+            label='Projected',
+            color='orange',
+            edgecolor='black')
+
+    # Draw original and target bin edges
+    for b in orig_bounds:
+        plt.axvline(b, color='blue', ls='--', lw=1, alpha=0.25)
+    for b in target_bounds:
+        plt.axvline(b, color='orange', ls=':', lw=1, alpha=0.5)
+
+    plt.xlabel('Value')
+    plt.ylabel('Probability')
+    plt.legend()
+    plt.title('Redistribution of Histogram Probabilities to New Bins')
+    plt.tight_layout()
+    plt.show()
