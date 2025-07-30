@@ -1,4 +1,5 @@
 import logging
+from copy import deepcopy
 from pathlib import Path
 
 import torch
@@ -20,8 +21,9 @@ class PPFN(AbstractModel):
     def __init__(self, model, criterion, logger,
                  related_task_data, min_context_size, imputation_mode='median',
                  incumbent_calculation='imputation-only', flippable_related=False,
+                 normalize_to_error_model=True,
                  model_avg='bma',
-                 device=None, verbose=True):
+                 device=None, verbose=True, ):
         """
 
         :param model:
@@ -44,6 +46,7 @@ class PPFN(AbstractModel):
         self.error_model = torch.load(pfns4bo.bnn_model, weights_only=False)
         self.error_model.eval()
         self.error_model.to(device)
+        self.original_error_model_borders = deepcopy(self.error_model.criterion.borders)
 
         self.criterion = criterion if criterion is not None else self.model.criterion
 
@@ -56,6 +59,7 @@ class PPFN(AbstractModel):
         self.imputation_mode = imputation_mode
         self.incumbent_calculation = incumbent_calculation
         self.flippable_related = flippable_related
+        self.normalize_to_error_model = normalize_to_error_model
 
         self.model_avg = model_avg
 
@@ -195,6 +199,7 @@ class PPFN(AbstractModel):
                 x_train,
                 x_test,
                 y_train,
+                inc,
             )
             # (Collect the PI of the mixture) ----------------------------------
             return self.criterion.pi(
@@ -327,7 +332,9 @@ class PPFN(AbstractModel):
             x_train,
             x_test,
             y_train,
+            inc
     ):
+        import torch  # fixme: why is torch otherwise not detected ?
         step = x_train.shape[0]
         num_related = related_context_x.shape[1]
         # TODO the following two forwards can be batched together with
@@ -378,19 +385,85 @@ class PPFN(AbstractModel):
         # (Collect difference function) ------------------------------------
         # we calcualte the difference function between the related tasks and target task
         # anchored in the imputed values. Since we are only interested in the
+
+        # The error model has a power projection type of non-uniform binning.
+        # to have the error model's maximal resolution, we scale the residuals
+        # to an interval [-2, 2] and undo this later!
         target_borders = self.criterion.borders
         error_borders = self.error_model.criterion.borders
 
-        y_target =  y_train.repeat(1, num_related) - imputed_y
-        y_error = (y_target - target_borders[0]) / (target_borders[-1] - target_borders[0]) * \
-                  (error_borders[-1] - error_borders[0]) + error_borders[0]
+        y_target = y_train.repeat(1, num_related) - imputed_y
+
+        if self.normalize_to_error_model:
+            # Here we exaggerate the difference to meet the high resolution range [-2.5, 2.5]
+            # of the model -- we will need to undo this later to communicate the
+            # result distribution in the target binning for convolution.
+            bandwidths = self.error_model.criterion.bucket_widths
+            debug = False
+            if debug:
+                import numpy as np
+                import matplotlib.pyplot as plt
+
+                probabilities = bandwidths.numpy()
+                probabilities /= probabilities.sum()  # normalize if not already
+
+                # CDF calculation: cumulative sum
+                cdf = np.concatenate([[0], np.cumsum(probabilities)])
+
+                plt.figure(figsize=(8, 4))
+                plt.step(error_borders, cdf, where='post',
+                         label="CDF")
+                plt.xlabel("Value")
+                plt.ylabel("Cumulative Probability")
+                plt.title("Cumulative Distribution Function (CDF)")
+                plt.grid(True)
+                plt.legend()
+                plt.show()
+
+            # now we determine the factor by whcih we need to scale y_target, such that
+            # we do not exceed the error model's resolution range
+            FACTOR = 2.5 / max(y_target.abs().max(), 1e-6)  # avoid division by zero
+
+            y_error = FACTOR * y_target
+            debug = False
+            if debug:
+                import matplotlib.pyplot as plt
+                import seaborn as sns
+
+                # Convert tensors to numpy arrays
+                y_target_np = y_target.numpy().flatten()
+                y_error_np = y_error.numpy().flatten()
+                error_borders_np = error_borders.numpy().flatten()
+
+                plt.figure(figsize=(8, 6))
+
+                # Plot overlapping histograms
+                plt.hist(y_target_np, bins=30, alpha=0.5, label='y_target', color='blue',
+                         edgecolor='black')
+                plt.hist(y_error_np, bins=30, alpha=0.5, label='y_error', color='red',
+                         edgecolor='black')
+
+                # Add rug plot for error_borders
+                sns.rugplot(error_borders_np, color='green', height=0.05)
+
+                plt.title('Overlapping Histograms with Rug plot of error_borders')
+                plt.xlabel('Values')
+                plt.ylabel('Frequency')
+                plt.legend()
+
+                plt.show()
+
+        else:
+            y_error = y_target
 
         error_logits = self.error_model(
             (
                 torch.cat([
-                    x_train[:,:, 1:].repeat(1, num_related, 1),
-                    x_test[:,:, 1:].repeat(1, num_related, 1),
-                    x_train[:,:, 1:].repeat(1, num_related, 1)  # as query for BMA: p(D|M)
+                    # NOTICE: we need to crop the idx dim in ifbo (ifbo paper section 5.2),
+                    # otherwise the rmse will increase in predicting the idx!
+                    x_train[:, :, 1:].repeat(1, num_related, 1),
+                    x_test[:, :, 1:].repeat(1, num_related, 1),
+                    x_train[:, :, 1:].repeat(1, num_related, 1)  # as query for BMA: p(D|M)
                 ], dim=0),
                 y_error
             ),
@@ -404,23 +477,24 @@ class PPFN(AbstractModel):
 
         if self.verbose:
             imputation_diffs = y_train.repeat(1, num_related) - imputed_y
+            debug = False
+            if debug:
+                import torch
+                import matplotlib.pyplot as plt
 
-            # import torch
-            # import matplotlib.pyplot as plt
-            #
-            # # Imputation differences histogram at the current time step
-            # fig, axes = plt.subplots(2, 2, figsize=(12, 8))
-            # axes = axes.flatten()
-            #
-            # for i in range(imputation_diffs.shape[1]):
-            #     data = imputation_diffs[:, i].numpy()  # convert tensor column to numpy
-            #     axes[i].hist(data, bins=20, edgecolor='black')
-            #     axes[i].set_title(f'Histogram of imputation_diffs column {i + 1}')
-            #     axes[i].set_xlabel(f'Column {i + 1} values')
-            #     axes[i].set_ylabel('Frequency')
-            #
-            # plt.tight_layout()
-            # plt.show()
+                # Imputation differences histogram at the current time step
+                fig, axes = plt.subplots(2, 2, figsize=(12, 8))
+                axes = axes.flatten()
+
+                for i in range(imputation_diffs.shape[1]):
+                    data = imputation_diffs[:, i].numpy()  # convert tensor column to numpy
+                    axes[i].hist(data, bins=20, edgecolor='black')
+                    axes[i].set_title(f'Histogram of imputation_diffs column {i + 1}')
+                    axes[i].set_xlabel(f'Column {i + 1} values')
+                    axes[i].set_ylabel('Frequency')
+
+                plt.tight_layout()
+                plt.show()
 
             imputation_diffs = imputation_diffs.mean(dim=0)
             self.logger.log({
@@ -429,21 +503,69 @@ class PPFN(AbstractModel):
                 **{f'imputation_diff{i}': imputation_diffs[i].item()
                    for i in range(imputation_diffs.shape[0])}
             })
-            # # Plotting the average imputation differences over time
-            # import pandas as pd
-            # import matplotlib.pyplot as plt
-            # df = pd.DataFrame(self.logger.logs)
-            # df = df[df['metrics'] == 'imputation_diff']
-            # cols = list(df.columns[df.columns.str.startswith('imputation_diff')]) + ['step']
-            # subset = df.loc[:, cols]
-            # subset.plot(x='step')
-            # plt.show()
+            # Plotting the average imputation differences over time
+            if debug:
+                import pandas as pd
+                import matplotlib.pyplot as plt
+                df = pd.DataFrame(self.logger.logs)
+                df = df[df['metrics'] == 'imputation_diff']
+                cols = list(df.columns[df.columns.str.startswith('imputation_diff')]) + ['step']
+                subset = df.loc[:, cols]
+                subset.plot(x='step')
+                plt.show()
 
-            y = (y_train.repeat(1, num_related) - imputed_y)
             y_hat = self.error_model.criterion.median(
                 error_logits[x_test.shape[0]:]  # y_train error logits!
             )
 
+            if debug:
+                import matplotlib.pyplot as plt
+                import seaborn as sns
+
+                # Convert tensors to numpy arrays
+                y_target_np = y_target.numpy().flatten()
+                y_hat_np = y_hat.numpy().flatten() / 16  # for median we can just divide!
+                error_borders_np = error_borders.numpy().flatten()
+
+                plt.figure(figsize=(8, 6))
+
+                # Plot overlapping histograms
+                plt.hist(y_target_np, bins=30, alpha=0.5, label='y_target', color='blue',
+                         edgecolor='black')
+                plt.hist(y_hat_np, bins=30, alpha=0.5, label='y_hat_median', color='red',
+                         edgecolor='black')
+
+                # Add rug plot for error_borders
+                sns.rugplot(error_borders_np, color='green', height=0.01)
+
+                plt.title('Overlapping Histograms with Rug plot of error_borders')
+                plt.xlabel('Values')
+                plt.ylabel('Frequency')
+                plt.legend()
+
+                plt.show()
+
+            # # FIXME: This is the trick to shrink the prediction back to size.
+            if debug:
+                error_borders_np = error_borders.numpy().flatten() / FACTOR
+                logits = F.softmax(error_logits[0], dim=-1).flatten().numpy()
+                plt.figure(figsize=(8, 6))
+
+                # Plot the logits as a bar plot
+                plt.bar(error_borders_np[:-1], logits,
+                        width=error_borders_np[1:] - error_borders_np[:-1],
+                        align='edge', edgecolor='black', alpha=0.7, color='blue')
+                plt.title('Error Model Logits Distribution')
+                plt.xlabel('Error Borders')
+                plt.ylabel('Logits')
+                sns.rugplot(target_borders, color='green', height=0.05)
+
+                plt.show()
+
+            # we can do this here, because the median is not a distribution!
+
+            # unprojected rmse! (i.e. in the error model's criterion borders)
+            y = y_error
             rmse = torch.sqrt(torch.mean((y - y_hat) ** 2, dim=0))
 
             self.logger.log({
@@ -452,15 +574,119 @@ class PPFN(AbstractModel):
                 **{f'rmse_{i}': rmse[i].item()
                    for i in range(rmse.shape[0])}
             })
-            # # Plotting the error_model's RMSE over time
-            # import pandas as pd
-            # import matplotlib.pyplot as plt
-            # df = pd.DataFrame(self.logger.logs)
-            # df = df[df['metrics'] == 'rmse']
-            # cols = list(df.columns[df.columns.str.startswith('rmse')]) + ['step']
-            # subset = df.loc[:, cols]
-            # subset.plot(x='step')
-            # plt.show()
+
+            # Plotting the error_model's RMSE over time
+            if debug:
+                import pandas as pd
+                import matplotlib.pyplot as plt
+                df = pd.DataFrame(self.logger.logs)
+                df = df[df['metrics'] == 'rmse']
+                cols = list(df.columns[df.columns.str.startswith('rmse')]) + ['step']
+                subset = df.loc[:, cols]
+                subset.plot(x='step')
+                plt.show()
+
+            # Plotting the predicted differences in 3d (1d hp + 1 fidelity dim)
+            if debug:
+                import matplotlib.pyplot as plt
+                from mpl_toolkits.mplot3d import Axes3D
+
+                import numpy as np
+                import plotly.graph_objs as go
+                from plotly.offline import plot
+
+                # find the location in y where the inc lives
+                inc_y = inc[0]
+                inc_x = x_train[(max(y_train) == y_train).view(-1), 0,
+                        1:].numpy()  # assuming x_test is
+                # of shape (T, 1, D)
+
+                # Convert torch tensors to numpy arrays as before
+                x_related = related_context_x[:, :, 1:].numpy()
+                y_related = related_context_y.numpy()
+                x_np = x_train[:, 0, 1:].numpy()
+                y_train_np = y_train[:, 0].numpy()
+                imputed_y_np = imputed_y[:, 0].numpy()
+                y_hat_np = y_hat[:, 0].numpy()
+
+                print('inc in train', max(y_train), 'incumbent y', inc_y, 'incumbent x', inc_x)
+                # Scatter traces
+                trace_y_train = go.Scatter3d(
+                    x=x_np[:, 0], y=x_np[:, 1], z=y_train_np,
+                    mode='markers',
+                    marker=dict(color='blue', size=5),
+                    name='y_train'
+                )
+
+                # plot the incumbent point
+                trace_incumbent = go.Scatter3d(
+                    x=inc_x[:, 0], y=inc_x[:, 1], z=inc_y,
+                    mode='markers',
+                    marker=dict(color='black', size=5, symbol='x'),
+                    name='incumbent'
+                )
+
+                trace_imputed_y = go.Scatter3d(
+                    x=x_np[:, 0], y=x_np[:, 1], z=imputed_y_np,
+                    mode='markers',
+                    marker=dict(color='green', size=5, symbol='diamond'),
+                    # Use a supported symbol here
+                    name='imputed_y'
+                )
+
+                trace_y_hat = go.Scatter3d(
+                    x=x_np[:, 0], y=x_np[:, 1], z=y_hat_np,
+                    mode='markers',
+                    marker=dict(color='red', size=5),
+                    name='y_hat'
+                )
+
+                trace_related = go.Scatter3d(
+                    x=x_related[:, 0, 0], y=x_related[:, 0, 1], z=y_related[:, 0],
+                    mode='markers',
+                    marker=dict(color='orange', size=5),
+                    name='related_context_y'
+                )
+
+                # Lines from y_train to y_hat (difference vectors)
+                line_traces = []
+                for i in range(len(x_np)):
+                    line_traces.append(
+                        go.Scatter3d(
+                            x=[x_np[i, 0], x_np[i, 0]],
+                            y=[x_np[i, 1], x_np[i, 1]],
+                            z=[y_train_np[i] - y_hat_np[i], y_train_np[i]],
+                            mode='lines',
+                            line=dict(color='black', width=2),
+                            showlegend=False
+                        )
+                    )
+
+                data = ([
+                            trace_y_train,
+                            trace_imputed_y,
+                            trace_y_hat,
+                            trace_related,
+                            trace_incumbent
+                        ] \
+                        + line_traces
+                        )
+
+                layout = go.Layout(
+                    scene=dict(
+                        xaxis_title='X dimension 1',
+                        yaxis_title='X dimension 2',
+                        zaxis_title='Y values'
+                    ),
+                    title='Interactive 3D plot showing y_train and y_hat differences',
+                    legend=dict(x=0, y=1),
+                    margin=dict(l=0, r=0, b=0, t=40)
+                )
+
+                fig = go.Figure(data=data, layout=layout)
+
+                # This will open the interactive plot in your default web browser
+                plot(fig)
 
         # (Project prior logits into target task) --------------------------
         # Here we take the predicted prior logits of the x_test and need to adjust them
@@ -472,26 +698,41 @@ class PPFN(AbstractModel):
         # This projection can be done by computing the fractional overlap of each original bin
         # with each common bin and distributing the original bin’s probability accordingly.
         # now let us move the error logits into the prior logits space
-        target_borders = self.criterion.borders
-        error_borders = self.error_model.criterion.borders
-
         # normalize the error borders to the target borders range:
-        error_borders = (error_borders - error_borders[0]) / (error_borders[-1] - error_borders[0]) * \
-                        (target_borders[-1] - target_borders[0]) + target_borders[0]
+        if self.normalize_to_error_model:
 
-        error_probs = project_probs_to_common_bins_batch(
-            F.softmax(error_logits, dim=-1),
-            error_borders,
-            target_borders
-        )
-        prior_probs = F.softmax(prior_logits, dim=-1)
+            self.error_model.criterion.borders = self.original_error_model_borders / FACTOR
+            # scaling here affects the size of the kernel and the cost of the conv.
+            left = min(self.error_model.criterion.icdf(error_logits[:, 0, :], 0.01))
+            right = max(self.error_model.criterion.icdf(error_logits[:, 0, :], 0.99))
+
+            kernel_grid = torch.arange(
+                left, right,
+                step=(target_borders[1] - target_borders[0]).item()
+            )
+            error_probs_kernel = project_probs_to_common_bins_batch(
+                F.softmax(error_logits, dim=-1),
+                self.error_model.criterion.borders,
+                kernel_grid
+            )
+
+        else:
+            error_probs_kernel = F.softmax(error_logits, dim=-1)
+            kernel_grid = self.criterion.borders
 
         # now we need to convolve the prior_probs with the error probs -------
+        # this will provide us with the projection of the prior tasks into the target task
+        # domain.
+        # flatten the time and batch dimensions for convolution
+        prior_probs = F.softmax(prior_logits, dim=-1)
         T, B, D = prior_probs.shape
         convolved_logits = convolve_probs_with_error(
-            prior_probs.view(-1, D),
-            error_probs.view(-1, D),
-            bin_centers=target_borders[1:] - target_borders[:-1] / 2
+            # probs, probs_bins, kernel, kernel_bins
+            probs=prior_probs.view(-1, D),
+            probs_bins=target_borders,
+            kernel=error_probs_kernel.view(-1, error_probs_kernel.shape[-1]),
+            kernel_bins=kernel_grid
+
         ).reshape(T, B, -1)
 
         # (Bayesian model averaging) -----------
@@ -535,15 +776,15 @@ class PPFN(AbstractModel):
         return prediction
 
 
-def convolve_probs_with_error(probs, error_probs, bin_centers):
+def convolve_probs_with_error(probs, probs_bins, kernel, kernel_bins):
     batch_size, length = probs.shape
-    kernel_size = error_probs.shape[1]
+    kernel_size = kernel.shape[1]
 
     # Original input shape: (batch_size, 1, length)
     p_orig_t = probs.view(batch_size, 1, length)
 
     # Flip kernels for convolution
-    p_shift_flipped = torch.flip(error_probs, dims=[1]).view(batch_size, 1, kernel_size)
+    p_shift_flipped = torch.flip(kernel, dims=[1]).view(batch_size, 1, kernel_size)
 
     # Now, merge batch into channels dimension by transposing:
     # Input: (batch_size, 1, length) -> (1, batch_size, length)
@@ -563,32 +804,75 @@ def convolve_probs_with_error(probs, error_probs, bin_centers):
     # p_convolved shape: (1, batch_size, output_length)
     # reshape back to (batch_size, output_length)
     p_convolved = p_convolved.permute(1, 0, 2).view(batch_size, -1)
+    p_convolved /= p_convolved.sum(dim=1, keepdim=True)  # probability norm
 
-    # Normalize per batch
-    p_convolved /= p_convolved.sum(dim=1, keepdim=True)
+    # calculate the new bins of the convolved distribution
+    min_kernel = kernel_bins[0]
+    max_kernel = kernel_bins[-1]
+    step = probs_bins[1] - probs_bins[0]
+    prob_min = probs_bins[0]
+    prob_max = probs_bins[-1]
+    L = probs.shape[1]
+    K = kernel.shape[1]
+    conv_len = L + K - 1
 
-    convolved_bin_centers = torch.arange(bin_centers[0] + bin_centers[0],
-                                         bin_centers[-1] + bin_centers[-1] + 1,
-                                         dtype=torch.float32)
-
-    original_len = bin_centers.shape[0]
-    full_len = p_convolved.shape[1]  # Length after convolution (should be 2*original_len - 1)
+    # Construct bin edges for original, kernel, and convolved (centered bins)
+    # bins_probs = np.arange(prob_min, prob_max + step, step)  # Should have length L
+    # bins_kernel = np.arange(min_kernel, max_kernel + step, step)  # length K
+    bins_convolved = torch.arange(
+        prob_min + min_kernel,
+        prob_max + max_kernel + step,
+        step
+    )  # length conv_len
 
     # Calculate start and end indices for cropping (center-crop)
-    start = (full_len - original_len) // 2
-    end = start + original_len
+    start = (kernel_size - 1) // 2
+    end = start + L
 
-    # Crop convolved output
+    # Crop convolved output & adjust the probability mass by adding the missing mass
+    # to the left and right edges
     p_convolved_cropped = p_convolved[:, start:end]
-
-    # now adjust for the cropping to get propper distribution again:
     missing_prob_right = p_convolved[:, end:].sum(dim=1)
     missing_prob_left = p_convolved_cropped[:, :start].sum(dim=1)
     p_convolved_cropped[:, start] += missing_prob_left
     p_convolved_cropped[:, -1] += missing_prob_right
 
-    eps = 1e-12
-    logits_convolved = torch.log(p_convolved_cropped.clamp(min=eps))
+    debug = False
+    if debug:
+        # Illustration of the convolved distribution to verify implementation
+        import numpy as np
+        import matplotlib.pyplot as plt
+
+        idx = 9
+
+        # Convert tensors to numpy for plotting
+        probs_0 = probs[idx].numpy()
+        kernel_0 = kernel[idx].numpy()
+        p_convolved_0 = p_convolved[idx].numpy()
+        p_convolved_cropped_0 = p_convolved_cropped[idx].numpy()
+
+        # bin centers for plotting
+        centers_probs_bins = (probs_bins[:-1] + probs_bins[1:]) / 2
+        centers_kernel_bins = (kernel_bins[:-1] + kernel_bins[1:]) / 2
+        centers_bins_convolved = (bins_convolved[:-1] + bins_convolved[1:]) / 2
+
+        plt.figure(figsize=(12, 7))
+        plt.plot(centers_probs_bins, probs_0, label='Original probs')
+        plt.plot(centers_kernel_bins, kernel_0, label='Error probs (kernel)')
+        plt.plot(centers_bins_convolved[:-2].numpy(), p_convolved_0, label='Full Convolved')
+
+        cropped_bins = centers_bins_convolved[start:end]
+        plt.plot(cropped_bins, p_convolved_cropped_0, label='Cropped Convolved')
+
+        plt.title('Comparison of Original, Kernel, and Convolved Distributions')
+        plt.xlabel('Value')
+        plt.ylabel('Probability')
+        plt.legend()
+        plt.grid(True)
+        plt.xlim([bins_convolved[0], bins_convolved[-1]])
+        plt.show()
+
+    logits_convolved = torch.log(p_convolved_cropped.clamp(min=1e-12))
 
     return logits_convolved
 
@@ -640,6 +924,12 @@ def project_probs_to_common_bins_batch(orig_probs, orig_bounds, target_bounds):
     # Reshape back to original batch dims + M
     projected_shape = orig_shape[:-1] + (M,)
     projected_probs = projected_flat.reshape(projected_shape)
+
+    debug = False
+    if debug:
+        plt.hist(projected_probs[0, 0].numpy(), bins=target_bounds, alpha=0.5,
+                 label='Projected Probs')
+        plt.show()
 
     return projected_probs
 
