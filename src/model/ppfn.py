@@ -14,6 +14,7 @@ import pfns4bo
 
 log = logging.getLogger(__name__)
 
+# fixme: move all the plots and logging metrics into an (optional) callback
 
 class PPFN(AbstractModel):
     __name__ = "pPFN"
@@ -353,8 +354,7 @@ class PPFN(AbstractModel):
             single_eval_pos=x_train.shape[0],
             src_key_padding_mask=None
         )
-        target_evidence = target_logits[-step:]  # logits for BMA: p(D|M)
-        target_evidence = self.criterion(target_evidence, y_train).mean(dim=0)
+        target_evidence = target_logits[-step:]
         target_logits = target_logits[:-step]
 
         # (Collect prior logits) -------------------------------------------
@@ -376,7 +376,7 @@ class PPFN(AbstractModel):
             # ], dim=1)
         )
 
-        if self.model_avg == 'ppd_mixture':
+        if self.model_avg == 'ppd_mixture_eqw':
             query_size = x_test.shape[0]
             logits = torch.concat([prior_logits[:query_size], target_logits[:query_size]], dim=1)
             prediction = logits.mean(dim=1)
@@ -544,25 +544,6 @@ class PPFN(AbstractModel):
                 plt.legend()
 
                 plt.show()
-
-            # # FIXME: This is the trick to shrink the prediction back to size.
-            if debug:
-                error_borders_np = error_borders.numpy().flatten() / FACTOR
-                logits = F.softmax(error_logits[0], dim=-1).flatten().numpy()
-                plt.figure(figsize=(8, 6))
-
-                # Plot the logits as a bar plot
-                plt.bar(error_borders_np[:-1], logits,
-                        width=error_borders_np[1:] - error_borders_np[:-1],
-                        align='edge', edgecolor='black', alpha=0.7, color='blue')
-                plt.title('Error Model Logits Distribution')
-                plt.xlabel('Error Borders')
-                plt.ylabel('Logits')
-                sns.rugplot(target_borders, color='green', height=0.05)
-
-                plt.show()
-
-            # we can do this here, because the median is not a distribution!
 
             # unprojected rmse! (i.e. in the error model's criterion borders)
             y = y_error
@@ -736,19 +717,23 @@ class PPFN(AbstractModel):
         ).reshape(T, B, -1)
 
         # (Bayesian model averaging) -----------
-        # logits for BMA: p(D|M)
-        prior_evidence = convolved_logits[-step:]
-        prior_evidence = torch.stack([
-            self.criterion(prior_evidence[:, b, :].squeeze(1), y_train)
-            for b in range(B)
-        ], dim=0).mean(dim=1)
         prior_predictions = convolved_logits[:-step]
 
         # p(y|M_i) = p(y|M_i, D) p(D|M_i) but as logits!
         predictions = torch.concat([target_logits, prior_predictions], dim=1).to(self.device)
 
         if self.model_avg == 'bma':
+
+            prior_evidence = convolved_logits[-step:]  # train data logits post projection
+            prior_evidence = torch.stack([
+                self.criterion(prior_evidence[:, b, :].squeeze(1), y_train)
+                for b in range(B)
+            ], dim=0).mean(dim=1)
+
             # p(D|M_i)
+            # logits for BMA: p(D|M)
+            target_evidence = self.criterion(target_evidence, y_train).mean(dim=0)
+
             evidence = torch.cat([target_evidence, prior_evidence], dim=0).to(self.device)
             unnormalized_posteriors = torch.exp(evidence)
             # p(M_i | D) = p(D|M_i) p(M_i) / [\sum_j p(D|M_j) p(M_j)]
@@ -769,7 +754,21 @@ class PPFN(AbstractModel):
                     for i, w in enumerate(weights[1:], )}},
             )
 
-        elif self.model_avg == 'eqw':  # equally weighted average
+            if debug:
+                import matplotlib.pyplot as plt
+                df = self.logger.df[self.logger.df['metrics'] == 'bma_weights']
+                df.set_index('step')
+                df = df[[col for col in df.columns if col.startswith('bma_weight') or col == 'target_weight']]
+                df = -df
+                df.plot(figsize=(10, 6))
+                plt.xlabel('Step')
+                plt.ylabel('Weight')
+                plt.title('Time Series of BMA Weights and Target Weight')
+                plt.grid(True)
+                plt.show()
+
+
+        elif self.model_avg == 'project_eqw':  # equally weighted average
             # here we simply average the predictions over the related tasks
             prediction = predictions.mean(dim=1)
 
