@@ -110,12 +110,12 @@ class PPFN(AbstractModel):
             placeholder = related_context_x[:, :, -diff:].mean(dim=1).mean(dim=0)
             x_train = torch.cat([
                 x_train,
-                placeholder.repeat(x_train.shape[0], 1)
+                placeholder.repeat(x_train.shape[0], 1).unsqueeze(1)
             ], dim=-1).to(self.device)
 
             x_test = torch.cat([
                 x_test,
-                placeholder.repeat(x_test.shape[0], 1)
+                placeholder.repeat(x_test.shape[0], 1).unsqueeze(1)
             ], dim=-1).to(self.device)
 
         if padding_mask is not None:
