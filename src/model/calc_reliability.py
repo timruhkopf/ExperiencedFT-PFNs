@@ -385,6 +385,9 @@ def kfold_hp_split(context_x, context_y, n_splits=5, random_state=42):
     # for i in range(n_tokens):
     #     hp_tuple = tuple(cx[i, hp_cols].tolist())
     #     curve_indices[hp_tuple].append(i)
+    assert len(context_x.shape) == 2, "context_x must be a 2D tensor"
+    assert context_x.shape[1] >= 3, \
+        "context_x must have at least 3 columns (idx, fidelity, HP1, [..., HPn])"
 
     unique_rows, inverse_indices = torch.unique(context_x[:, 2:], dim=0, return_inverse=True)
 

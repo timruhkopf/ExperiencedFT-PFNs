@@ -6,6 +6,7 @@ import torch
 import torch.nn.functional as F
 
 from ifbo.transformer import TransformerModel
+from model.calc_reliability import calc_target_cv_nll
 
 from src.model.abstractmodel import AbstractModel
 from src.utils.dotdict import DotDict
@@ -16,6 +17,9 @@ log = logging.getLogger(__name__)
 
 # fixme: move all the plots and logging metrics into an (optional) callback
 
+debug = False
+
+
 class PPFN(AbstractModel):
     __name__ = "pPFN"
 
@@ -24,7 +28,8 @@ class PPFN(AbstractModel):
                  incumbent_calculation='imputation-only', flippable_related=False,
                  normalize_to_error_model=True,
                  model_avg='bma',
-                 device=None, verbose=True, ):
+                 device=None, verbose=True,
+                 **kwargs):
         """
 
         :param model:
@@ -65,6 +70,7 @@ class PPFN(AbstractModel):
         self.model_avg = model_avg
 
         self.verbose = verbose
+        self.kwargs = kwargs
 
         log.info(f'Instantiated {self.__name__}')
 
@@ -170,6 +176,39 @@ class PPFN(AbstractModel):
         x_train, y_train, x_test, inc, \
             related_context_x, related_context_y, padding_mask = \
             self._preprocess(x_train, y_train, x_test, inc, minimize=minimize)
+
+        # plotting anytime performance as a loss
+        if debug:
+
+            import matplotlib.pyplot as plt
+            import numpy as np
+
+            perf_tensor = 1-(y_train.flatten()) # - related_context_y.max(dim=0).values.cpu(
+            # ).numpy())
+
+            # Move to CPU and convert to numpy for ease of processing
+            perf_np = perf_tensor.cpu().numpy()
+
+            # Compute the incumbent (best-so-far) performance at each step
+            incumbent = np.minimum.accumulate(perf_np)
+
+            # X-axis: time steps
+            steps = np.arange(len(incumbent))
+
+            plt.figure(figsize=(8, 5))
+            plt.plot(steps, incumbent,  label='Incumbent (Best-so-far)')
+            plt.title('Anytime Performance (Incumbent) Over Time')
+            plt.xlabel('Time Step')
+            plt.ylabel('Performance (Higher is Better)')
+            plt.grid(True)
+            plt.legend()
+            plt.show()
+
+            print('Incumbent performance:', incumbent[-1])
+            print('Incumbents of prior tasks',
+                  - related_context_y.max(dim=0).values.cpu(
+                  ))
+
 
         # (Impute related tasks) -----------------------------------------------
         imputed_y = self.impute(
@@ -346,26 +385,31 @@ class PPFN(AbstractModel):
             (
                 torch.cat([
                     x_train,
+
+                    # Query
                     x_test,
-                    x_train  # for BMA: p(D|M)
+                    x_train if self.verbose == True else torch.tensor([]).to(self.device)
                 ], dim=0),
                 y_train
             ),
             single_eval_pos=x_train.shape[0],
             src_key_padding_mask=None
         )
-        target_evidence = target_logits[-step:]
-        target_logits = target_logits[:-step]
 
         # (Collect prior logits) -------------------------------------------
         # CAREFUL: here we also do the query forward for the evidence
         prior_logits = self.model(
             (
                 torch.cat([
+                    # train
                     related_context_x,
                     x_train.repeat(1, num_related, 1),
+
+                    # Query
                     x_test.repeat(1, num_related, 1),
-                    x_train.repeat(1, num_related, 1)  # for BMA: p(D|M)
+                    related_context_x,  # we need this to project the prior into the target task
+                    # later
+                    x_train.repeat(1, num_related, 1) if self.verbose == True else torch.tensor([]).to(self.device)
                 ], dim=0),
                 torch.cat([related_context_y, imputed_y, ], dim=0)
             ),
@@ -399,7 +443,7 @@ class PPFN(AbstractModel):
             # of the model -- we will need to undo this later to communicate the
             # result distribution in the target binning for convolution.
             bandwidths = self.error_model.criterion.bucket_widths
-            debug = False
+
             if debug:
                 import numpy as np
                 import matplotlib.pyplot as plt
@@ -425,7 +469,6 @@ class PPFN(AbstractModel):
             FACTOR = 2.5 / max(y_target.abs().max(), 1e-6)  # avoid division by zero
 
             y_error = FACTOR * y_target
-            debug = False
             if debug:
                 import matplotlib.pyplot as plt
                 import seaborn as sns
@@ -462,8 +505,12 @@ class PPFN(AbstractModel):
                     # NOTICE: we need to crop the idx dim in ifbo (ifbo paper section 5.2),
                     # otherwise the rmse will increase in predicting the idx!
                     x_train[:, :, 1:].repeat(1, num_related, 1),
+
+                    # Query
                     x_test[:, :, 1:].repeat(1, num_related, 1),
-                    x_train[:, :, 1:].repeat(1, num_related, 1)  # as query for BMA: p(D|M)
+                    related_context_x[:, :, 1:],  # for the projection of the prior into the target
+                    x_train[:, :, 1:].repeat(1, num_related, 1) if self.verbose == True else
+                    torch.tensor([]).to(self.device)
                 ], dim=0),
                 y_error
             ),
@@ -475,9 +522,10 @@ class PPFN(AbstractModel):
             # ], dim=1)
         )
 
-        if self.verbose:
+        if self.verbose and debug:  # FIXME: this metric needs x_train as query in both the prior
+            # and error_logits"!
             imputation_diffs = y_train.repeat(1, num_related) - imputed_y
-            debug = False
+
             if debug:
                 import torch
                 import matplotlib.pyplot as plt
@@ -515,7 +563,7 @@ class PPFN(AbstractModel):
                 plt.show()
 
             y_hat = self.error_model.criterion.median(
-                error_logits[x_test.shape[0]:]  # y_train error logits!
+                error_logits[-x_train.shape[0]:]  # y_train error logits!
             )
 
             if debug:
@@ -716,63 +764,165 @@ class PPFN(AbstractModel):
 
         ).reshape(T, B, -1)
 
+        # now the convolved logits describe:
+        # x_test, related_context_x, (and if debug=True x_train) in the target task space
+
         # (Bayesian model averaging) -----------
-        prior_predictions = convolved_logits[:-step]
+        # prior_predictions = convolved_logits[:-step]
 
         # p(y|M_i) = p(y|M_i, D) p(D|M_i) but as logits!
-        predictions = torch.concat([target_logits, prior_predictions], dim=1).to(self.device)
+        # predictions = torch.concat([target_logits, prior_predictions], dim=1).to(self.device)
 
-        if self.model_avg == 'bma':
+        query = x_test.shape[0]
+        predictions = torch.cat(
+            [target_logits[:query], convolved_logits[:query]], dim=1
+        ).to(self.device)
 
-            prior_evidence = convolved_logits[-step:]  # train data logits post projection
+        if self.model_avg == 'project_eqw':  # equally weighted average
+            # here we simply average the predictions over the related tasks
+            return predictions.mean(dim=1)
+
+        if self.model_avg in ['prior-mixture', 'bma', 'bma-decay', 'bma-cv-target']:
+            # To determine p(M | H) = p(H | M) p(M) / p(H)
+            # we need to calculate the evidence p(H | M_i) for each model M_i
+            # here we calculate only for the related tasks.
+
+            # first project the x related data into the target task space via the error model
+            # remember the convolved logits are the prior convolved with error logits at that pos,
+            related_context_y_hat = convolved_logits[query:query + related_context_x.shape[0]]
+            # associated with the related_context_x
+
+            # the pfn cannot take in distributions, so we need to take one point
+            # TODO consider sampling here!
+            related_context_y_hat_median = self.criterion.median(related_context_y_hat)
+
+            # now we can learn a model of the projected prior data in the target space
+            projected_prior_experience = self.model(
+                (
+                    torch.cat(
+                        [
+                            # train
+                            related_context_x,
+                            # query
+                            x_train.repeat(1, num_related, 1),
+                        ]
+                    ),
+                    related_context_y_hat_median
+                ),
+                single_eval_pos=related_context_x.shape[0],
+            )
+
+            # finally we evaluate the prior target data predictions against the
+            # observed y_train values, telling us how well the projected prior data
+            # would explain the observed data. This gives us the relative weight of each prior
             prior_evidence = torch.stack([
-                self.criterion(prior_evidence[:, b, :].squeeze(1), y_train)
-                for b in range(B)
-            ], dim=0).mean(dim=1)
+                self.criterion(projected_prior_experience[:, b, :].squeeze(1), y_train)
+                for b in range(num_related)
+            ], dim=0).to(self.device).mean(dim=1)
 
-            # p(D|M_i)
-            # logits for BMA: p(D|M)
-            target_evidence = self.criterion(target_evidence, y_train).mean(dim=0)
-
-            evidence = torch.cat([target_evidence, prior_evidence], dim=0).to(self.device)
-            unnormalized_posteriors = torch.exp(evidence)
-            # p(M_i | D) = p(D|M_i) p(M_i) / [\sum_j p(D|M_j) p(M_j)]
-            # here we assume that the prior probabilities are uniform, i.e. p(M_i) = 1 / n_related
-            # p(y|M_i)
-            posterior_model_probs = unnormalized_posteriors / unnormalized_posteriors.sum(dim=0)
-            # Expand posterior probabilities to match prediction dims for weighting
-            weights = posterior_model_probs.unsqueeze(-1)
-
-            # Weighted average of predictive probabilities
-            # prediction: p(y|.) = \sum_i  p(y|M_i) p(M_i | D)
-            prediction = (predictions * weights).sum(dim=1)
-
+            prior_weights = torch.softmax(-prior_evidence, dim=-1)
             self.logger.log(
-                {'metrics': 'bma_weights', 'step': step,
-                 'target_weight': weights[0].item(),
-                 **{f'bma_weight_{i}': w.item()
-                    for i, w in enumerate(weights[1:], )}},
+                {'metrics': 'prior_weights', 'step': step,
+                 **{f'prior_weight_{i}': w.item()
+                    for i, w in enumerate(prior_weights)}},
             )
 
             if debug:
                 import matplotlib.pyplot as plt
-                df = self.logger.df[self.logger.df['metrics'] == 'bma_weights']
+                df = self.logger.df[self.logger.df['metrics'] == 'prior_weights']
                 df.set_index('step')
-                df = df[[col for col in df.columns if col.startswith('bma_weight') or col == 'target_weight']]
-                df = -df
+                df = df[[col for col in df.columns if
+                         col.startswith('bma_weight')]]
+
                 df.plot(figsize=(10, 6))
                 plt.xlabel('Step')
                 plt.ylabel('Weight')
-                plt.title('Time Series of BMA Weights and Target Weight')
+                plt.title('Time Series of Prior PPD BMA Weights')
                 plt.grid(True)
                 plt.show()
 
+            # given the prior weights, we can now calculate the weighted average of the
+            # prior predictions:
+            # p(y|.) = \sum_i  p(y|M_i) p(M_i | D)
+            prior_prediction = (predictions[:, 1:] * prior_weights.unsqueeze(-1)).sum(dim=1)
 
-        elif self.model_avg == 'project_eqw':  # equally weighted average
-            # here we simply average the predictions over the related tasks
-            prediction = predictions.mean(dim=1)
+            if self.model_avg == 'prior-mixture':
+                # here we simply average the predictions over the related tasks
+                return prior_prediction
 
-        return prediction
+        if self.model_avg == 'bma-decay':
+            # In this case we do
+            # \alpha(step) p(y|M_{\tau^*}) + (1-\alpha(step)) p_BMA(y|{M_\tau}_{\tau
+            # \neq \tau^*})
+            # where \tau^* is the target task and \alpha(step) is an exponential decay function
+            # that decays with the number of steps.
+
+            alpha = constant_exponential(
+                step,
+                lambda_=self.kwargs.get('decay_rate', 0.003),
+                constant=self.min_context_size
+            )
+
+            if debug:
+                min_context_size = 10  # constant parameter
+                lambda_ = 0.003  # decay rate
+                steps = np.arange(0, 1001)  # 0-1000 inclusive
+                alpha = constant_exponential(steps, lambda_, min_context_size)
+                plt.figure(figsize=(10, 6))
+                plt.plot(steps, alpha)
+                plt.title('Alpha decay over steps')
+                plt.xlabel('Step')
+                plt.ylabel('Alpha')
+                plt.grid(True)
+                plt.show()
+
+            return alpha * predictions[:, 0] + (1 - alpha) * prior_prediction
+
+        if self.model_avg == 'bma-cv-target':
+            assert x_train.shape[0] >= 10, \
+                "BMA with cross-validation requires at least 10 training points."
+            target_nll = calc_target_cv_nll(
+                x_train.squeeze(1),
+                y_train.squeeze(1),
+                self.model,
+                self.criterion,
+                splits=5,
+                random_state=42
+            ).unsqueeze(0).to(self.device)
+
+            weights = torch.softmax(torch.cat([-target_nll, -prior_evidence]), dim=-1)
+            self.logger.log(
+                {'metrics': 'prior_weights', 'step': step,
+                 **{f'prior_weight_{i}': w.item()
+                    for i, w in enumerate(weights)}},
+            )
+            if debug:
+                import matplotlib.pyplot as plt
+                df = self.logger.df[self.logger.df['metrics'] == 'prior_weights']
+                df.set_index('step')
+                df = df[[col for col in df.columns if
+                         col.startswith('bma_weight')]]
+
+                df.plot(figsize=(10, 6))
+                plt.xlabel('Step')
+                plt.ylabel('Weight')
+                plt.title('Time Series of Prior PPD BMA Weights')
+                plt.grid(True)
+                plt.show()
+
+            return (predictions * weights.unsqueeze(-1)).sum(dim=1)
+
+        if self.model_avg == 'bma':
+            raise NotImplementedError(
+                "BMA model averaging is not implemented yet, "
+                "we didn't find a way to calculate the evidence p(H | M_{\\tau^*})."
+            )
+
+
+def constant_exponential(n_target, lambda_=0.001, constant=0):
+    effective_n = torch.maximum(torch.tensor(n_target - constant, dtype=torch.float32),
+                                torch.tensor(0.0))
+    return 1 - torch.exp(-lambda_ * effective_n)
 
 
 def convolve_probs_with_error(probs, probs_bins, kernel, kernel_bins):
