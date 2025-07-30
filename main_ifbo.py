@@ -107,11 +107,17 @@ def main(cfg: DictConfig):
         file_path=Path.cwd() / 'results.jsonl', buffer_size=10,
     )
 
-    kf = KFold(n_splits=cfg.n_splits, shuffle=True, random_state=42)
-    folds = kf.split(benchmark)
+    if cfg.n_splits >= 2 and len(benchmark) >= 2:
+        kf = KFold(n_splits=cfg.n_splits, shuffle=True, random_state=42)
+        folds = kf.split(benchmark)
+        folds = list(folds)
+    else:
+        raise ValueError(
+            f'Not enough data to perform {cfg.n_splits}-folds. '
+        )
     if hasattr(cfg, 'fold_idx'):
         # if fold_idx is specified, we only run that fold
-        folds = list(folds)
+
         folds = [folds[cfg.fold_idx]]
 
     for fold, (train_ids, test_ids) in enumerate(folds):
