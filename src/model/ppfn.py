@@ -982,9 +982,9 @@ def convolve_probs_with_error(probs, probs_bins, kernel, kernel_bins):
     # to the left and right edges
     p_convolved_cropped = p_convolved[:, start:end]
     missing_prob_right = p_convolved[:, end:].sum(dim=1)
-    missing_prob_left = p_convolved_cropped[:, :start].sum(dim=1)
-    p_convolved_cropped[:, start] += missing_prob_left
-    p_convolved_cropped[:, -1] += missing_prob_right
+    # missing_prob_left = p_convolved_cropped[:, :start].sum(dim=1)
+    # p_convolved_cropped[:, start] += missing_prob_left
+    # p_convolved_cropped[:, -1] += missing_prob_right
 
     debug = False
     if debug:
