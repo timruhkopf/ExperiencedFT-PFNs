@@ -738,7 +738,7 @@ class PPFN(AbstractModel):
             kernel_grid = torch.arange(
                 left, right,
                 step=(target_borders[1] - target_borders[0]).item()
-            )
+            ).to(self.device)
             error_probs_kernel = project_probs_to_common_bins_batch(
                 F.softmax(error_logits, dim=-1),
                 self.error_model.criterion.borders,
@@ -1047,7 +1047,7 @@ def project_probs_to_common_bins_batch(orig_probs, orig_bounds, target_bounds):
 
     # Expand bins for vectorized overlap calculation:
     # orig lefts and rights shape: (N, 1)
-    orig_lefts = orig_bounds[:-1].unsqueeze(1)  # (N,1)
+    orig_lefts = orig_bounds[:-1].unsqueeze(1) # (N,1)
     orig_rights = orig_bounds[1:].unsqueeze(1)  # (N,1)
     # target lefts and rights shape: (1, M)
     target_lefts = target_bounds[:-1].unsqueeze(0)  # (1, M)
