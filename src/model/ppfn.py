@@ -237,6 +237,13 @@ class PPFN(AbstractModel):
         imputed_train = self.criterion.mean(imputed_logits[:x_train.shape[0], :, :])
         imputed_test = self.criterion.mean(imputed_logits[-x_test.shape[0]:, :, :])
 
+
+        max_meta_feature_size = 18 - x_train.shape[-1]
+        if num_related > max_meta_feature_size:
+            idx = torch.randperm(num_related)[:max_meta_feature_size]
+            imputed_train = imputed_train[:, idx]
+            imputed_test = imputed_test[:, idx]
+
         x_train_combined = torch.cat([ x_train, imputed_train.unsqueeze(1) ], dim=-1)
         x_test_combined = torch.cat([ x_test, imputed_test.unsqueeze(1) ], dim=-1)
 
@@ -275,7 +282,7 @@ class PPFN(AbstractModel):
 
         
 
-        pfns_max_feature_size = 3
+        pfns_max_feature_size = 18
         if num_related > pfns_max_feature_size - 1:
             idx = torch.randperm(num_related)[:pfns_max_feature_size - 1]
             related_context_x = related_context_x[:, idx]
