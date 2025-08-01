@@ -86,7 +86,7 @@ def parse_reliab_df(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def main(input_file, output_file=None, figsize=(15, 6),
+def main(input_file, output_file=None, figsize=(15, 6), plot_reliab=False,
          pattern=(
                  r'neps_root_directory_(?P<target_task>[^_]+)_(?P<fold>[^_]+)_(?P<split_seed>[^_]+)_(?P<seed>[^_]+)')):
     """
@@ -153,32 +153,32 @@ def main(input_file, output_file=None, figsize=(15, 6),
     )
 
     # Weight time series of reliability scores ----------------------
-    if (input_paths[0].parent / 'joint_results.csv').exists():
+    if (input_paths[0].parent / 'joint_results.csv').exists() and plot_reliab:
         reliab_df = [pd.read_csv(f.parent / 'joint_results.csv') for f in input_paths]
         if len(input_paths) > 1:
             reliab_df = pd.concat(reliab_df, ignore_index=True)
         else:
             reliab_df = reliab_df[0]
 
-        reliab_df = reliab_df[reliab_df['metrics'] == 'bma_weights']
+        reliab_df = reliab_df[reliab_df['metrics'] == 'prior_weights']
         del reliab_df['metrics']  # drop metric column
         # reliab_df.rename(columns={'softmax_weight_0': 'target_weight'}, inplace=True)
 
         # reliab_df = parse_reliab_df(reliab_df)
 
         # get the highest and second highest weights
-        others = reliab_df.filter(like='bma_weight_')
-        # Row-wise max
-        row_max_series = others.max(axis=1)
-
-        # Row-wise second max
-        # Sort each row descending and take the second value
-        row_sorted = others.apply(lambda row: row.sort_values(ascending=False).values, axis=1)
-        second_max_series = row_sorted.apply(lambda x: x[1])
-
-        # Add these as new columns
-        reliab_df['max_reliability'] = row_max_series
-        reliab_df['second_max_reliability'] = second_max_series
+        # others = reliab_df.filter(like='prior_weight')
+        # # Row-wise max
+        # row_max_series = others.max(axis=1)
+        #
+        # # Row-wise second max
+        # # Sort each row descending and take the second value
+        # row_sorted = others.apply(lambda row: row.sort_values(ascending=False).values, axis=1)
+        # second_max_series = row_sorted.apply(lambda x: x[1])
+        #
+        # # Add these as new columns
+        # reliab_df['max_reliability'] = row_max_series
+        # reliab_df['second_max_reliability'] = second_max_series
 
     else:
         reliab_df = pd.DataFrame()
@@ -191,7 +191,7 @@ def main(input_file, output_file=None, figsize=(15, 6),
     # Create final figure to assemble images
     figsize = (10 * len(benchmarks), 8)  # example sizing
     nrows = 1 if reliab_df.empty else 2
-    fig, axes = plt.subplots(nrows=nrows, ncols=len(benchmarks), figsize=figsize, sharey=True)
+    fig, axes = plt.subplots(nrows=nrows, ncols=len(benchmarks), figsize=figsize, sharey=True,  dpi=600)
 
     # axes shape fix for single benchmark
     if len(benchmarks) == 1:
@@ -206,24 +206,31 @@ def main(input_file, output_file=None, figsize=(15, 6),
             ax.set_xlabel('Step')
             plot_anytime(bench, pivot_df_reset, algonames, ax)
 
+        # Optional: set only the first y-label for normalized regret
+        axes[0][0].set_ylabel('Regret')
+
         # second row: weight plots
         for bench, ax in zip(benchmarks, axes[1]):
             ax.set_xlabel('Step')
             plot_weights(bench, reliab_df, ax)
     else:
         # only one row of anytime plots
+        if isinstance(axes, np.ndarray) and axes.ndim > 1:
+            axes = axes.flatten()
         for bench, ax in zip(benchmarks, axes):
             ax.set_xlabel('Step')
             plot_anytime(bench, pivot_df_reset, algonames, ax)
 
-    # Optional: set only the first y-label for normalized regret
-    axes[0][0].set_ylabel('Regret')
+        # Optional: set only the first y-label for normalized regret
+        axes[0].set_ylabel('Regret')
+
+
 
     plt.tight_layout()
 
     # Save or display the plot
     if output_file:
-        plt.savefig(output_file)
+        plt.savefig(output_file, bbox_inches='tight', dpi=600)
         print(f"Plot saved to {output_file}")
     else:
         plt.show()
@@ -238,7 +245,7 @@ def plot_anytime(bench, pivot_df_reset, algonames, ax):
     ax.set_title(f'Benchmark: {bench}')
     ax.set_xlabel('Step')
     for alg in algonames:
-        sns.lineplot(data=bench_data, x='step', y=alg, label=alg, ax=ax)
+        sns.lineplot(data=bench_data, x='step', y=alg, label=alg, ax=ax, errorbar=('ci', 75))
     ax.set_ylabel('Normalized Regret')
 
 
@@ -246,9 +253,9 @@ def plot_anytime(bench, pivot_df_reset, algonames, ax):
 def plot_weights(bench, reliab_df, ax):
     rel_data = reliab_df[reliab_df['benchmark.meta.name'] == bench]
 
-    sns.lineplot(data=rel_data, x='step', y='target_weight', color='red',
-                 label='Target weight', ax=ax)
-    for col in [col for col in rel_data.columns if col.startswith('bma_weight_')]:
+    # sns.lineplot(data=rel_data, x='step', y='target_weight', color='red',
+    #              label='Target weight', ax=ax)
+    for col in [col for col in rel_data.columns if col.startswith('prior_weight')]:
         sns.lineplot(data=rel_data, x='step', y=col, label=col, ax=ax)
     # sns.lineplot(data=reliab_df, x='step', y='max_reliability',
     #              label='highest "other" weight', ax=ax)
@@ -264,7 +271,10 @@ if __name__ == '__main__':
     fire.Fire(main)
 
     # synthetic only:
-    #  --input_file "['/home/ruhkopf/PycharmProjects/ExperiencedFT-PFNs/luis_results/07-24/synthetic-final/anytime.csv']"
-
-    # real benchmarks:
-    # --input_file "['/home/ruhkopf/PycharmProjects/ExperiencedFT-PFNs/luis_results/07-24/lcbench-folds-split_seed/anytime.csv','/home/ruhkopf/PycharmProjects/ExperiencedFT-PFNs/luis_results/07-24/pd1-folds-split_seed/anytime.csv','/home/ruhkopf/PycharmProjects/ExperiencedFT-PFNs/luis_results/07-24/taskset-folds-split_seed/anytime.csv']"
+#      --input_file /home/ruhkopf/PycharmProjects/ExperiencedFT-PFNs/luis_results/07-30/synthetic
+# --output_file
+# /home/ruhkopf/PycharmProjects/ExperiencedFT-PFNs/luis_results/07-30/synthetic_benchmarks75.pdf
+#     # --input_file
+    # "['/home/ruhkopf/PycharmProjects/ExperiencedFT-PFNs/luis_results/07-30/lcbench/anytime.csv','/home/ruhkopf/PycharmProjects/ExperiencedFT-PFNs/luis_results/07-30/pd1/anytime.csv','/home/ruhkopf/PycharmProjects/ExperiencedFT-PFNs/luis_results/07-30/taskset/anytime.csv']"
+    # --output_file
+    # /home/ruhkopf/PycharmProjects/ExperiencedFT-PFNs/luis_results/07-30/real_benchmarks75.pdf

@@ -5,6 +5,7 @@ from pathlib import Path
 import torch
 import torch.nn.functional as F
 
+from evaluation.callbacks import CallbackErrorModelRMSE
 from ifbo.transformer import TransformerModel
 from model.calc_reliability import calc_target_cv_nll
 
@@ -29,6 +30,12 @@ class PPFN(AbstractModel):
                  normalize_to_error_model=True,
                  model_avg='bma',
                  device=None, verbose=True,
+                 callbacks=[
+                     CallbackErrorModelRMSE,
+                     # CallbackAnytime
+                     # CallbackImputationDiff
+                     # Callback1DProjection,
+                 ],
                  **kwargs):
         """
 
@@ -72,12 +79,52 @@ class PPFN(AbstractModel):
         self.verbose = verbose
         self.kwargs = kwargs
 
+        self.callbacks = callbacks
+
         log.info(f'Instantiated {self.__name__}')
 
+        self.initialized = False  # initialzing the related_context during first call to meet
+        # flipping needs
+        self.num_related = None
+        self.related_context = None
+
+    def _initialize(self, related_context_data, minimize):
+        related_context_x = related_context_data.x
+        related_context_y = related_context_data.y
+        padding_mask = related_context_data.padding_mask
+
+        if minimize and self.flippable_related:
+            related_context_y = (1 - related_context_y)
+
+        related_context_x = related_context_x.to(self.device)
+        related_context_y = related_context_y.to(self.device)
+
+        self.related_context = DotDict({
+            'x': related_context_x,
+            'y': related_context_y,
+            'padding_mask': padding_mask
+        })
+
+        self.num_related = self.related_context.x.shape[1]
+        cbs = []
+        for callback in self.callbacks:
+            cbs.append(
+                callback(
+                    self.model,
+                    self.error_model,
+                    self.related_task_data,
+                    self.logger,
+                    self.device,
+                    **self.kwargs
+                )
+            )
+        self.callbacks = cbs
+
     def _preprocess(self, x_train, y_train, x_test, inc, minimize=True):
-        related_context_x = self.related_task_data.x
-        related_context_y = self.related_task_data.y
-        padding_mask = self.related_task_data.padding_mask
+
+        if not self.initialized:
+            self._initialize(self.related_task_data, minimize)
+            self.initialized = True
 
         y_train = y_train.to(self.device)
         x_train = x_train.to(self.device)
@@ -95,19 +142,13 @@ class PPFN(AbstractModel):
             log.warning(f"Training points x_train contain values > 999: {x_train[x_train > 999.]}")
             x_train = torch.clamp(x_train, max=999.)
 
-        if minimize and self.flippable_related:
-            related_context_y = (1 - related_context_y)
-
-        related_context_x = related_context_x.to(self.device)
-        related_context_y = related_context_y.to(self.device)
-
-        # (Adjust searchspaces) ------------------------------------------------
+            # (Adjust searchspaces) ------------------------------------------------
         # in case the search spaces are supersets of each other, we need to augment the
         # x_train data to match the related context (we need to drop the dim later for the
         # acquisition function to not notice)
-        if x_train.shape[-1] < related_context_x.shape[-1]:
-            diff = related_context_x.shape[-1] - x_train.shape[-1]
-            placeholder = related_context_x[:, :, -diff:].mean(dim=1).mean(dim=0)
+        if x_train.shape[-1] < self.related_context.x.shape[-1]:
+            diff = self.related_context.x.shape[-1] - x_train.shape[-1]
+            placeholder = self.related_context.x[:, :, -diff:].mean(dim=1).mean(dim=0)
             x_train = torch.cat([
                 x_train,
                 placeholder.repeat(x_train.shape[0], 1).unsqueeze(1)
@@ -118,24 +159,17 @@ class PPFN(AbstractModel):
                 placeholder.repeat(x_test.shape[0], 1).unsqueeze(1)
             ], dim=-1).to(self.device)
 
-        if padding_mask is not None:
-            padding_mask = padding_mask.to(self.device)
-
-        return x_train, y_train, x_test, inc, \
-            related_context_x, related_context_y, padding_mask
+        return x_train, y_train, x_test, inc
 
     @torch.no_grad()
     def get_ei(self, x_test, inc, x_train=None, y_train=None, minimize=True):
         step = x_train.shape[0]
-        x_train, y_train, x_test, inc, \
-            related_context_x, related_context_y, padding_mask = \
+        x_train, y_train, x_test, inc = \
             self._preprocess(x_train, y_train, x_test, inc, minimize=minimize)
 
         # (Impute related tasks) -----------------------------------------------
         imputed_y = self.impute(
-            related_context_x,
-            related_context_y,
-            padding_mask,
+            self.related_context,
             x_train
         )
 
@@ -143,9 +177,7 @@ class PPFN(AbstractModel):
             # FIXME: EI values!
             return self.warmstart(
                 imputed_y,
-                related_context_x,
-                related_context_y,
-                padding_mask,
+                self.related_context,
                 x_train,
                 x_test,
                 y_train,
@@ -154,9 +186,7 @@ class PPFN(AbstractModel):
         else:
             bma_predictions = self.mixture_strategy(
                 imputed_y,
-                related_context_x,
-                related_context_y,
-                padding_mask,
+                self.related_context,
                 x_train,
                 x_test,
                 y_train,
@@ -173,91 +203,64 @@ class PPFN(AbstractModel):
             x_test, inc, x_train=None, y_train=None, minimize=True
     ):
         step = x_train.shape[0]
-        x_train, y_train, x_test, inc, \
-            related_context_x, related_context_y, padding_mask = \
+        x_train, y_train, x_test, inc, = \
             self._preprocess(x_train, y_train, x_test, inc, minimize=minimize)
 
-        # plotting anytime performance as a loss
-        if debug:
-
-            import matplotlib.pyplot as plt
-            import numpy as np
-
-            perf_tensor = 1-(y_train.flatten()) # - related_context_y.max(dim=0).values.cpu(
-            # ).numpy())
-
-            # Move to CPU and convert to numpy for ease of processing
-            perf_np = perf_tensor.cpu().numpy()
-
-            # Compute the incumbent (best-so-far) performance at each step
-            incumbent = np.minimum.accumulate(perf_np)
-
-            # X-axis: time steps
-            steps = np.arange(len(incumbent))
-
-            plt.figure(figsize=(8, 5))
-            plt.plot(steps, incumbent,  label='Incumbent (Best-so-far)')
-            plt.title('Anytime Performance (Incumbent) Over Time')
-            plt.xlabel('Time Step')
-            plt.ylabel('Performance (Higher is Better)')
-            plt.grid(True)
-            plt.legend()
-            plt.show()
-
-            print('Incumbent performance:', incumbent[-1])
-            print('Incumbents of prior tasks',
-                  - related_context_y.max(dim=0).values.cpu(
-                  ))
-
+        for callback in self.callbacks:
+            callback.on_acq_start(x_train, y_train, x_test, inc)
 
         # (Impute related tasks) -----------------------------------------------
         imputed_y = self.impute(
-            related_context_x,
-            related_context_y,
-            padding_mask,
+            self.related_context,
             x_train
         )
 
         if step < self.min_context_size:
-            return self.warmstart(
+            pi_values = self.warmstart(
                 imputed_y,
-                related_context_x,
-                related_context_y,
-                padding_mask,
+                self.related_context,
                 x_train,
                 x_test,
                 y_train,
                 inc,
                 acquisition_fn='pi'
             )
+
+            for callback in self.callbacks:
+                callback.on_acq_end_warmstart(x_train, y_train, x_test, inc, pi_values)
+
+            return pi_values
+
+
         else:
-            bma_predictions = self.mixture_strategy(
+            predictions = self.mixture_strategy(
                 imputed_y,
-                related_context_x,
-                related_context_y,
-                padding_mask,
+                self.related_context,
                 x_train,
                 x_test,
                 y_train,
                 inc,
             )
-            # (Collect the PI of the mixture) ----------------------------------
+
+            for callback in self.callbacks:
+                callback.on_acq_end_mixture(x_train, y_train, x_test, inc, predictions)
+
             return self.criterion.pi(
-                bma_predictions.squeeze(1), best_f=inc,
+                predictions.squeeze(1), best_f=inc,
                 maximize=True)
 
     def impute(
-            self, related_context_x, related_context_y, padding_mask, x_train
+            self, related_context, x_train
     ):
-        num_related = related_context_x.shape[1]
+
         # (IMPUTATION to related tasks) ----------------------------------------
         imputed_logits = self.model(
             (
-                torch.cat([related_context_x, x_train.repeat(1, num_related, 1)],
+                torch.cat([related_context.x, x_train.repeat(1, self.num_related, 1)],
                           dim=0),
-                torch.cat([related_context_y, ], dim=0)
+                torch.cat([related_context.y, ], dim=0)
             ),
-            single_eval_pos=related_context_x.shape[0],
+            single_eval_pos=related_context.x.shape[0],
             # src_key_padding_mask=padding_mask
         )
 
@@ -293,23 +296,20 @@ class PPFN(AbstractModel):
     def warmstart(
             self,
             imputed_y,
-            related_context_x,
-            related_context_y,
-            padding_mask,
+            related_context,
             x_train,
             x_test,
             y_train,
             inc,
             acquisition_fn='pi'
     ):
-        num_related = related_context_x.shape[1]
 
         if self.incumbent_calculation == 'imputation-only':
             prior_incumbents = imputed_y.max(dim=0).values
         elif self.incumbent_calculation == 'related-only':
-            prior_incumbents = related_context_y.max(dim=0).values
+            prior_incumbents = related_context.y.max(dim=0).values
         elif self.incumbent_calculation == 'imputation-and-related':
-            prior_incumbents = torch.cat([related_context_y, imputed_y, ], dim=0).max(
+            prior_incumbents = torch.cat([related_context.y, imputed_y, ], dim=0).max(
                 dim=0).values
         else:
             raise ValueError(
@@ -320,16 +320,16 @@ class PPFN(AbstractModel):
         prior_logits = self.model(
             (
                 torch.cat([
-                    related_context_x,
-                    x_train.repeat(1, num_related, 1),
-                    x_test.repeat(1, num_related, 1)
+                    related_context.x,
+                    x_train.repeat(1, self.num_related, 1),
+                    x_test.repeat(1, self.num_related, 1)
                 ], dim=0),
-                torch.cat([related_context_y, imputed_y, ], dim=0)
+                torch.cat([related_context.y, imputed_y, ], dim=0)
             ),
-            single_eval_pos=related_context_x.shape[0] + x_train.shape[0],
+            single_eval_pos=related_context.x.shape[0] + x_train.shape[0],
             # src_key_padding_mask=torch.cat([
             #     padding_mask,
-            #     torch.zeros(num_related, x_train.shape[0], dtype=torch.bool).to(self.device)
+            #     torch.zeros(self.num_related, x_train.shape[0], dtype=torch.bool).to(self.device)
             # ], dim=1)
         )
 
@@ -342,7 +342,7 @@ class PPFN(AbstractModel):
                 best_f=prior_incumbents[b, :].unsqueeze(1),
                 maximize=True
             )
-            for b in range(num_related)
+            for b in range(self.num_related)
         ], dim=0)
 
         # get the pi under the target task
@@ -366,9 +366,7 @@ class PPFN(AbstractModel):
     def mixture_strategy(
             self,
             imputed_y,
-            related_context_x,
-            related_context_y,
-            padding_mask,
+            related_context,
             x_train,
             x_test,
             y_train,
@@ -376,7 +374,7 @@ class PPFN(AbstractModel):
     ):
         import torch  # fixme: why is torch otherwise not detected ?
         step = x_train.shape[0]
-        num_related = related_context_x.shape[1]
+
         # TODO the following two forwards can be batched together with
         #  appropriate padding masks. this will save wallclock time
         # (Collect target task logits) --------------------------------
@@ -402,21 +400,23 @@ class PPFN(AbstractModel):
             (
                 torch.cat([
                     # train
-                    related_context_x,
-                    x_train.repeat(1, num_related, 1),
+                    related_context.x,
+                    x_train.repeat(1, self.num_related, 1),
 
                     # Query
-                    x_test.repeat(1, num_related, 1),
-                    related_context_x,  # we need this to project the prior into the target task
+                    x_test.repeat(1, self.num_related, 1),
+                    related_context.x,  # we need this to project the prior into the target task
                     # later
-                    x_train.repeat(1, num_related, 1) if self.verbose == True else torch.tensor([]).to(self.device)
+                    x_train.repeat(1, self.num_related,
+                                   1) if self.verbose == True else torch.tensor(
+                        []).to(self.device)
                 ], dim=0),
-                torch.cat([related_context_y, imputed_y, ], dim=0)
+                torch.cat([related_context.y, imputed_y, ], dim=0)
             ),
-            single_eval_pos=related_context_x.shape[0] + x_train.shape[0],
+            single_eval_pos=related_context.x.shape[0] + x_train.shape[0],
             # src_key_padding_mask=torch.cat([
             #     padding_mask,
-            #     torch.zeros(num_related, x_train.shape[0], dtype=torch.bool).to(self.device)
+            #     torch.zeros(self.num_related, x_train.shape[0], dtype=torch.bool).to(self.device)
             # ], dim=1)
         )
 
@@ -436,7 +436,7 @@ class PPFN(AbstractModel):
         target_borders = self.criterion.borders
         error_borders = self.error_model.criterion.borders
 
-        y_target = y_train.repeat(1, num_related) - imputed_y
+        y_target = y_train.repeat(1, self.num_related) - imputed_y
 
         if self.normalize_to_error_model:
             # Here we exaggerate the difference to meet the high resolution range [-2.5, 2.5]
@@ -504,12 +504,12 @@ class PPFN(AbstractModel):
                 torch.cat([
                     # NOTICE: we need to crop the idx dim in ifbo (ifbo paper section 5.2),
                     # otherwise the rmse will increase in predicting the idx!
-                    x_train[:, :, 1:].repeat(1, num_related, 1),
+                    x_train[:, :, 1:].repeat(1, self.num_related, 1),
 
                     # Query
-                    x_test[:, :, 1:].repeat(1, num_related, 1),
-                    related_context_x[:, :, 1:],  # for the projection of the prior into the target
-                    x_train[:, :, 1:].repeat(1, num_related, 1) if self.verbose == True else
+                    x_test[:, :, 1:].repeat(1, self.num_related, 1),
+                    related_context.x[:, :, 1:],  # for the projection of the prior into the target
+                    x_train[:, :, 1:].repeat(1, self.num_related, 1) if self.verbose == True else
                     torch.tensor([]).to(self.device)
                 ], dim=0),
                 y_error
@@ -518,204 +518,42 @@ class PPFN(AbstractModel):
             # fixme: this model is not capable of accepting padding masks yet!
             # src_key_padding_mask=torch.cat([
             #     padding_mask,
-            #     torch.zeros(num_related, x_train.shape[0], dtype=torch.bool).to(self.device)
+            #     torch.zeros(self.num_related, x_train.shape[0], dtype=torch.bool).to(self.device)
             # ], dim=1)
         )
 
-        if self.verbose and debug:  # FIXME: this metric needs x_train as query in both the prior
-            # and error_logits"!
-            imputation_diffs = y_train.repeat(1, num_related) - imputed_y
-
-            if debug:
-                import torch
-                import matplotlib.pyplot as plt
-
-                # Imputation differences histogram at the current time step
-                fig, axes = plt.subplots(2, 2, figsize=(12, 8))
-                axes = axes.flatten()
-
-                for i in range(imputation_diffs.shape[1]):
-                    data = imputation_diffs[:, i].numpy()  # convert tensor column to numpy
-                    axes[i].hist(data, bins=20, edgecolor='black')
-                    axes[i].set_title(f'Histogram of imputation_diffs column {i + 1}')
-                    axes[i].set_xlabel(f'Column {i + 1} values')
-                    axes[i].set_ylabel('Frequency')
-
-                plt.tight_layout()
-                plt.show()
-
-            imputation_diffs = imputation_diffs.mean(dim=0)
-            self.logger.log({
-                'metrics': 'imputation_diff',
-                'step': step,
-                **{f'imputation_diff{i}': imputation_diffs[i].item()
-                   for i in range(imputation_diffs.shape[0])}
-            })
-            # Plotting the average imputation differences over time
-            if debug:
-                import pandas as pd
-                import matplotlib.pyplot as plt
-                df = pd.DataFrame(self.logger.logs)
-                df = df[df['metrics'] == 'imputation_diff']
-                cols = list(df.columns[df.columns.str.startswith('imputation_diff')]) + ['step']
-                subset = df.loc[:, cols]
-                subset.plot(x='step')
-                plt.show()
-
-            y_hat = self.error_model.criterion.median(
-                error_logits[-x_train.shape[0]:]  # y_train error logits!
+        for callback in self.callbacks:
+            callback.on_trained_ppds(
+                target_logits, prior_logits, error_logits, imputed_y, y_error,
+                x_train, y_train, x_test, inc
             )
 
-            if debug:
-                import matplotlib.pyplot as plt
-                import seaborn as sns
+        if debug:
+            import matplotlib.pyplot as plt
+            import seaborn as sns
 
-                # Convert tensors to numpy arrays
-                y_target_np = y_target.numpy().flatten()
-                y_hat_np = y_hat.numpy().flatten() / 16  # for median we can just divide!
-                error_borders_np = error_borders.numpy().flatten()
+            # Convert tensors to numpy arrays
+            y_target_np = y_target.numpy().flatten()
+            y_hat_np = y_hat.numpy().flatten() / 16  # for median we can just divide!
+            error_borders_np = error_borders.numpy().flatten()
 
-                plt.figure(figsize=(8, 6))
+            plt.figure(figsize=(8, 6))
 
-                # Plot overlapping histograms
-                plt.hist(y_target_np, bins=30, alpha=0.5, label='y_target', color='blue',
-                         edgecolor='black')
-                plt.hist(y_hat_np, bins=30, alpha=0.5, label='y_hat_median', color='red',
-                         edgecolor='black')
+            # Plot overlapping histograms
+            plt.hist(y_target_np, bins=30, alpha=0.5, label='y_target', color='blue',
+                     edgecolor='black')
+            plt.hist(y_hat_np, bins=30, alpha=0.5, label='y_hat_median', color='red',
+                     edgecolor='black')
 
-                # Add rug plot for error_borders
-                sns.rugplot(error_borders_np, color='green', height=0.01)
+            # Add rug plot for error_borders
+            sns.rugplot(error_borders_np, color='green', height=0.01)
 
-                plt.title('Overlapping Histograms with Rug plot of error_borders')
-                plt.xlabel('Values')
-                plt.ylabel('Frequency')
-                plt.legend()
+            plt.title('Overlapping Histograms with Rug plot of error_borders')
+            plt.xlabel('Values')
+            plt.ylabel('Frequency')
+            plt.legend()
 
-                plt.show()
-
-            # unprojected rmse! (i.e. in the error model's criterion borders)
-            y = y_error
-            rmse = torch.sqrt(torch.mean((y - y_hat) ** 2, dim=0))
-
-            self.logger.log({
-                'metrics': 'rmse',
-                'step': step,
-                **{f'rmse_{i}': rmse[i].item()
-                   for i in range(rmse.shape[0])}
-            })
-
-            # Plotting the error_model's RMSE over time
-            if debug:
-                import pandas as pd
-                import matplotlib.pyplot as plt
-                df = pd.DataFrame(self.logger.logs)
-                df = df[df['metrics'] == 'rmse']
-                cols = list(df.columns[df.columns.str.startswith('rmse')]) + ['step']
-                subset = df.loc[:, cols]
-                subset.plot(x='step')
-                plt.show()
-
-            # Plotting the predicted differences in 3d (1d hp + 1 fidelity dim)
-            if debug:
-                import matplotlib.pyplot as plt
-                from mpl_toolkits.mplot3d import Axes3D
-
-                import numpy as np
-                import plotly.graph_objs as go
-                from plotly.offline import plot
-
-                # find the location in y where the inc lives
-                inc_y = inc[0]
-                inc_x = x_train[(max(y_train) == y_train).view(-1), 0,
-                        1:].numpy()  # assuming x_test is
-                # of shape (T, 1, D)
-
-                # Convert torch tensors to numpy arrays as before
-                x_related = related_context_x[:, :, 1:].numpy()
-                y_related = related_context_y.numpy()
-                x_np = x_train[:, 0, 1:].numpy()
-                y_train_np = y_train[:, 0].numpy()
-                imputed_y_np = imputed_y[:, 0].numpy()
-                y_hat_np = y_hat[:, 0].numpy()
-
-                print('inc in train', max(y_train), 'incumbent y', inc_y, 'incumbent x', inc_x)
-                # Scatter traces
-                trace_y_train = go.Scatter3d(
-                    x=x_np[:, 0], y=x_np[:, 1], z=y_train_np,
-                    mode='markers',
-                    marker=dict(color='blue', size=5),
-                    name='y_train'
-                )
-
-                # plot the incumbent point
-                trace_incumbent = go.Scatter3d(
-                    x=inc_x[:, 0], y=inc_x[:, 1], z=inc_y,
-                    mode='markers',
-                    marker=dict(color='black', size=5, symbol='x'),
-                    name='incumbent'
-                )
-
-                trace_imputed_y = go.Scatter3d(
-                    x=x_np[:, 0], y=x_np[:, 1], z=imputed_y_np,
-                    mode='markers',
-                    marker=dict(color='green', size=5, symbol='diamond'),
-                    # Use a supported symbol here
-                    name='imputed_y'
-                )
-
-                trace_y_hat = go.Scatter3d(
-                    x=x_np[:, 0], y=x_np[:, 1], z=y_hat_np,
-                    mode='markers',
-                    marker=dict(color='red', size=5),
-                    name='y_hat'
-                )
-
-                trace_related = go.Scatter3d(
-                    x=x_related[:, 0, 0], y=x_related[:, 0, 1], z=y_related[:, 0],
-                    mode='markers',
-                    marker=dict(color='orange', size=5),
-                    name='related_context_y'
-                )
-
-                # Lines from y_train to y_hat (difference vectors)
-                line_traces = []
-                for i in range(len(x_np)):
-                    line_traces.append(
-                        go.Scatter3d(
-                            x=[x_np[i, 0], x_np[i, 0]],
-                            y=[x_np[i, 1], x_np[i, 1]],
-                            z=[y_train_np[i] - y_hat_np[i], y_train_np[i]],
-                            mode='lines',
-                            line=dict(color='black', width=2),
-                            showlegend=False
-                        )
-                    )
-
-                data = ([
-                            trace_y_train,
-                            trace_imputed_y,
-                            trace_y_hat,
-                            trace_related,
-                            trace_incumbent
-                        ] \
-                        + line_traces
-                        )
-
-                layout = go.Layout(
-                    scene=dict(
-                        xaxis_title='X dimension 1',
-                        yaxis_title='X dimension 2',
-                        zaxis_title='Y values'
-                    ),
-                    title='Interactive 3D plot showing y_train and y_hat differences',
-                    legend=dict(x=0, y=1),
-                    margin=dict(l=0, r=0, b=0, t=40)
-                )
-
-                fig = go.Figure(data=data, layout=layout)
-
-                # This will open the interactive plot in your default web browser
-                plot(fig)
+            plt.show()
 
         # (Project prior logits into target task) --------------------------
         # Here we take the predicted prior logits of the x_test and need to adjust them
@@ -765,7 +603,7 @@ class PPFN(AbstractModel):
         ).reshape(T, B, -1)
 
         # now the convolved logits describe:
-        # x_test, related_context_x, (and if debug=True x_train) in the target task space
+        # x_test, related_context.x, (and if debug=True x_train) in the target task space
 
         # (Bayesian model averaging) -----------
         # prior_predictions = convolved_logits[:-step]
@@ -789,11 +627,16 @@ class PPFN(AbstractModel):
 
             # first project the x related data into the target task space via the error model
             # remember the convolved logits are the prior convolved with error logits at that pos,
-            related_context_y_hat = convolved_logits[query:query + related_context_x.shape[0]]
-            # associated with the related_context_x
+            related_context_y_hat = convolved_logits[query:query + related_context.x.shape[0]]
+            # associated with the related_context.x
 
             # the pfn cannot take in distributions, so we need to take one point
             # TODO consider sampling here!
+
+            # TODO: consider, that we the related_context.y should already be a dirac mass.
+            # so to save compute we can save on the convolution and the median estimate
+            # --> instead we should get similar results with shifting the related_context.y
+            # directly by the error model's median estimate (or an mc sample from it)
             related_context_y_hat_median = self.criterion.median(related_context_y_hat)
 
             # now we can learn a model of the projected prior data in the target space
@@ -802,14 +645,14 @@ class PPFN(AbstractModel):
                     torch.cat(
                         [
                             # train
-                            related_context_x,
+                            related_context.x,
                             # query
-                            x_train.repeat(1, num_related, 1),
+                            x_train.repeat(1, self.num_related, 1),
                         ]
                     ),
                     related_context_y_hat_median
                 ),
-                single_eval_pos=related_context_x.shape[0],
+                single_eval_pos=related_context.x.shape[0],
             )
 
             # finally we evaluate the prior target data predictions against the
@@ -817,7 +660,7 @@ class PPFN(AbstractModel):
             # would explain the observed data. This gives us the relative weight of each prior
             prior_evidence = torch.stack([
                 self.criterion(projected_prior_experience[:, b, :].squeeze(1), y_train)
-                for b in range(num_related)
+                for b in range(self.num_related)
             ], dim=0).to(self.device).mean(dim=1)
 
             prior_weights = torch.softmax(-prior_evidence, dim=-1)
@@ -982,9 +825,9 @@ def convolve_probs_with_error(probs, probs_bins, kernel, kernel_bins):
     # to the left and right edges
     p_convolved_cropped = p_convolved[:, start:end]
     missing_prob_right = p_convolved[:, end:].sum(dim=1)
-    # missing_prob_left = p_convolved_cropped[:, :start].sum(dim=1)
-    # p_convolved_cropped[:, start] += missing_prob_left
-    # p_convolved_cropped[:, -1] += missing_prob_right
+    missing_prob_left = p_convolved_cropped[:, :start].sum(dim=1)
+    p_convolved_cropped[:, start] += missing_prob_left
+    p_convolved_cropped[:, -1] += missing_prob_right
 
     debug = False
     if debug:
@@ -1047,7 +890,7 @@ def project_probs_to_common_bins_batch(orig_probs, orig_bounds, target_bounds):
 
     # Expand bins for vectorized overlap calculation:
     # orig lefts and rights shape: (N, 1)
-    orig_lefts = orig_bounds[:-1].unsqueeze(1) # (N,1)
+    orig_lefts = orig_bounds[:-1].unsqueeze(1)  # (N,1)
     orig_rights = orig_bounds[1:].unsqueeze(1)  # (N,1)
     # target lefts and rights shape: (1, M)
     target_lefts = target_bounds[:-1].unsqueeze(0)  # (1, M)

@@ -52,11 +52,11 @@ cd src/ifBO_icml24
 pip install -r requirements.txt
 
 
-
+`
 python -m mfpbench download --benchmark lcbench-tabular  --data-dir $root/ExperiencedFT-PFNs/data/
 python -m mfpbench download --benchmark pd1-tabular  --data-dir $root/ExperiencedFT-PFNs/data/
 python -m mfpbench download --benchmark taskset  --data-dir $root/ExperiencedFT-PFNs/data/
-
+`
 
 
 ```
