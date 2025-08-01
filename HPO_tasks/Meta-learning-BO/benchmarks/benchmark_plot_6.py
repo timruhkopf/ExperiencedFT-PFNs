@@ -250,7 +250,7 @@ if __name__=="__main__":
     experiments = ["Random" , "GP", "FSBO", "FSBO2", "RGPE", "MALIBO", "OptFormer", "NAP", "PFNs4BO-PI-o", "PFNs4BO-PI", "PFNs4BO-PI-IW", "PFNs4BO-EI-IW"]
     experiments = ["Random" , "GP", "FSBO", "FSBO2", "RGPE", "MALIBO", "PFNs4BO-PI-o", "PFNs4BO-PI", "PFNs4BO-PI-IW", "PFNs4BO-EI-IW", "mPFNs4BO", "PFNs4BO-EI", "pPFNs4BO", "pPFNs4BO-norm", "pPFNs4BO-linear", "pPFNs4BO-cosine"]
 
-    experiments = ["Random" , "GP", "FSBO2", "RGPE", "MALIBO",  "PFNs4BO-PI", "pPFNs4BO-pp", "pPFNs4BO-dp"]#, ]#, "PFNs4BO-EI", "pPFNs4BO-linear"]
+    experiments = ["Random" , "GP", "FSBO2", "RGPE", "MALIBO",  "PFNs4BO-PI", "pPFNs4BO-pp", "pPFNs4BO-dp", "pPFNs4BO-ts"]#, ]#, "PFNs4BO-EI", "pPFNs4BO-linear"]
 
     benchmark_plotter  = BenchmarkPlotter(experiments=experiments, 
                                             name = name,

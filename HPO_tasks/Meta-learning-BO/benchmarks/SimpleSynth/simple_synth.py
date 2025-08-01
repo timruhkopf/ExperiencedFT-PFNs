@@ -102,6 +102,7 @@ def run_optimization_loop(
     current_evaluations = []
 
     init_ids = benchmark.bo_initializations[test_seed]
+   
     for i in range(len(init_ids)):
         idx = init_ids[i]
         pending_evaluations.remove(idx)
@@ -130,6 +131,7 @@ def run_optimization_loop(
               f"Current best: {min_regret_history[-1]:.4f}, "
               f"Time taken: {opt_time[-1]:.4f} seconds")
 
+        print(X[current_evaluations[-1]])
     # negate to recover accuracy
     min_regret_history += [min(y).item()] * (max_evaluations - i - 1)
 

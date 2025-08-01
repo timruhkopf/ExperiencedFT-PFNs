@@ -194,6 +194,7 @@ def run_optimization_loop(
               f"Current best: {min_regret_history[-1]:.4f}, "
               f"Time taken: {opt_time[-1]:.4f} seconds")
 
+
     # negate to recover accuracy
     min_regret_history += [min(y).item()] * (max_evaluations - i - 1)
 

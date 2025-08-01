@@ -14,7 +14,7 @@ import os
 
 experiment_ids = ["PFNs4BO-PI-o", "PFNs4BO-PI", "PFNs4BO-PI-IW", "PFNs4BO-EI-IW", "mPFNs4BO", "PFNs4BO-EI", "pPFNs4BO", "pPFNs4BO-decay", "pPFNs4BO-dp", "pPFNs4BO-pp"]
 
-experiment_ids = [ "PFNs4BO-PI", "pPFNs4BO-pp", "pPFNs4BO-dp"]
+experiment_ids = [ "PFNs4BO-PI", "pPFNs4BO-pp", "pPFNs4BO-dp", "pPFNs4BO-ts"]
 
 seeds = ["test0", "test1", "test2", "test3", "test4"]
 results_path = "results/hpob6"

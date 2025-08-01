@@ -36,6 +36,11 @@ if __name__ == "__main__":
         seeds = [test_seed]
 
     for test_seed in seeds:
+        seed_num = int(''.join(filter(str.isdigit, test_seed)))
+        torch.manual_seed(seed_num)
+        np.random.seed(seed_num)
+        random.seed(seed_num)
+
         if args.function == "synth_1d":
             from benchmarks.SimpleSynth.simple_synth import run_optimization_loop, SimpleSynth
             benchmark = SimpleSynth(seed=test_seed, start_task=task_id, initializations=4)
@@ -44,11 +49,6 @@ if __name__ == "__main__":
             from benchmarks.SimpleSynth.hartmann3d_synth import Hartmann3D, run_optimization_loop
             benchmark = Hartmann3D(seed=test_seed, start_task=task_id, initializations=4)
             meta_data = benchmark.get_meta_data()
-
-        seed_num = int(''.join(filter(str.isdigit, test_seed)))
-        torch.manual_seed(seed_num)
-        np.random.seed(seed_num)
-        random.seed(seed_num)
 
         if args.method == "MALIBO":
             from malibo.malibo import MALIBO
@@ -78,6 +78,19 @@ if __name__ == "__main__":
                 # For training MALIBO, each task needs learn a task embedding
                 # Testing on validation data without training on it is not possible
                 optimizer.meta_fit(meta_data, meta_dir=meta_dir, **train_config)
+
+
+        elif args.method == "pPFNs4BO-naive":
+            import pfns4bo
+            from mpfns4bo.ppfns4bo import PPFNs4BO
+            optimizer = PPFNs4BO(torch.load( pfns4bo.hebo_plus_model), benchmark.search_space, meta_data, device=args.device, model_avg='naive', apply_power_transform_pi=True)
+
+
+        elif args.method == "pPFNs4BO-bma":
+            import pfns4bo
+            from mpfns4bo.ppfns4bo import PPFNs4BO
+            optimizer = PPFNs4BO(torch.load( pfns4bo.hebo_plus_model), benchmark.search_space, meta_data, device=args.device)
+
 
         elif args.method == "pPFNs4BO-dp":
             import pfns4bo
