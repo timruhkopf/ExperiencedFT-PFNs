@@ -3,7 +3,7 @@ search_space_ids=('4796' '5860' '5906'  '5527'  '5889'  '5859')
 search_space_ids=('4796' '5889'  '5859')
 #9 test 5965, 7609, 5889, 6794, 5859, 4796, 7607, 5636, and 5970.
 #9 valid 5527, 5891, 5906, 5971, 6767, 6766, and 5860
-policies=("pPFNs4BO-ts") #("PFNs4BO-PI-o" "PFNs4BO-PI" "PFNs4BO-PI-IW" "PFNs4BO-EI-IW") #  "mPFNs4BO" "MALIBO"
+policies=("pPFNs4BO-naive") #("PFNs4BO-PI-o" "PFNs4BO-PI" "PFNs4BO-PI-IW" "PFNs4BO-EI-IW") #  "mPFNs4BO" "MALIBO"
 evaluations=60
 
 seeds=("test0" "test1" "test2" "test3" "test4")
