@@ -138,6 +138,16 @@ class PPFN(AbstractModel):
                 y_train,
                 inc,
                 )
+        elif self.model_avg == "simple":
+            return self.my_simple_idea(
+                related_context_x,
+                related_context_y,
+                padding_mask,
+                x_train,
+                x_test,
+                y_train,
+                inc,
+            )
 
         # (Impute related tasks) -----------------------------------------------
         imputed_y = self.impute(
@@ -239,6 +249,83 @@ class PPFN(AbstractModel):
             single_eval_pos=x_train_combined.shape[0],
 
         )
+        return self.model.criterion.pi(
+            target_logits.squeeze(1),
+            maximize=True,
+            best_f=y_train.max(),
+        )
+
+
+    def my_simple_idea(
+            self,
+            related_context_x,
+            related_context_y,
+            padding_mask,
+            x_train,
+            x_test,
+            y_train,
+            inc,
+    ):
+        num_related = related_context_x.shape[1]
+        if(self.apply_power_transform):
+            transformed_cols = [general_power_transform(y_train, related_context_y[:, i].unsqueeze(1)) for i in range(related_context_y.shape[1])]
+            related_context_y = torch.cat(transformed_cols, dim=1)
+            y_train = general_power_transform(y_train, y_train)
+            inc = y_train.max()
+
+        
+
+        pfns_max_feature_size = 3
+        if num_related > pfns_max_feature_size - 1:
+            idx = torch.randperm(num_related)[:pfns_max_feature_size - 1]
+            related_context_x = related_context_x[:, idx]
+            related_context_y = related_context_y[:, idx]
+            num_related = pfns_max_feature_size - 1
+
+        imputed_logits = self.model(
+            (
+                torch.cat([
+                    related_context_x,
+                    x_train.repeat(1, num_related, 1),
+                    x_test.repeat(1, num_related, 1)
+                ], dim=0),
+                related_context_y
+            ),
+            single_eval_pos=related_context_x.shape[0],
+            src_key_padding_mask=padding_mask
+            )
+
+
+        imputed_train = self.criterion.mean(imputed_logits[:x_train.shape[0], :, :])
+        imputed_test = self.criterion.mean(imputed_logits[-x_test.shape[0]:, :, :])
+
+        # get the pi under the target task
+        target_logits = self.model(
+            (
+                torch.cat([x_train, x_test], dim=0),
+                y_train
+            ),
+            single_eval_pos=x_train.shape[0],
+
+        )
+
+
+        target_preds_train = self.criterion.mean(imputed_logits[:x_train.shape[0], :, :])
+        target_preds_test = self.criterion.mean(imputed_logits[-x_test.shape[0]:, :, :])
+
+        x_train_combined = torch.cat([ target_preds_train.unsqueeze(1), imputed_train.unsqueeze(1) ], dim=-1)
+        x_test_combined = torch.cat([ target_preds_test.unsqueeze(1), imputed_test.unsqueeze(1) ], dim=-1)
+
+        # get the pi under the target task
+        target_logits = self.model(
+            (
+                torch.cat([x_train_combined, x_test_combined], dim=0),
+                y_train
+            ),
+            single_eval_pos=x_train_combined.shape[0],
+
+        )
+
         return self.model.criterion.pi(
             target_logits.squeeze(1),
             maximize=True,

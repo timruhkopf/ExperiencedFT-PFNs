@@ -84,7 +84,10 @@ if __name__ == "__main__":
             import pfns4bo
             from mpfns4bo.ppfns4bo import PPFNs4BO
             optimizer = PPFNs4BO(torch.load( pfns4bo.hebo_plus_model), benchmark.search_space, meta_data, device=args.device, model_avg='naive', apply_power_transform_pi=True)
-
+        elif args.method == "pPFNs4BO-simple":
+            import pfns4bo
+            from mpfns4bo.ppfns4bo import PPFNs4BO
+            optimizer = PPFNs4BO(torch.load( pfns4bo.hebo_plus_model), benchmark.search_space, meta_data, device=args.device, model_avg='simple', apply_power_transform_pi=True)
 
         elif args.method == "pPFNs4BO-bma":
             import pfns4bo
