@@ -127,7 +127,7 @@ class CallbackErrorModelRMSE(AbstractCallback):
 
     def on_trained_ppds(
             self,
-            target_logits, prior_logits, error_logits, imputed_y, y_error,
+            target_logits, prior_logits, error_logits, projected_logits, imputed_y, y_error,
             x_train, y_train, x_test, inc
     ):
         imputation_diffs = y_train.repeat(1, self.num_related) - imputed_y
