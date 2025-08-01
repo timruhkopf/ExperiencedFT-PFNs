@@ -280,13 +280,12 @@ class PPFN(AbstractModel):
             y_train = general_power_transform(y_train, y_train)
             inc = y_train.max()
 
-        
-
         pfns_max_feature_size = 18
         if num_related > pfns_max_feature_size - 1:
             idx = torch.randperm(num_related)[:pfns_max_feature_size - 1]
             related_context_x = related_context_x[:, idx]
             related_context_y = related_context_y[:, idx]
+            padding_mask = padding_mask[idx]
             num_related = pfns_max_feature_size - 1
 
         imputed_logits = self.model(
@@ -317,8 +316,8 @@ class PPFN(AbstractModel):
         )
 
 
-        target_preds_train = self.criterion.mean(imputed_logits[:x_train.shape[0], :, :])
-        target_preds_test = self.criterion.mean(imputed_logits[-x_test.shape[0]:, :, :])
+        target_preds_train = self.criterion.mean(target_logits[:x_train.shape[0], :, :])
+        target_preds_test = self.criterion.mean(target_logits[-x_test.shape[0]:, :, :])
 
         x_train_combined = torch.cat([ target_preds_train.unsqueeze(1), imputed_train.unsqueeze(1) ], dim=-1)
         x_test_combined = torch.cat([ target_preds_test.unsqueeze(1), imputed_test.unsqueeze(1) ], dim=-1)
