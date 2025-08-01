@@ -69,7 +69,7 @@ class PFNPriorImputation(AbstractModel):
                  related_task_data, min_context_size, imputation_mode='mean',only_obs_incumbents = True,
                  device=None, verbose=False):
 
-        if "MPFNs4BO" in type(model).__name__ or "ourPFNs4BO" in type(model).__name__:
+        if "PFNs4BO" in type(model).__name__:
             self.model = model
         else:
             self.model: TransformerModel = model if isinstance(model, TransformerModel) else model.model
