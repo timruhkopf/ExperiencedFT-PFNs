@@ -50,7 +50,7 @@ class BenchmarkPlotter:
         #self.search_spaces = list(self.task_list_per_space.keys())
         self.search_spaces = ['4796', '5860', '5906', '5527', '5889', '5859']
         if minimal:
-            self.search_spaces = ['4796', '5889', '5859']
+            #self.search_spaces = ['4796', '5889', '5859']
             self.n_trials = 61
 
     def plot(self):
@@ -250,8 +250,8 @@ if __name__=="__main__":
     experiments = ["Random" , "GP", "FSBO", "FSBO2", "RGPE", "MALIBO", "OptFormer", "NAP", "PFNs4BO-PI-o", "PFNs4BO-PI", "PFNs4BO-PI-IW", "PFNs4BO-EI-IW"]
     experiments = ["Random" , "GP", "FSBO", "FSBO2", "RGPE", "MALIBO", "PFNs4BO-PI-o", "PFNs4BO-PI", "PFNs4BO-PI-IW", "PFNs4BO-EI-IW", "mPFNs4BO", "PFNs4BO-EI", "pPFNs4BO", "pPFNs4BO-norm", "pPFNs4BO-linear", "pPFNs4BO-cosine"]
 
-    experiments = ["Random" , "GP", "FSBO", "FSBO2", "RGPE", "MALIBO", "OptFormer",  "PFNs4BO-PI", "pPFNs4BO-naive", "pPFNs4BO-simple"]#, ]#, "PFNs4BO-EI", "pPFNs4BO-linear"]
-
+    experiments = ["Random" , "GP", "OptFormer", "FSBO", "FSBO2", "RGPE", "MALIBO", "pPFNs4BO-simple"] #, "PFNs4BO-PI", "pPFNs4BO-naive"
+    #,  "PFNs4BO-PI", "pPFNs4BO-naive"
     benchmark_plotter  = BenchmarkPlotter(experiments=experiments, 
                                             name = name,
                                             seeds=["test0", "test1", "test2", "test3", "test4"],
