@@ -125,13 +125,13 @@ def main(input_file, output_file=None, figsize=(15, 6), plot_reliab=False,
 
     # Calculate normalized regret ------------------------------------
     # Define grouping columns consistently
-    group_cols = ['benchmark.meta.name', 'target_task', 'fold', 'split_seed']
+    group_cols = ['benchmark.name', 'target_task', 'fold', 'split_seed']
 
     # Create a pivot table: index by group_cols + 'epoch', columns are algorithms, values are anytime_performance
-    pivot_df = df.pivot_table(index=group_cols + ['step'], columns='algoname' if 'algoname' in
-                                                                                 df.columns else 'algorithm.surrogate_model.meta.name'
-                                                                                                 'algortihm.',
-                              values='anytime_performance')
+    pivot_df = df.pivot_table(
+        index=group_cols + ['step'],
+        columns='algoname' if 'algoname' in df.columns else 'algorithm.surrogate_model.meta.name',
+        values='anytime_performance')
 
     algonames = pivot_df.columns  # Algorithm column names
 
@@ -187,11 +187,11 @@ def main(input_file, output_file=None, figsize=(15, 6), plot_reliab=False,
     # Main code
     benchmarks = pivot_df_reset['benchmark.meta.name'].unique()
 
-
     # Create final figure to assemble images
     figsize = (10 * len(benchmarks), 8)  # example sizing
     nrows = 1 if reliab_df.empty else 2
-    fig, axes = plt.subplots(nrows=nrows, ncols=len(benchmarks), figsize=figsize, sharey=True,  dpi=600)
+    fig, axes = plt.subplots(nrows=nrows, ncols=len(benchmarks), figsize=figsize, sharey=True,
+                             dpi=600)
 
     # axes shape fix for single benchmark
     if len(benchmarks) == 1:
@@ -224,8 +224,6 @@ def main(input_file, output_file=None, figsize=(15, 6), plot_reliab=False,
         # Optional: set only the first y-label for normalized regret
         axes[0].set_ylabel('Regret')
 
-
-
     plt.tight_layout()
 
     # Save or display the plot
@@ -249,7 +247,6 @@ def plot_anytime(bench, pivot_df_reset, algonames, ax):
     ax.set_ylabel('Normalized Regret')
 
 
-
 def plot_weights(bench, reliab_df, ax):
     rel_data = reliab_df[reliab_df['benchmark.meta.name'] == bench]
 
@@ -266,15 +263,94 @@ def plot_weights(bench, reliab_df, ax):
     ax.grid(False)
 
 
-
 if __name__ == '__main__':
-    fire.Fire(main)
+    # fire.Fire(main)
 
     # synthetic only:
 #      --input_file /home/ruhkopf/PycharmProjects/ExperiencedFT-PFNs/luis_results/07-30/synthetic
 # --output_file
 # /home/ruhkopf/PycharmProjects/ExperiencedFT-PFNs/luis_results/07-30/synthetic_benchmarks75.pdf
 #     # --input_file
-    # "['/home/ruhkopf/PycharmProjects/ExperiencedFT-PFNs/luis_results/07-30/lcbench/anytime.csv','/home/ruhkopf/PycharmProjects/ExperiencedFT-PFNs/luis_results/07-30/pd1/anytime.csv','/home/ruhkopf/PycharmProjects/ExperiencedFT-PFNs/luis_results/07-30/taskset/anytime.csv']"
-    # --output_file
-    # /home/ruhkopf/PycharmProjects/ExperiencedFT-PFNs/luis_results/07-30/real_benchmarks75.pdf
+# "['/home/ruhkopf/PycharmProjects/ExperiencedFT-PFNs/luis_results/07-30/lcbench/anytime.csv','/home/ruhkopf/PycharmProjects/ExperiencedFT-PFNs/luis_results/07-30/pd1/anytime.csv','/home/ruhkopf/PycharmProjects/ExperiencedFT-PFNs/luis_results/07-30/taskset/anytime.csv']"
+# --output_file
+# /home/ruhkopf/PycharmProjects/ExperiencedFT-PFNs/luis_results/07-30/real_benchmarks75.pdf
+
+
+
+
+    import pandas as pd
+    import matplotlib.pyplot as plt
+    import numpy as np
+    from scipy.stats import sem  # For standard error of the mean (confidence bands)
+
+
+    def simplified_main(input_file, output_file=None, figsize=(12, 8)):
+        """
+        Reads a single input CSV, computes anytime_performance, normalizes by dynamic range per task,
+        then plots all tasks together in one plot with confidence bands for each algorithm.
+
+        Args:
+            input_file (str): Path to input CSV file.
+            output_file (str, optional): If set, saves plot to this path; else shows plot.
+            figsize (tuple): Figure size.
+        """
+        # Load data
+        df = pd.read_csv(input_file)
+
+        # Compute anytime_performance (provided function assumed available)
+        df = compute_anytime_performance(df, minimize=True)
+
+        # Normalize column names if needed
+        if 'algorithm.name' not in df.columns and 'algoname' in df.columns:
+            df.rename(columns={'algoname': 'algorithm.name'}, inplace=True)
+        # if 'epoch' not in df.columns and 'step' in df.columns:
+        #     df.rename(columns={'step': 'epoch'}, inplace=True)
+        if 'benchmark.name' in df.columns:
+            df.rename(columns={'benchmark.name': 'task'}, inplace=True)
+
+        # Get min and max anytime_performance per task for normalization
+        task_min_max = df.groupby('task')['anytime_performance'].agg(min_perf='min',
+                                                                     max_perf='max').reset_index()
+        df = pd.merge(df, task_min_max, on='task', how='left')
+
+        epsilon = 1e-12
+        df['normalized_regret'] = (df['anytime_performance'] - df['min_perf']) / (
+                    df['max_perf'] - df['min_perf'] + epsilon)
+
+        # Aggregate by algorithm and epoch (across tasks) for plotting
+        agg = df.groupby(['algorithm.name', 'step']).agg(
+            mean_regret=('normalized_regret', 'mean'),
+            sem_regret=('normalized_regret', sem)  # Standard error for confidence bands
+        ).reset_index()
+
+        # Plot all tasks together with confidence bands per algorithm
+        plt.figure(figsize=figsize)
+        algorithms = agg['algorithm.name'].unique()
+
+        for algo in algorithms:
+            adf = agg[agg['algorithm.name'] == algo]
+            plt.plot(adf['step'], adf['mean_regret'], label=algo)
+            plt.fill_between(adf['step'],
+                             adf['mean_regret'] - adf['sem_regret'],
+                             adf['mean_regret'] + adf['sem_regret'],
+                             alpha=0.2)
+
+        plt.xlabel('step')
+        plt.ylabel('Normalized Regret (0-1 scale)')
+        plt.title('Normalized Anytime Performance Across Tasks (With Confidence Bands)')
+        plt.legend()
+        plt.grid(True)
+        plt.tight_layout()
+
+        if output_file:
+            plt.savefig(output_file, bbox_inches='tight', dpi=600)
+            print(f"Plot saved to {output_file}")
+        else:
+            plt.show()
+
+
+    simplified_main(input_file=
+                    '/home/ruhkopf/PycharmProjects/ExperiencedFT-PFNs/luis_results/reproduction'
+                    '/anytime.csv')
+                    # output_file=
+                    # '/home/ruhkopf/PycharmProjects/ExperiencedFT-PFNs/luis_results/reproduction/anytime.pdf')

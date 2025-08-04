@@ -30,7 +30,7 @@ class PFNV2(PPFN):
 
         self.callbacks = callbacks
 
-        self.initialized = False  # initialzing the related_context during first call to meet
+        self.initialized = False  # initializing the related_context during first call to meet
         # flipping needs
         self.num_related = None
         self.related_context = None

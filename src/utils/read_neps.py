@@ -78,6 +78,14 @@ def group_files_by_hydra(files: List[str]) -> Dict[Path, List[str]]:
     return groups
 
 
+
+def process_group(item, keys):
+    hydra_dir, group_files = item
+    hydra_config = config_parser(hydra_dir, keys.copy())
+    parse_func = partial(parse_loss_config_file, hydra_config=hydra_config)
+    dfs = [parse_func(f) for f in group_files]  # sequential inside group
+    return pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
+
 def parse_and_save(
         root_dir,
         keys: List[str],
@@ -91,18 +99,23 @@ def parse_and_save(
         return
 
     grouped = group_files_by_hydra(files)
-    all_dfs = []
-    for hydra_dir, group_files in grouped.items():
-        hydra_config = config_parser(hydra_dir, keys.copy())
-        parse_func = partial(parse_loss_config_file, hydra_config=hydra_config)
-        with Pool(workers) as pool:
-            dfs = pool.map(parse_func, group_files)
-        all_dfs.extend(dfs)
+
+    with Pool(workers) as pool:
+        # Map process_group over groups in parallel
+        all_dfs = pool.map(partial(process_group, keys=keys), grouped.items())
+
     df = pd.concat(all_dfs, ignore_index=True) if all_dfs else pd.DataFrame()
+
+    if df.empty:
+        print("No data parsed from files.")
+        return
+
     if csv is not None:
         df.to_csv(csv, index=False)
         print(f"Saved {len(df)} rows to {csv}")
+
     return df
+
 
 
 if __name__ == '__main__':
