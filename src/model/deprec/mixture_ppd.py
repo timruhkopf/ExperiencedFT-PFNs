@@ -1,14 +1,12 @@
-from typing import List, Dict, Union, Callable
+from typing import Union, Callable
 
 import torch
 from ifbo.transformer import TransformerModel
 from model.calc_reliability import _calc_reliability
-from model.mixing import EqualWeights
 
-from src.evaluation.test_on_new_task_nll import TestOnNewTaskNLL
 from ifbo import BarDistribution, FTPFN
 from src.model.abstractmodel import AbstractModel
-from src.model.batch_padded_pfn import MyBatch
+from model.deprec.batch_padded_pfn import MyBatch
 from src.utils.filelogger_json import BufferedDictLogger
 from utils.dotdict import DotDict
 

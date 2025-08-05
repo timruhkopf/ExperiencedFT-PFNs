@@ -2,7 +2,6 @@ from pathlib import Path
 
 import torch
 
-from ifbo.priors.prior import Batch
 from utils.dotdict import DotDict
 
 
@@ -141,7 +140,7 @@ if __name__ == "__main__":
 
     device = torch.device("cpu")
     ftpfn = ifbo_main.surrogate.FTPFN(version="0.0.1", device=device)
-    from src.dataset.taskprior import MetaTaskPriorSameProblem
+    from dataset.deprec.taskprior import MetaTaskPriorSameProblem
 
     dataset = MetaTaskPriorSameProblem(
         dim_hyperparameters=3,

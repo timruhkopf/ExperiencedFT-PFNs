@@ -9,10 +9,10 @@ from ifbo.transformer import TransformerModel
 from torch import nn
 from tqdm import tqdm
 
-from src.dataset.dataloading import DTrain, collate
-from src.evaluation.test_on_new_task_nll import TestOnNewTaskNLL
+from dataset.deprec.dataloading import DTrain
+from evaluation.deprec.test_on_new_task_nll import TestOnNewTaskNLL
 from src.model.abstractmodel import AbstractModel
-from src.model.batch_padded_pfn import parse_batch_for_padded_train_data
+from model.deprec.batch_padded_pfn import parse_batch_for_padded_train_data
 from src.utils.filelogger import BufferedFileLogger
 
 import logging
@@ -515,8 +515,8 @@ class DistillContext(AbstractModel):
 if __name__ == '__main__':
     import ifbo
 
-    from src.dataset.taskprior import MetaTaskPriorSameProblem, detokenize_batch
-    from src.dataset.dataloading import collate
+    from dataset.deprec.taskprior import MetaTaskPriorSameProblem
+    from dataset.deprec.dataloading import collate
     import tempfile
 
     N_TASKS=4
