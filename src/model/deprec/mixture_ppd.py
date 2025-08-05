@@ -4,9 +4,9 @@ import torch
 from ifbo.transformer import TransformerModel
 from model.calc_reliability import _calc_reliability
 
-from ifbo import BarDistribution, FTPFN
+from ifbo import FTPFN
 from src.model.abstractmodel import AbstractModel
-from model.deprec.batch_padded_pfn import MyBatch
+from model.batch_padded_pfn import MyBatch
 from src.utils.filelogger_json import BufferedDictLogger
 from utils.dotdict import DotDict
 

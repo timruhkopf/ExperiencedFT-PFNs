@@ -12,7 +12,7 @@ from tqdm import tqdm
 from dataset.deprec.dataloading import DTrain
 from evaluation.deprec.test_on_new_task_nll import TestOnNewTaskNLL
 from src.model.abstractmodel import AbstractModel
-from model.deprec.batch_padded_pfn import parse_batch_for_padded_train_data
+from model.batch_padded_pfn import parse_batch_for_padded_train_data
 from src.utils.filelogger import BufferedFileLogger
 
 import logging
