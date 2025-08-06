@@ -1,18 +1,14 @@
 import os
 import time
 import logging
-import warnings
-from itertools import product
 
-import yaml
 from neps.search_spaces.parameter import Parameter
-from tqdm import tqdm
-from typing import Any, List
+from typing import Any
 
 import torch
 import numpy as np
 import pandas as pd
-from sklearn.model_selection import train_test_split, KFold
+from sklearn.model_selection import KFold
 
 import hydra
 from omegaconf import DictConfig
@@ -60,7 +56,6 @@ warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 @hydra.main(config_path="configs", config_name="base_ifbo", version_base="1.1")
 def main(cfg: DictConfig):
-    import shutil
     logger.info(f'Sweep dir: {Path.cwd()}')
     logger.info(OmegaConf.to_yaml(cfg))
 

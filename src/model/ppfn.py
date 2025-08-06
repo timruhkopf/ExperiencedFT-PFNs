@@ -6,8 +6,10 @@ import torch
 import torch.nn.functional as F
 
 from evaluation.callbacks import CallbackErrorModelRMSE
+from ifbo import BarDistribution
 from ifbo.transformer import TransformerModel
 from model.calc_reliability import calc_target_cv_nll
+from model.counterfact import Counterfactor
 from model.error_model_wrapper import WrappedErrorModel
 from model.imputor import Imputer
 
@@ -26,7 +28,7 @@ debug = False
 class PPFN(AbstractModel):
     __name__ = "pPFN"
 
-    def __init__(self, model, criterion, logger,
+    def __init__(self, model, criterion: BarDistribution, logger,
                  related_task_data, min_context_size, imputation_mode='median',
                  incumbent_calculation='imputation-only', flippable_related=False,
                  model_avg='bma',
@@ -45,15 +47,27 @@ class PPFN(AbstractModel):
         # $HOME/anaconda3/envs/ft-pfn-experimental/lib/python3.10/site-packages/pfns4bo/final_models
         # /hebo_morebudget_9_unused_features_3_userpriorperdim2_8.pt.gz
         self.error_model = WrappedErrorModel(
-            target_borders=self.model.criterion.borders,
+            target_criterion=self.model.criterion,
             device=device, error_model=torch.load(pfns4bo.bnn_model, weights_only=False)
+        )
+
+        self.criterion = criterion if criterion is not None else self.model.criterion
+        self.updated_prior_validation = Counterfactor(
+            model=self.model,
+            device=device,
+            error_model=self.error_model,
+            criterion=self.criterion,
+            logger=logger,
+            counterfit=kwargs.get('counterfit', 'median'),
+            num_related=related_task_data.x.shape[1],
+            n_mc=kwargs.get('n_mc', 10)
+            # number of Monte Carlo samples if mc counterfitting is used
         )
         self.imputer = Imputer(
             model=self.model,
             criterion=self.model.criterion,
             imputation_mode=imputation_mode
         )
-        self.criterion = criterion if criterion is not None else self.model.criterion
 
         self.logger = logger
         self.device = device
@@ -77,6 +91,8 @@ class PPFN(AbstractModel):
         # flipping needs
         self.num_related = None
         self.related_context = None
+
+        self.past_surprises = []
 
     def _initialize(self, related_context_data, minimize):
         related_context_x = related_context_data.x
@@ -203,7 +219,7 @@ class PPFN(AbstractModel):
         # (Impute related tasks) -----------------------------------------------
         imputed_y = self.imputer(
             x_train=self.related_context.x,
-            x_test=x_train,
+            x_test=x_train.repeat(1, self.num_related, 1),
             y_train=self.related_context.y
         )
 
@@ -307,6 +323,9 @@ class PPFN(AbstractModel):
             maximize=True
         )
 
+        self.last_step_predictions = torch.cat([target_logits, prior_logits], dim=0)
+        self.past_x_test = x_test
+
         # here we want to be maximally aggressive from the perspective of the priors,
         # and encourage exploring successful incumbents under the related tasks
         return torch.cat([acq_target.unsqueeze(0), acq_related], dim=0).max(axis=0).values
@@ -398,57 +417,19 @@ class PPFN(AbstractModel):
             [target_logits[:query], projected_logits[:query]], dim=1
         ).to(self.device)
 
+        self.last_step_predictions = predictions
+        self.past_x_test = x_test
+
         if self.model_avg == 'project_eqw':  # equally weighted average
-            # here we simply average the predictions over the related tasks
+            # here we simply average the predictions over the projected prior with convolved
+            # related tasks
             return predictions.mean(dim=1)
 
-        if self.model_avg in ['prior-mixture', 'bma', 'bma-decay', 'bma-cv-target']:
-            # Let us collect the counterfactual data:
-            # the prior data is projected into the target task space by the
-            # learned error model.
-            # Notice, that the prior data is observed and therefore has dirac mass
-            counterfactural_logits, error_logits = self.error_model.dirac_forward(
-                x_train=x_train[:, :, 1:].repeat(1, self.num_related, 1),
-                dirac_x=related_context.x[:, :, 1:],
-                dirac_y=related_context.y,
-                # Note that we are having the reverse here to project it down!
-                y_error=imputed_y - y_train.repeat(1, self.num_related)
-            )
-
-            # TODO consider MC sampling here instead of median
-            # Now we collect the y values for the counterfactual data.
-            counterfactual_y = torch.stack([
-                self.criterion.median(counterfactural_logits[:, b, :].squeeze(1), y_train)
-                for b in range(self.num_related)
-            ], dim=0).to(self.device)
-
-            # Get the logits for the target task data under the counterfactual prior PPD
-            prior_counterfactual_logits = self.model(
-                (
-                    torch.cat(
-                        [
-                            related_context.x,  # train
-                            x_train.repeat(1, self.num_related, 1),  # query
-                        ]
-                    ),
-                    counterfactual_y
-                ),
-                single_eval_pos=related_context.x.shape[0],
-            )
-
-        # finally we evaluate the prior counterfactual against the
-        # observed y_train values, telling us how well the projected prior data
-        # would explain the observed data. This gives us the relative weight of each prior
-        prior_evidence = torch.stack([
-            self.criterion(prior_counterfactual_logits[:, b, :].squeeze(1), y_train)
-            for b in range(self.num_related)
-        ], dim=0).to(self.device).mean(dim=1)
-
-        prior_weights = torch.softmax(-prior_evidence, dim=-1)
-        self.logger.log(
-            {'metrics': 'prior_weights', 'step': step,
-             **{f'prior_weight_{i}': w.item()
-                for i, w in enumerate(prior_weights)}},
+        prior_weights, prior_evidence = self.updated_prior_validation(
+            x_train=x_train,
+            y_train=y_train,
+            related_context=related_context,
+            imputed_y=imputed_y,
         )
 
         if debug:
@@ -515,10 +496,10 @@ class PPFN(AbstractModel):
                 random_state=42
             ).unsqueeze(0).to(self.device)
 
-            weights = torch.softmax(torch.cat([-target_nll, -prior_evidence]), dim=-1)
+            weights = torch.softmax(torch.cat([-target_nll, - prior_evidence]), dim=-1)
             self.logger.log(
-                {'metrics': 'prior_weights', 'step': step,
-                 **{f'prior_weight_{i}': w.item()
+                {'metrics': 'weights', 'step': step,
+                 **{f'weight_{i}': w.item()
                     for i, w in enumerate(weights)}},
             )
             if debug:
@@ -543,9 +524,47 @@ class PPFN(AbstractModel):
                 "we didn't find a way to calculate the evidence p(H | M_{\\tau^*})."
             )
 
+        if self.model_avg == 'past_surprise':
+
+            # Here we look at the history of the respective model's predictions
+            # and find out how each model (target and related) were surprised by the outcome
+            config_idx = x_train[-1, :, 0] == self.past_x_test[:, :, 0]
+            config = (x_train[-1, :, 2:] == self.past_x_test[:, :, 2:]).all(
+                dim=-1)  # ignore fidelity!
+            last_prediction = self.last_step_predictions[config_idx.flatten() & config.flatten(), :,
+                              :]
+
+            surprise = torch.stack([
+                self.criterion(last_prediction[:, b, :].squeeze(1), y_train[-1, :, ])
+                for b in range(self.num_related + 1)
+            ], dim=0).to(self.device).mean(dim=1)
+
+            self.past_surprises.append(surprise)
+
+            # FIXME: we can adjust the surprise by how wrong the error model was and by how much
+            #  we know better how the error looks like for this point now!
+            surprise = torch.stack(self.past_surprises, dim=0).mean(dim=0)
+
+            # we will want to use the history of surprises
+            weights = torch.softmax(-surprise, dim=-1)
+            self.logger.log(
+                {'metrics': 'weights', 'step': step,
+                 **{f'weight_{i}': w.item()
+                    for i, w in enumerate(weights)}},
+            )
+
+            return (predictions * weights.unsqueeze(-1)).sum(dim=1)
+
+        if self.model_avg == 'past_suprise_updated_error':
+            # we take the best possible prediction, by retrospectively updating the predictions
+            # this will improve the prior's projections and we will get a better sense
+            # for whether the prior was surprised by the outcome - this will implicitly grant
+            # access to the future and in turn will adversely bias
+            # against the target task predictions, because it won't be updated
+            pass
+
 
 def constant_exponential(n_target, lambda_=0.001, constant=0):
     effective_n = torch.maximum(torch.tensor(n_target - constant, dtype=torch.float32),
                                 torch.tensor(0.0))
     return 1 - torch.exp(-lambda_ * effective_n)
-

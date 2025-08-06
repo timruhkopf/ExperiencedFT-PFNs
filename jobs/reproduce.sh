@@ -104,7 +104,7 @@ pd1-tabular-uniref50_transformer_128-1
 # the joint list
 REPONAME=ExperiencedFT-PFNs
 
-BENCHMARK_LIST=("${lcbench[@]}" "${taskset[@]}" "${pd1[@]}")
+#BENCHMARK_LIST=("${lcbench[@]}" "${taskset[@]}" "${pd1[@]}")
 BENCHMARK_LIST=${taskset[@]}
 algos=(ifbo asha dyhpo-neps-v2 hyperband)
 

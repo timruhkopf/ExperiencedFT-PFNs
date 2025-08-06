@@ -1,12 +1,11 @@
 import math
 from itertools import chain
-from typing import Dict, List
+from typing import Dict
 
-import numpy as np
 import torch
 from ifbo.transformer import TransformerModel
 from ifbo import BarDistribution, FTPFN
-from src.model.batch_padded_pfn import MyBatch
+from model.batch_padded_pfn import MyBatch
 
 
 def _calc_reliability(
@@ -245,7 +244,6 @@ def plot_gt_data(
 ):
     """Here we plot the performance against fidelity for all the tasks (irrespective of the hp
     dim)"""
-    import numpy as np
     import matplotlib.pyplot as plt
 
     # Convert tensors to numpy for plotting
@@ -297,7 +295,6 @@ def plot_projections(
         y_proj: torch.Tensor,
         plot_file_path: str
 ):
-    import numpy as np
     import matplotlib.pyplot as plt
 
     target_y = context_y
@@ -351,10 +348,8 @@ def plot_projections(
     plt.close(fig)
 
 
-import numpy as np
 import torch
-from collections import defaultdict
-from sklearn.model_selection import KFold, train_test_split  # or GroupKFold for stratification
+from sklearn.model_selection import KFold  # or GroupKFold for stratification
 from torch.nn.utils.rnn import pad_sequence
 
 

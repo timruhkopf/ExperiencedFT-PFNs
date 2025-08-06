@@ -4,7 +4,7 @@ from typing import List
 
 import hydra
 import numpy as np
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig
 import torch
 
 import logging
@@ -18,9 +18,9 @@ import ifbo
 
 from ifbo.transformer import TransformerModel
 
-from src.evaluation.meta_train_test_split import k_folds, folds_of_size
-from src.evaluation.test_on_new_task_nll import TestOnNewTaskNLL
-from src.model.batch_padded_pfn import parse_batch_for_padded_train_data
+from evaluation.deprec.meta_train_test_split import folds_of_size
+from evaluation.deprec.test_on_new_task_nll import TestOnNewTaskNLL
+from model.batch_padded_pfn import parse_batch_for_padded_train_data
 from src.utils.filelogger import BufferedFileLogger
 from src.utils.seeding import SeededRandomContext
 

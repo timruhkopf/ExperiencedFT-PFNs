@@ -1,3 +1,4 @@
+import math
 from copy import deepcopy
 
 import pfns4bo
@@ -9,9 +10,12 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from pfns4bo.bar_distribution import BarDistribution
 
+import logging
+
+logger = logging.getLogger(__name__)
 
 class WrappedErrorModel:
-    def __init__(self, target_borders, device, error_model=None):
+    def __init__(self, target_criterion, device, error_model=None):
         self.error_model = error_model if error_model is not None else torch.load(pfns4bo.bnn_model,
                                                                                   weights_only=False)
         self.error_model.eval()
@@ -20,7 +24,8 @@ class WrappedErrorModel:
 
         self.criterion: BarDistribution = self.error_model.criterion
         self.error_borders = deepcopy(self.error_model.criterion.borders)
-        self.target_borders = target_borders
+        self.target_borders = target_criterion.borders
+        self.target_criterion = target_criterion
 
     def __getattr__(self, name):
         return getattr(self.error_model, name)
@@ -60,10 +65,10 @@ class WrappedErrorModel:
         left = min(self.error_model.criterion.icdf(error_logits[:, 0, :], 0.01))
         right = max(self.error_model.criterion.icdf(error_logits[:, 0, :], 0.99))
 
-        kernel_grid = torch.arange(
-            left, right,
-            step=(self.target_borders[1] - self.target_borders[0]).item()
-        ).to(self.device)
+        step = self.target_borders[1] - self.target_borders[0]
+        idx = int((torch.round(right, decimals=3) - torch.round(left, decimals=3)) / step) + 1
+        rounded_left = torch.round(left, decimals=3).to(self.device)
+        kernel_grid = torch.round(self.target_borders[:idx] + rounded_left, decimals=3).to(self.device)
 
         # given the prior logits and error logits are differently binned distributions
         # we need to interpret the error bins and adjust probabiltiy mass of the prior logits
@@ -78,30 +83,137 @@ class WrappedErrorModel:
 
         return error_probs_kernel, kernel_grid, error_logits
 
-    def dirac_forward(self, x_train, y_error, dirac_x, dirac_y, padding=None, reverse=False):
+    def _dirac_forward(self, x_train, y_error, dirac_x, dirac_y, padding=None, reverse=False,
+                      fast=True):
+
+        raise NotImplementedError("Use dirac_forward instead, this is untested.")
+        dirac_y_error_logits, kernel_grid, _ = self.__call__(x_train, y_error, dirac_x, padding)
+        bardist = BarDistribution(borders=kernel_grid).to(self.device)
+        median = bardist.median(dirac_y_error_logits)
+        n_bins_to_shift = bardist.map_to_bucket_idx(median)
+
+        if not fast:
+            raise NotImplementedError("Only 'fast' version implemented.")
+
+        idx = self.target_criterion.map_to_bucket_idx(dirac_y)
+        if reverse:
+            n_bins_to_shift = -n_bins_to_shift
+
+        # Calculate necessary padding to ensure all shifted kernels fit
+        max_bins = dirac_y_error_logits.shape[-1]
+        pad_left = torch.clamp(-n_bins_to_shift.min(), min=0).item()
+        pad_right = torch.clamp(n_bins_to_shift.max(), min=0).item()
+
+        # Pad error logits on both sides for all samples (vectorized)
+        logits_padded = torch.nn.functional.pad(
+            dirac_y_error_logits, (pad_left, pad_right), value=0
+        )
+
+        # Compute shifted indices (vectorized)
+        shifted_idxs = idx + pad_left - n_bins_to_shift
+
+        # Build index tensor for gathering
+        batch_shape = shifted_idxs.shape  # (n, B)
+        gather_indices = shifted_idxs.unsqueeze(-1) + torch.arange(max_bins, device=self.device)
+        # This is now shape (n, B, max_bins), flat gather
+
+        # Gather the shifted logits (vectorized)
+        y_logits = torch.gather(logits_padded, 2, gather_indices)
+
+        # Now, crop to the correct output size if needed
+        output_bins = len(self.target_criterion.borders) - 1
+        if y_logits.shape[-1] > output_bins:
+            y_logits = y_logits[..., :output_bins]
+
+        return y_logits, dirac_y_error_logits
+
+    def dirac_forward(self, x_train, y_error, dirac_x, dirac_y, padding=None, reverse=False,
+                      fast=True):
         """
-        Forward pass for a Dirac delta distribution.
+        Given the error distributions that we have learned, we want to "convolve" the
+        error model with the dirac_x and dirac_y. considering that the dirac mass is a point mass,
+        we can equivalently shift the logits of the error model by by the median of the error
+        distribution. Here we need to be careful with the binning of the error model,
+
+        :param reverse: if the error is to be added to the target model. (this is not implemented yet)
+        :param fast: the quick and dirty version; with an approximation error, since we do not
+         convert to a probability distribution and account for the fact that a y is binned and
+         that shifting a binned distribution will crop the edges.
         """
         # Here we assume that dirac_x and dirac_y are already in the correct format
         # for the error model.
 
         dirac_y_error_logits, kernel_grid, _ = self.__call__(x_train, y_error, dirac_x, padding)
+        bardist = BarDistribution(borders=kernel_grid).to(self.device)
+        median = bardist.median(dirac_y_error_logits)
+        n_bins_to_shift = bardist.map_to_bucket_idx(median)
 
+        # import matplotlib.pyplot as plt
+        #
+        # plt.hist(median[:,1], bins=kernel_grid)
+        # plt.show()
+
+        if not fast:
+            raise NotImplementedError("The quick and dirty version is implemented, "
+                                      "but not the one, where we check the probability mass"
+                                      "and adjust the bounds to reflect excess mass.")
+
+        # dirac_y_error_probs = F.softmax(dirac_y_error_logits, dim=-1)
+
+        # we need to shift the dirac_y_error_probs by the median of the error distribution
+        # here we determine the index of the median (where to shift) and
+        # what the boundaries of the distribution are we paste the error distribution into
+        idx = self.target_criterion.map_to_bucket_idx(dirac_y)
         if reverse:
-            raise NotImplementedError("Reverse convolution is not implemented yet, but"
-                                      "it is simple: just reverse the dirac kernel and convolve "
-                                      "again")
-            # TODO also flip the error_logits kernel (for debugging purposes)
+            # if we are reversing the convolution, we need to shift the median to the left
+            # by the number of bins to shift
+            n_bins_to_shift = -n_bins_to_shift
 
-        # we need to determine into which bin the dirac_y valls, and shift the
-        #  entire dirac logits by this index
-        idx = self.criterion.map_to_bucket_idx(dirac_y)
-        shifted_y = torch.zeros_like(dirac_y_error_logits)
+        new_median_idx = idx - n_bins_to_shift
+        lowers = new_median_idx- n_bins_to_shift
+        uppers = new_median_idx + (len(kernel_grid) -1 - n_bins_to_shift)
 
-        # TODO find out in which direction the individual errors (positive / negative)
-        #  and shift the logits accordingly
+        kernel_lower = torch.zeros(lowers.shape, dtype=torch.long).to(self.device)
+        kernel_upper = torch.ones(uppers.shape, dtype=torch.long).to(self.device) * \
+                      ( len(kernel_grid) -1)
 
-        raise NotImplementedError("Dirac forward is not implemented yet.")
+        # now we can shift the dirac_y_error_logits by the median of the error distribution
+        n, B, _ = dirac_y_error_logits.shape
+        y_logits = torch.zeros((n, B, len(self.target_criterion.borders)-1)).to(self.device)
+
+        warn = 0
+        for i, (lower, upper) in enumerate(zip(lowers, uppers)):
+            for b in range(B):
+                # change the boundaries on dirac_y_error_logits that we try to paste on
+                if lower[b] < 0:
+                    lower[b] = 0
+                    kernel_lower[b] = math.abs(lower[b])
+                    warn += 1
+                if upper[b] >= len(self.target_criterion.borders):
+                    upper[b] = len(self.target_criterion.borders) - 1
+                    kernel_upper[b] = math.abs(len(kernel_grid) - len(
+                        self.target_criterion.borders))
+                    warn += 1
+
+                # paste the error distribution into the target model
+                # we need to shift the dirac_y_error_logits by the median of the error distribution
+                # and paste it into the target model logits
+                y_logits[i, b, lower[b]:upper[b]] = \
+                    dirac_y_error_logits[i, b, kernel_lower[i, b]:kernel_upper[i,b]]
+
+        if warn > 0:
+            logger.info(f'Warning: {warn} boundaries were out of bounds and have been adjusted in'
+                        f'Dirac shifting.')
+
+        # import matplotlib.pyplot as plt
+        # ex, b = 2, 1
+        # plt.plot(y_logits[ex, b].cpu().numpy())
+        # plt.scatter(y=0, x=new_median_idx[ex, b] ,color='red')
+        # plt.scatter(y=0, x=idx[ex, b], color='green')
+        # plt.show()
+
+        # now we can return the logits of the target model
+        return y_logits, dirac_y_error_logits
 
     def convolve_probs_with_error(self, logits, x_train, y_error, x_test, padding=None,
                                   reverse=False):
