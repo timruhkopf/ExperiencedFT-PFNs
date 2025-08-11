@@ -97,6 +97,20 @@ if __name__ == "__main__":
                         # Testing on validation data without training on it is not possible
                         optimizer.meta_fit(meta_data, meta_dir=meta_dir, **train_config)
 
+                elif args.method == "pPFNs4BO-pca-ei":
+                    import pfns4bo
+                    from mpfns4bo.ppfns4bo import PPFNs4BO
+                    meta_data, validation_data = benchmark.get_meta_data()
+                    optimizer = PPFNs4BO(torch.load( pfns4bo.hebo_plus_model), benchmark.search_space, meta_data, validation_data, device=args.device, model_avg='pca-ei', apply_power_transform_pi=True)
+
+
+                elif args.method == "pPFNs4BO-pca":
+                    import pfns4bo
+                    from mpfns4bo.ppfns4bo import PPFNs4BO
+                    meta_data, validation_data = benchmark.get_meta_data()
+                    optimizer = PPFNs4BO(torch.load( pfns4bo.hebo_plus_model), benchmark.search_space, meta_data, validation_data, device=args.device, model_avg='pca', apply_power_transform_pi=True)
+          
+
                 elif args.method == "pPFNs4BO-naive":
                     import pfns4bo
                     from mpfns4bo.ppfns4bo import PPFNs4BO

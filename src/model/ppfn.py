@@ -11,6 +11,7 @@ from src.utils.dotdict import DotDict
 import pfns4bo
 
 from src.model.utils import general_power_transform
+from sklearn.decomposition import PCA
 
 log = logging.getLogger(__name__)
 
@@ -68,6 +69,7 @@ class PPFN(AbstractModel):
         self.num_pulling = None
         self.t = 1
         self.use_my_mixture_strategy= True
+        self.target_logits = None 
 
         assert self.acquisition in ['pi', 'ei', 'ucb'], \
             f'Unknown acquisition function: {self.acquisition}. '
@@ -128,7 +130,11 @@ class PPFN(AbstractModel):
         if padding_mask is not None:
             padding_mask = padding_mask.to(self.device)
 
-        if self.model_avg == "naive":
+        if  "naive" in self.model_avg:
+            if "-" in self.model_avg:
+                acq_function_name = self.model_avg.split("-")[1]
+            else:
+                acq_function_name = "pi"
             return self.my_naive_idea(
                 related_context_x,
                 related_context_y,
@@ -137,8 +143,30 @@ class PPFN(AbstractModel):
                 x_test,
                 y_train,
                 inc,
+                acq_function_name=acq_function_name
                 )
-        elif self.model_avg == "simple":
+
+        elif  "pca" in self.model_avg:
+            if "-" in self.model_avg:
+                acq_function_name = self.model_avg.split("-")[1]
+            else:
+                acq_function_name = "pi"
+            return self.my_pca_idea(
+                related_context_x,
+                related_context_y,
+                padding_mask,
+                x_train,
+                x_test,
+                y_train,
+                inc,
+                acq_function_name=acq_function_name
+                )
+
+        elif "simple" in self.model_avg:
+            if "-" in self.model_avg:
+                acq_function_name = self.model_avg.split("-")[1]
+            else:
+                acq_function_name = "pi"
             return self.my_simple_idea(
                 related_context_x,
                 related_context_y,
@@ -147,6 +175,7 @@ class PPFN(AbstractModel):
                 x_test,
                 y_train,
                 inc,
+                acq_function_name=acq_function_name
             )
 
         # (Impute related tasks) -----------------------------------------------
@@ -203,6 +232,81 @@ class PPFN(AbstractModel):
                 inc,
             )
 
+    def my_pca_idea(
+            self,
+            related_context_x,
+            related_context_y,
+            padding_mask,
+            x_train,
+            x_test,
+            y_train,
+            inc,
+            acq_function_name = 'pi'
+    ):
+        num_related = related_context_x.shape[1]
+        if(self.apply_power_transform):
+            transformed_cols = [general_power_transform(y_train, related_context_y[:, i].unsqueeze(1)) for i in range(related_context_y.shape[1])]
+            related_context_y = torch.cat(transformed_cols, dim=1)
+            y_train = general_power_transform(y_train, y_train)
+            inc = y_train.max()
+
+        imputed_logits = self.model(
+            (
+                torch.cat([
+                    related_context_x,
+                    x_train.repeat(1, num_related, 1),
+                    x_test.repeat(1, num_related, 1)
+                ], dim=0),
+                related_context_y
+            ),
+            single_eval_pos=related_context_x.shape[0],
+            src_key_padding_mask=padding_mask
+            )
+
+
+        imputed_train = self.criterion.mean(imputed_logits[:x_train.shape[0], :, :])
+        imputed_test = self.criterion.mean(imputed_logits[-x_test.shape[0]:, :, :])
+
+
+        max_meta_feature_size = 18
+        x_train_combined = torch.cat([ x_train, imputed_train.unsqueeze(1) ], dim=-1)
+        x_test_combined = torch.cat([ x_test, imputed_test.unsqueeze(1) ], dim=-1)
+
+        if x_train_combined.shape[1] > max_meta_feature_size:
+            x_train_np = x_train_combined.cpu().numpy()
+            x_test_np = x_test_combined.cpu().numpy()
+
+            pca = PCA(n_components=max_meta_feature_size)
+            x_train_pca = pca.fit_transform(x_train_np)
+            x_test_pca = pca.transform(x_test_np)
+
+            x_train_combined = torch.tensor(x_train_pca, dtype=x_train.dtype, device=x_train.device)
+            x_test_combined = torch.tensor(x_test_pca, dtype=x_test.dtype, device=x_test.device)
+
+
+        target_logits = self.model(
+            (
+                torch.cat([x_train_combined, x_test_combined], dim=0),
+                y_train
+            ),
+            single_eval_pos=x_train_combined.shape[0],
+
+        )
+        self.target_logits = target_logits
+
+        if acq_function_name == 'ei':
+            return self.model.criterion.ei(
+                target_logits.squeeze(1),
+                maximize=True,
+                best_f=y_train.max(),
+            )
+        else:
+            return self.model.criterion.pi(
+                target_logits.squeeze(1),
+                maximize=True,
+                best_f=y_train.max(),
+            )
+
     def my_naive_idea(
             self,
             related_context_x,
@@ -212,6 +316,7 @@ class PPFN(AbstractModel):
             x_test,
             y_train,
             inc,
+            acq_function_name='pi'
     ):
         num_related = related_context_x.shape[1]
         if(self.apply_power_transform):
@@ -256,11 +361,19 @@ class PPFN(AbstractModel):
             single_eval_pos=x_train_combined.shape[0],
 
         )
-        return self.model.criterion.pi(
-            target_logits.squeeze(1),
-            maximize=True,
-            best_f=y_train.max(),
-        )
+        self.target_logits = target_logits
+        if acq_function_name == 'ei':
+            return self.model.criterion.ei(
+                target_logits.squeeze(1),
+                maximize=True,
+                best_f=y_train.max(),
+            )
+        else:
+            return self.model.criterion.pi(
+                target_logits.squeeze(1),
+                maximize=True,
+                best_f=y_train.max(),
+            )
 
 
     def my_simple_idea(
@@ -272,6 +385,7 @@ class PPFN(AbstractModel):
             x_test,
             y_train,
             inc,
+            acq_function_name='pi'
     ):
         num_related = related_context_x.shape[1]
         if(self.apply_power_transform):
@@ -332,11 +446,20 @@ class PPFN(AbstractModel):
 
         )
 
-        return self.model.criterion.pi(
-            target_logits.squeeze(1),
-            maximize=True,
-            best_f=y_train.max(),
-        )
+        self.target_logits = target_logits
+
+        if acq_function_name == 'ei':
+            return self.model.criterion.ei(
+                target_logits.squeeze(1),
+                maximize=True,
+                best_f=y_train.max(),
+            )
+        else:
+            return self.model.criterion.pi(
+                target_logits.squeeze(1),
+                maximize=True,
+                best_f=y_train.max(),
+            )
 
 
     def my_warmstart_pi(
