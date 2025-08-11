@@ -4,6 +4,7 @@ policies=( "PFNs4BO-EI" "pPFNs4BO-EI-IW" "pPFNs4BO-pca" "pPFNs4BO-pca-ei" ) #"PF
 
 search_space_ids_length=${#search_space_ids[@]}
 policies_length=${#policies[@]}
+evaluations=100
 
 seed="all" # Default
 
@@ -34,7 +35,7 @@ for ((i=0; i<search_space_ids_length; i++)); do
         # fi
         partition="2080-galvani"
 
-        output=$(eval sbatch --partition=$partition --error=$error_path --output=$output_path --exclude=galvani-cn119 runoncluster.sh $search_space_id $policy $seed "results/hpob" )
+        output=$(eval sbatch --partition=$partition --error=$error_path --output=$output_path --exclude=galvani-cn119 runoncluster.sh $search_space_id $policy $seed "results/hpob" $evaluations)
         if [[ $output == *"Submitted batch job"* ]]; then
             echo $output
             echo "Succesfully"
