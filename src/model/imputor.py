@@ -14,7 +14,7 @@ class Imputer:
         imputed_logits = self.model(
             (
                 torch.cat([x_train, x_test], dim=0),
-                torch.cat([y_train, ], dim=0)
+                y_train
             ),
             single_eval_pos=x_train.shape[0],
             # src_key_padding_mask=related_context.padding_mask

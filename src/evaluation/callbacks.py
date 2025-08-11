@@ -4,6 +4,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import torch
+from plotly.subplots import make_subplots
+from plotly.offline import plot
+
+import plotly.graph_objects as go
 
 
 class AbstractCallback(abc.ABC):
@@ -11,11 +15,12 @@ class AbstractCallback(abc.ABC):
     DEBUG = False
     STOP_AT = -1
 
-    def __init__(self, model, error_model, related_context, logger, device, **kwargs):
+    def __init__(self, model, error_model, counterfit, related_context, logger, device, **kwargs):
         self.logger = logger
         self.device = device
         self.model = model
         self.error_model = error_model
+        self.counterfit = counterfit  # 'median' or 'mc'
         self.related_context = related_context
         self.num_related = related_context.x.shape[1]
 
@@ -168,7 +173,7 @@ class Callback1DProjection(AbstractCallback):
         # find the location in y where the inc lives
         inc_y = inc[0]
         inc_x = x_train[(max(y_train) == y_train).view(-1), 0,
-                1:].numpy()  # assuming x_test is
+        1:].numpy()  # assuming x_test is
         # of shape (T, 1, D)
 
         y_hat = self.error_model.criterion.median(
@@ -261,3 +266,236 @@ class Callback1DProjection(AbstractCallback):
 
         # This will open the interactive plot in your default web browser
         plot(fig)
+
+
+class Callback1dProjectionPI(AbstractCallback):
+    __name__ = 'Callback1DProjectionPI'
+    STOP_AT = 20
+
+    def on_trained_ppds(
+            self,
+            target_logits, prior_logits, error_logits, projected_logits, imputed_y, y_error,
+            x_train, y_train, x_test, inc
+    ):
+        self.target_logits = target_logits
+        self.prior_logits = prior_logits
+        self.error_logits = error_logits
+        self.projected_logits = projected_logits
+        self.imputed_y = imputed_y
+        self.y_error = y_error
+        self.x_train = x_train
+        self.y_train = y_train
+        self.x_test = x_test
+        self.inc = inc
+
+    def on_final_weights(self, predictions, weights):
+        self.predictions = predictions
+        self.weights = weights
+
+    def on_acq_end_mixture(self, x_train, y_train, x_test, inc, predictions):
+        if self.step(x_train) == self.STOP_AT:
+            def get_lower_upper_surfaces(model, logits, x1, x2, fig, row, col, grid_size,
+                                         name='', ):
+                lower = model.criterion.icdf(logits, 0.25).numpy().reshape(-1)
+                mean = model.criterion.mean(logits).numpy().reshape(-1)
+                upper = model.criterion.icdf(logits, 0.75).numpy().reshape(-1)
+
+                # Lower quantile
+                fig.add_trace(go.Surface(
+                    x=x1, y=x2, z=lower.reshape(grid_size, grid_size), colorscale='Oranges',
+                    opacity=0.5,
+                    showscale=False, coloraxis=None
+                    # name=f'25th Q {name}'
+                ),
+                    row=row, col=col
+                )
+
+                # Upper quantile
+                fig.add_trace(go.Surface(
+                    x=x1, y=x2, z=upper.reshape(grid_size, grid_size), colorscale='Oranges',
+                    opacity=0.7,  showscale=False, coloraxis=None
+                    #             name=f'75th Q {name}'
+                ),
+                    row=row, col=col
+                )
+
+            # Create subplot figure with 2 rows and 2 columns
+            fig = make_subplots(
+                rows=3, cols=2,
+                subplot_titles=("Target", "final prediction", "Error", "plot4", "Raw Prior",
+                                "Projected Prior",),
+                specs=[[{"type": "surface"}, {"type": "surface"}],
+                       [{"type": "surface"}, {"type": "surface"}],
+                       [{"type": "surface"}, {"type": "surface"}]] , # specify plot types per
+                # subplot
+
+                vertical_spacing=0.03,  # default is ~0.3, smaller makes rows tighter
+                horizontal_spacing=0.03  # default is ~0.2, smaller makes
+            )
+
+            # make a meshgrid for the x_grid
+            grid_size = 50
+            x1 = np.linspace(0, 1, grid_size)
+            x2 = np.linspace(0, 1, grid_size)
+            X1, X2 = np.meshgrid(x1, x2)
+            config_id = torch.tensor((X1 * 999).ravel()).floor()
+            X_grid = torch.vstack([config_id, torch.tensor(X1.ravel()), torch.tensor(X2.ravel())]).T
+            X_grid = X_grid.to(self.device).float().unsqueeze(1)
+
+
+
+            # TARGET MODEL -----------------------------------------------------
+            target_logits = self.model(
+                (
+                    torch.cat([
+                        x_train,
+                        X_grid
+                    ]),
+                    y_train
+                ),
+                single_eval_pos=x_train.shape[0]
+            )
+
+            get_lower_upper_surfaces(self.model, target_logits, X1, X2, fig, row=1, col=1,
+                                     name='target', grid_size=grid_size)
+
+            # add the scatter plot for x_train, y_train
+            fig.add_trace(go.Scatter3d(
+                x=x_train[:, 0, 1].cpu().numpy(),
+                y=x_train[:, 0, 2].cpu().numpy(),
+                z=y_train[:, 0].cpu().numpy(),
+                mode='markers', marker=dict(size=2, color='red'),
+                name='Training Points',
+            ), row=1, col=1)
+
+            # PRIOR MODEL -----------------------------------------------------
+            prior_logits = self.model(
+                (
+                    torch.cat([
+                        self.related_context.x,
+                        X_grid.repeat(1, self.num_related, 1)
+                    ]),
+                    self.related_context.y
+                ),
+                single_eval_pos=self.related_context.x.shape[0]
+            )
+
+            get_lower_upper_surfaces(self.model, prior_logits, X1, X2, fig, row=3, col=1,
+                                     name='prior', grid_size=grid_size)
+
+            # PRIOR DATA ------
+            # add the scatter plot for x_train, y_train
+            fig.add_trace(go.Scatter3d(
+                x=self.related_context.x[:, 0, 1].cpu().numpy(),
+                y=self.related_context.x[:, 0, 2].cpu().numpy(),
+                z=self.related_context.y[:, 0].cpu().numpy(),
+                name='Prior Points',
+                mode='markers', marker=dict(size=2, color='red'),
+
+            ), row=3, col=1)
+
+            # IMPUTED ----
+            fig.add_trace(go.Scatter3d(
+                x=x_train[:, 0, 1].cpu().numpy(),
+                y=x_train[:, 0, 2].cpu().numpy(),
+                z=self.imputed_y[:,0].cpu().numpy(),
+                name='imputed Prior Points',
+                mode='markers', marker=dict(size=2, color='green'),
+
+            ), row=3, col=1)
+
+
+            # ERROR MODEL -----------------------------------------------------
+            y_error = y_train.repeat(1, self.num_related) - self.imputed_y
+
+            error_probs_kernel, kernel_grid, error_logits = self.error_model(
+                x_train=x_train[:,:,1:],
+                x_test=X_grid[:,:,1:],
+                y_error=y_error
+            )
+
+            get_lower_upper_surfaces(self.error_model, error_logits, X1, X2, fig, row=2,
+                                     col=1, name='error', grid_size=grid_size)
+
+            # ERROR DATA ------
+            fig.add_trace(go.Scatter3d(
+                x=x_train[:, 0, 1].cpu().numpy(),
+                y=x_train[:, 0, 2].cpu().numpy(),
+                z=y_error[:,0].cpu().numpy(),
+                name='imputed Prior Points',
+                mode='markers', marker=dict(size=2, color='red'),
+
+            ), row=2, col=1)
+
+
+            # PROJECTED PRIOR MODEL ------------------------------------------
+            projected_prior_logits, _ = self.error_model.convolve_probs_with_error(
+                logits=prior_logits,
+                x_train=x_train,
+                x_test=X_grid,
+                y_error=y_train.repeat(1, self.num_related) - self.imputed_y,
+                reverse=False,
+            )
+
+            get_lower_upper_surfaces(self.model, projected_prior_logits, X1, X2, fig, row=3, col=2,
+                                     grid_size=grid_size,
+                                     name='projected_prior')
+
+            # add the scatter plot for x_train, y_train
+            fig.add_trace(go.Scatter3d(
+                x=self.related_context.x[:, 0, 1].cpu().numpy(),
+                y=self.related_context.x[:, 0, 2].cpu().numpy(),
+                z=self.related_context.y[:, 0].cpu().numpy(),
+                name='Prior Points',
+                mode='markers', marker=dict(size=2, color='red'),
+            ), row=3, col=2)
+
+            # FINAL PREDICTIONS ------------------------------------------
+
+            mixed_logits = (self.predictions * self.weights.unsqueeze(-1)).sum(dim=1)
+            median_predictions = self.model.criterion.median(mixed_logits)
+
+            fig.add_trace(go.Scatter3d(
+                x=x_test[:, 0, 1].cpu().numpy(),
+                y=x_test[:, 0, 2].cpu().numpy(),
+                z=median_predictions.cpu().numpy(),
+                name='Final predictions',
+                mode='markers', marker=dict(size=2, color='blue'),
+            ), row=1, col=1)
+
+            fig.add_trace(go.Scatter3d(
+                x=x_test[:, 0, 1].cpu().numpy(),
+                y=x_test[:, 0, 2].cpu().numpy(),
+                z=median_predictions.cpu().numpy(),
+                name='Final predictions',
+                mode='markers', marker=dict(size=2, color='blue'),
+            ), row=1, col=2)
+
+            predictions = torch.cat([target_logits, projected_prior_logits], dim=1)
+            predictions = (predictions * self.weights.unsqueeze(-1)).sum(dim=1)
+            get_lower_upper_surfaces(self.model, predictions, X1, X2, fig, row=1, col=2,
+                                     name='final_predictions', grid_size=grid_size)
+
+            # TARGET DATA ------
+            fig.add_trace(go.Scatter3d(
+                x=x_train[:, 0, 1].cpu().numpy(),
+                y=x_train[:, 0, 2].cpu().numpy(),
+                z=y_train[:, 0].cpu().numpy(),
+                mode='markers', marker=dict(size=2, color='red'),
+                name='Training Points',
+            ), row=1, col=2)
+
+            # PLOT SETTINGS -----------------------------------------------------
+            axis = dict(xaxis_title='fidelity', yaxis_title='lambda', zaxis_title='f(x,lambda)')
+            fig.update_layout(
+                height=2000, width=2000, title_text="Plotly Subplots Example",
+
+                **{f'scene{i}': axis for i in range(1, 6)}
+
+            )
+
+            # fig.show()
+            plot(fig)
+
+            # todo counterfactuals
+            # counterfactuals = self.error_model.dirac

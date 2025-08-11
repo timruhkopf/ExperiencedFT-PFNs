@@ -5,7 +5,7 @@ from pathlib import Path
 import torch
 import torch.nn.functional as F
 
-from evaluation.callbacks import CallbackErrorModelRMSE
+from evaluation.callbacks import CallbackErrorModelRMSE, Callback1dProjectionPI
 from ifbo import BarDistribution
 from ifbo.transformer import TransformerModel
 from model.calc_reliability import calc_target_cv_nll
@@ -30,11 +30,12 @@ class PPFN(AbstractModel):
 
     def __init__(self, model, criterion: BarDistribution, logger,
                  related_task_data, min_context_size, imputation_mode='median',
-                 incumbent_calculation='imputation-only', flippable_related=False,
+                 incumbent_calculation='imputation-only', flippable_related=True,
                  model_avg='bma',
                  device=None, verbose=True,
                  callbacks=[
-                     CallbackErrorModelRMSE,
+                     Callback1dProjectionPI,
+                     # CallbackErrorModelRMSE,
                      # CallbackAnytime
                      # CallbackImputationDiff
                      # Callback1DProjection,
@@ -118,7 +119,8 @@ class PPFN(AbstractModel):
                 callback(
                     self.model,
                     self.error_model,
-                    self.related_task_data,
+                    self.updated_prior_validation,
+                    self.related_context,
                     self.logger,
                     self.device,
                     **self.kwargs
@@ -377,12 +379,15 @@ class PPFN(AbstractModel):
 
         if self.model_avg == 'ppd_mixture_eqw':
             query_size = x_test.shape[0]
-            logits = torch.concat([
+            predictions = torch.concat([
                 target_logits[:query_size],
                 imputation_augmented_prior_logits[:query_size]
             ], dim=1)
-            prediction = logits.mean(dim=1)
-            return prediction
+
+            weights = torch.ones(self.num_related) / self.num_related
+            for callback in self.callbacks:
+                callback.on_final_weights(predictions, weights)
+
 
         # (Project prior logits into target task) --------------------------
         # Here we take the predicted prior logits of the x_test and need to adjust them
@@ -423,7 +428,11 @@ class PPFN(AbstractModel):
         if self.model_avg == 'project_eqw':  # equally weighted average
             # here we simply average the predictions over the projected prior with convolved
             # related tasks
-            return predictions.mean(dim=1)
+            weights = torch.ones(self.num_related + 1) / (self.num_related + 1)
+            for callback in self.callbacks:
+                callback.on_final_weights(predictions, weights)
+            return (predictions * weights.unsqueeze(-1)).sum(dim=1)
+
 
         prior_weights, prior_evidence = self.updated_prior_validation(
             x_train=x_train,
@@ -482,6 +491,10 @@ class PPFN(AbstractModel):
                 plt.grid(True)
                 plt.show()
 
+            weights = torch.cat([torch.tensor([alpha]), (1 - alpha)*prior_weights], dim=0)
+            for callback in self.callbacks:
+                callback.on_final_weights(predictions, weights)
+
             return alpha * predictions[:, 0] + (1 - alpha) * prior_prediction
 
         if self.model_avg == 'bma-cv-target':
@@ -516,7 +529,6 @@ class PPFN(AbstractModel):
                 plt.grid(True)
                 plt.show()
 
-            return (predictions * weights.unsqueeze(-1)).sum(dim=1)
 
         if self.model_avg == 'bma':
             raise NotImplementedError(
@@ -553,8 +565,6 @@ class PPFN(AbstractModel):
                     for i, w in enumerate(weights)}},
             )
 
-            return (predictions * weights.unsqueeze(-1)).sum(dim=1)
-
         if self.model_avg == 'past_suprise_updated_error':
             # we take the best possible prediction, by retrospectively updating the predictions
             # this will improve the prior's projections and we will get a better sense
@@ -562,6 +572,11 @@ class PPFN(AbstractModel):
             # access to the future and in turn will adversely bias
             # against the target task predictions, because it won't be updated
             pass
+
+        for callback in self.callbacks:
+            callback.on_final_weights(predictions, weights)
+
+        return (predictions * weights.unsqueeze(-1)).sum(dim=1)
 
 
 def constant_exponential(n_target, lambda_=0.001, constant=0):

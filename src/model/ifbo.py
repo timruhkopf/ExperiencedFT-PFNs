@@ -44,7 +44,7 @@ from neps.search_spaces.search_space import (
 import logging
 
 from src.model.ppfn import PPFN
-from src.model.mixture_ppd import PFNPPDMixture
+from src.model.deprec.mixture_ppd import PFNPPDMixture
 from src.model.pfnimputation import PFNPriorImputation
 
 
@@ -169,8 +169,13 @@ class MyPFN_SURROGATE(PFN_SURROGATE):
         self.input_size = parameter_count + 1
         self.continuous_params_size = self.input_size - len(self.categories)
 
-        self.min_fidelity = pipeline_space.fidelity.lower
-        self.max_fidelity = pipeline_space.fidelity.upper
+        if hasattr(pipeline_space, 'fidelity'):
+            self.min_fidelity = pipeline_space.fidelity.lower
+            self.max_fidelity = pipeline_space.fidelity.upper
+
+        else:
+            self.min_fidelity = pipeline_space.epoch.lower
+            self.max_fidelity = pipeline_space.epoch.upper
 
 
     def get_pi(self, x_test, inc, x_train=None, y_train=None):
@@ -374,9 +379,14 @@ class IFBO(MFEIBO):
         self.raw_tabular_space = None  # placeholder, can be populated using pre_load_hook
         self._budget_list: list[int | float] = []
         self.step_size: int | float = step_size
-        self.min_budget = self.pipeline_space.fidelity.lower
-        # TODO: generalize this to work with real data (not benchmarks)
-        self.max_budget = self.pipeline_space.fidelity.upper
+        if hasattr(pipeline_space, "fidelity"):
+            self.min_budget = self.pipeline_space.fidelity.lower
+            # TODO: generalize this to work with real data (not benchmarks)
+            self.max_budget = self.pipeline_space.fidelity.upper
+
+        else:
+            self.min_budget = self.pipeline_space.epoch.lower
+            self.max_budget = self.pipeline_space.epoch.upper
 
         self._initial_design_fraction = initial_design_fraction
         self._initial_design_size, self._initial_design_budget = self._set_initial_design(
