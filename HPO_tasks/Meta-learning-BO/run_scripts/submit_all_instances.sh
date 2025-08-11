@@ -1,6 +1,6 @@
 #!/bin/bash
 search_space_ids=("4796" "5527" "5636" "5859" "5860" "5891" "5906" "5965" "5970" "5971" "6766" "6767" "6794" "7607" "7609" "5889") 
-policies=( "PFNs4BO-EI" "pPFNs4BO-EI-IW" "pPFNs4BO-pca" "pPFNs4BO-pca-ei" ) #"PFNs4BO-PI" "PFNs4BO-EI") #("PFNs4BO" "mPFNs4BO") #  "MALIBO")
+policies=("PFNs4BO-EI-IW" "pPFNs4BO-pca" "pPFNs4BO-pca-ei" ) #"PFNs4BO-PI" "PFNs4BO-EI") #("PFNs4BO" "mPFNs4BO") #  "MALIBO")
 
 search_space_ids_length=${#search_space_ids[@]}
 policies_length=${#policies[@]}
@@ -14,12 +14,12 @@ find_idle_partition() {
 }
 
 # Loop through the array elements
-for ((i=0; i<search_space_ids_length; i++)); do
-    for ((j=0; j<policies_length; j++)); do
+for ((j=0; j<policies_length; j++)); do
+    for ((i=0; i<search_space_ids_length; i++)); do
         # Get the current dataset and policy
         search_space_id="${search_space_ids[i]}"
         policy="${policies[j]}"
-	echo "Running dataset: $search_space_id, policy: $policy"
+	    echo "Running dataset: $search_space_id, policy: $policy"
         # Define the output and error file paths based on input parameters
         logpath="../results/logs/${search_space_id}/"
         mkdir -p "$logpath"

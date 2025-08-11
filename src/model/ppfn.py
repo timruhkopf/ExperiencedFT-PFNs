@@ -272,7 +272,7 @@ class PPFN(AbstractModel):
         x_train_combined = torch.cat([ x_train, imputed_train.unsqueeze(1) ], dim=-1)
         x_test_combined = torch.cat([ x_test, imputed_test.unsqueeze(1) ], dim=-1)
 
-        if x_train_combined.shape[1] > max_meta_feature_size:
+        if x_train_combined.shape[-1] > max_meta_feature_size:
             x_train_np = x_train_combined.cpu().numpy()
             x_test_np = x_test_combined.cpu().numpy()
 
