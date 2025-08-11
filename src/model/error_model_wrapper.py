@@ -187,12 +187,13 @@ class WrappedErrorModel:
                 # change the boundaries on dirac_y_error_logits that we try to paste on
                 if lower[b] < 0:
                     lower[b] = 0
-                    kernel_lower[b] = math.abs(lower[b])
+                    kernel_lower[b] = math.fabs(lower[b])
                     warn += 1
                 if upper[b] >= len(self.target_criterion.borders):
+                    excess = upper[b] - (len(self.target_criterion.borders) - 1)
                     upper[b] = len(self.target_criterion.borders) - 1
-                    kernel_upper[b] = math.abs(len(kernel_grid) - len(
-                        self.target_criterion.borders))
+                    kernel_upper[b] = kernel_upper[b] - excess
+
                     warn += 1
 
                 # paste the error distribution into the target model
@@ -315,7 +316,7 @@ def convolve_probs_with_error(probs, probs_bins, kernel, kernel_bins, plot=False
     p_orig_t = probs.view(batch_size, 1, length)
 
     # Flip kernels for convolution
-    p_shift_flipped = torch.flip(kernel, dims=[1]).view(batch_size, 1, kernel_size)
+    p_shift_flipped = torch.flip(kernel, dims=[1]).view(kernel.shape[0], 1, kernel_size)
 
     # Now, merge batch into channels dimension by transposing:
     # Input: (batch_size, 1, length) -> (1, batch_size, length)
