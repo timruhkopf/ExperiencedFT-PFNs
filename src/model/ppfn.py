@@ -12,6 +12,7 @@ import pfns4bo
 
 from src.model.utils import general_power_transform
 from sklearn.decomposition import PCA
+import numpy as np
 
 log = logging.getLogger(__name__)
 
@@ -70,6 +71,8 @@ class PPFN(AbstractModel):
         self.t = 1
         self.use_my_mixture_strategy= True
         self.target_logits = None 
+
+        self.pca = None
 
         assert self.acquisition in ['pi', 'ei', 'ucb'], \
             f'Unknown acquisition function: {self.acquisition}. '
@@ -272,13 +275,15 @@ class PPFN(AbstractModel):
         x_train_combined = torch.cat([ x_train, imputed_train.unsqueeze(1) ], dim=-1)
         x_test_combined = torch.cat([ x_test, imputed_test.unsqueeze(1) ], dim=-1)
 
+
         if x_train_combined.shape[-1] > max_meta_feature_size:
             x_train_np = x_train_combined.squeeze(1).cpu().numpy()
             x_test_np = x_test_combined.squeeze(1).cpu().numpy()
 
-            pca = PCA(n_components=max_meta_feature_size)
-            x_train_pca = pca.fit_transform(x_train_np)
-            x_test_pca = pca.transform(x_test_np)
+            self.pca = PCA(n_components=max_meta_feature_size)
+            self.pca.fit(np.concatenate([x_train_np, x_test_np], axis=0))
+            x_train_pca = self.pca.transform(x_train_np)
+            x_test_pca = self.pca.transform(x_test_np)
 
             x_train_combined = torch.tensor(x_train_pca, dtype=x_train.dtype, device=x_train.device).unsqueeze(1)
             x_test_combined = torch.tensor(x_test_pca, dtype=x_test.dtype, device=x_test.device).unsqueeze(1)
