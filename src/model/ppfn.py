@@ -273,15 +273,15 @@ class PPFN(AbstractModel):
         x_test_combined = torch.cat([ x_test, imputed_test.unsqueeze(1) ], dim=-1)
 
         if x_train_combined.shape[-1] > max_meta_feature_size:
-            x_train_np = x_train_combined.cpu().numpy()
-            x_test_np = x_test_combined.cpu().numpy()
+            x_train_np = x_train_combined.squeeze(1).cpu().numpy()
+            x_test_np = x_test_combined.squeeze(1).cpu().numpy()
 
             pca = PCA(n_components=max_meta_feature_size)
             x_train_pca = pca.fit_transform(x_train_np)
             x_test_pca = pca.transform(x_test_np)
 
-            x_train_combined = torch.tensor(x_train_pca, dtype=x_train.dtype, device=x_train.device)
-            x_test_combined = torch.tensor(x_test_pca, dtype=x_test.dtype, device=x_test.device)
+            x_train_combined = torch.tensor(x_train_pca, dtype=x_train.dtype, device=x_train.device).unsqueeze(1)
+            x_test_combined = torch.tensor(x_test_pca, dtype=x_test.dtype, device=x_test.device).unsqueeze(1)
 
 
         target_logits = self.model(
