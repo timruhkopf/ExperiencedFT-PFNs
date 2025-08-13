@@ -394,19 +394,34 @@ class PPFN(AbstractModel):
         # according to the error logits. -- which tell us how to shift the distribution
         # (median) and given the shift, how to adjust the probability mass.
         y_error = y_train.repeat(1, self.num_related) - imputed_y
-        projected_logits, error_logits = self.error_model.convolve_probs_with_error(
+        projected_logits, error_logits, convolved_criterion = (
+            self.error_model.convolve_probs_with_error(
             logits=imputation_augmented_prior_logits,
+            logits_borders= self.model.criterion.borders,
             x_train=x_train[:, :, 1:].repeat(1, self.num_related, 1),
             x_test=x_test[:, :, 1:].repeat(1, self.num_related, 1),
             y_error=y_error
-        )
+        ))
+
 
         for callback in self.callbacks:
             callback.on_trained_ppds(
                 target_logits, imputation_augmented_prior_logits, error_logits, projected_logits,
+                convolved_criterion,
                 imputed_y, y_error,
                 x_train, y_train, x_test, inc
             )
+
+        # we will hard crop the projected logits (and convolved_criterion.borders)
+        # to the interval of [0,1] to match the target_logits borders. we do not account for
+        # probability mass ouside of the interval!
+        lower = torch.where(convolved_criterion.borders[convolved_criterion.borders >= 0].min(
+        )==convolved_criterion.borders)[0].item()
+        upper = torch.where(convolved_criterion.borders[convolved_criterion.borders <= 1].max(
+        )==convolved_criterion.borders)[0].item()
+
+        projected_logits = projected_logits[:, :, lower:upper + 1]
+
 
         # now the convolved logits describe:
         # x_test, related_context.x, (and if debug=True x_train) in the target task space

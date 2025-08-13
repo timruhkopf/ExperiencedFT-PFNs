@@ -313,16 +313,16 @@ class WrappedErrorModel:
             device=self.device
         )
 
-        plot_convs_facet(
-            probs.view(-1, D)[:4].detach().numpy(),
-            error_probs_kernel.view(-1, D2)[:4].detach().numpy(),
-            C_batch[:4].detach().numpy(),
-            edges_A=logits_borders.cpu().numpy(),
-            edges_B=kernel_grid.cpu().numpy(),
-            centers_conv= centers_conv,
-            info=info,
-            xlim=(-1, 1),
-        )
+        # plot_convs_facet(
+        #     probs.view(-1, D)[:4].detach().numpy(),
+        #     error_probs_kernel.view(-1, D2)[:4].detach().numpy(),
+        #     C_batch[:4].detach().numpy(),
+        #     edges_A=logits_borders.cpu().numpy(),
+        #     edges_B=kernel_grid.cpu().numpy(),
+        #     centers_conv= centers_conv,
+        #     info=info,
+        #     xlim=(-1, 1),
+        # )
 
         convolved_logits = torch.log(C_batch.clamp(min=1e-12)).reshape(T, B, centers_conv.shape[0])  # convert back to logits
         centers_conv = torch.tensor(centers_conv, dtype=torch.float32).to(self.device)

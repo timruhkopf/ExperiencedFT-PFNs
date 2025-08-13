@@ -38,7 +38,8 @@ class AbstractCallback(abc.ABC):
 
     def on_trained_ppds(
             self,
-            target_logits, prior_logits, error_logits, imputed_y, y_error,
+            target_logits, prior_logits, error_logits, convolved_logits, convolved_criterion,
+            imputed_y, y_error,
             x_train, y_train, x_test, inc
     ):
         pass
@@ -87,7 +88,8 @@ class CallbackImputationDiff(AbstractCallback):
 
     def on_trained_ppds(
             self,
-            target_logits, prior_logits, error_logits, imputed_y, y_error,
+            target_logits, prior_logits, error_logits, convolved_logits, convolved_criterion,
+            imputed_y, y_error,
             x_train, y_train, x_test, inc
     ):
         # y_error = rescaled imputation diff!
@@ -132,7 +134,8 @@ class CallbackErrorModelRMSE(AbstractCallback):
 
     def on_trained_ppds(
             self,
-            target_logits, prior_logits, error_logits, projected_logits, imputed_y, y_error,
+            target_logits, prior_logits, error_logits, projected_logits, convolved_criterion,
+            imputed_y, y_error,
             x_train, y_train, x_test, inc
     ):
         imputation_diffs = y_train.repeat(1, self.num_related) - imputed_y
@@ -164,7 +167,8 @@ class Callback1DProjection(AbstractCallback):
 
     def on_trained_ppds(
             self,
-            target_logits, prior_logits, error_logits, imputed_y, y_error,
+            target_logits, prior_logits, error_logits, convolved_logits, convolved_criterion,
+        imputed_y,_error,
             x_train, y_train, x_test, inc
     ):
         import plotly.graph_objs as go
@@ -208,7 +212,7 @@ class Callback1DProjection(AbstractCallback):
         trace_imputed_y = go.Scatter3d(
             x=x_np[:, 0], y=x_np[:, 1], z=imputed_y_np,
             mode='markers',
-            marker=dict(color='green', size=5, symbol='diamond'),
+            marker=dict(color='cyan', size=5, symbol='diamond'),
             # Use a supported symbol here
             name='imputed_y'
         )
@@ -274,7 +278,8 @@ class Callback1dProjectionPI(AbstractCallback):
 
     def on_trained_ppds(
             self,
-            target_logits, prior_logits, error_logits, projected_logits, imputed_y, y_error,
+            target_logits, prior_logits, error_logits, projected_logits, convolved_criterion,
+            imputed_y, y_error,
             x_train, y_train, x_test, inc
     ):
         self.target_logits = target_logits
@@ -294,11 +299,11 @@ class Callback1dProjectionPI(AbstractCallback):
 
     def on_acq_end_mixture(self, x_train, y_train, x_test, inc, predictions):
         if self.step(x_train) == self.STOP_AT:
-            def get_lower_upper_surfaces(model, logits, x1, x2, fig, row, col, grid_size,
+            def get_lower_upper_surfaces(criterion, logits, x1, x2, fig, row, col, grid_size,
                                          name='', ):
-                lower = model.criterion.icdf(logits, 0.25).numpy().reshape(-1)
-                mean = model.criterion.mean(logits).numpy().reshape(-1)
-                upper = model.criterion.icdf(logits, 0.75).numpy().reshape(-1)
+                lower = criterion.icdf(logits, 0.25).numpy().reshape(-1)
+                mean = criterion.mean(logits).numpy().reshape(-1)
+                upper = criterion.icdf(logits, 0.75).numpy().reshape(-1)
 
                 # Lower quantile
                 fig.add_trace(go.Surface(
@@ -354,7 +359,7 @@ class Callback1dProjectionPI(AbstractCallback):
                 single_eval_pos=x_train.shape[0]
             )
 
-            get_lower_upper_surfaces(self.model, target_logits, X1, X2, fig, row=1, col=1,
+            get_lower_upper_surfaces(self.model.criterion, target_logits, X1, X2, fig, row=1, col=1,
                                      name='target', grid_size=grid_size)
 
             # TARGET DATA ------
@@ -363,7 +368,7 @@ class Callback1dProjectionPI(AbstractCallback):
                 x=x_train[:, 0, 1].cpu().numpy(),
                 y=x_train[:, 0, 2].cpu().numpy(),
                 z=y_train[:, 0].cpu().numpy(),
-                mode='markers', marker=dict(size=2, color='green'),
+                mode='markers', marker=dict(size=2, color='cyan'),
                 name='Training Points',
             ), row=1, col=1)
 
@@ -379,7 +384,7 @@ class Callback1dProjectionPI(AbstractCallback):
                 single_eval_pos=self.related_context.x.shape[0]
             )
 
-            get_lower_upper_surfaces(self.model, prior_logits, X1, X2, fig, row=3, col=1,
+            get_lower_upper_surfaces(self.model.criterion, prior_logits, X1, X2, fig, row=3, col=1,
                                      name='prior', grid_size=grid_size)
 
             # PRIOR DATA ------
@@ -409,7 +414,7 @@ class Callback1dProjectionPI(AbstractCallback):
                 x=x_train[:, 0, 1].cpu().numpy(),
                 y=x_train[:, 0, 2].cpu().numpy(),
                 z=y_train[:, 0].cpu().numpy(),
-                mode='markers', marker=dict(size=2, color='green'),
+                mode='markers', marker=dict(size=2, color='cyan'),
                 name='Training Points',
             ), row=3, col=1)
 
@@ -424,7 +429,7 @@ class Callback1dProjectionPI(AbstractCallback):
                 y_error=y_error
             )
 
-            get_lower_upper_surfaces(self.error_model, error_logits, X1, X2, fig, row=2,
+            get_lower_upper_surfaces(self.error_model.criterion, error_logits, X1, X2, fig, row=2,
                                      col=1, name='error', grid_size=grid_size)
 
             # ERROR DATA ------
@@ -438,16 +443,18 @@ class Callback1dProjectionPI(AbstractCallback):
             ), row=2, col=1)
 
             # PROJECTED PRIOR MODEL ------------------------------------------
-            projected_prior_logits_grid, _ = self.error_model.convolve_probs_with_error(
+            projected_prior_logits_grid, _, conv_criterion = (
+                self.error_model.convolve_probs_with_error(
                 logits=prior_logits,
+                logits_borders=self.model.criterion.borders,
                 x_train=x_train[:, :, 1:],  # TODO check this in the original code
                 x_test=X_grid[:, :, 1:],  # TODO check this in the original code
                 y_error=-y_error,
                 reverse=False,
-            )
+            ))
 
             get_lower_upper_surfaces(
-                self.model, projected_prior_logits_grid,
+                conv_criterion, projected_prior_logits_grid,
                 X1, X2, fig,
                 row=3, col=2,
                 grid_size=grid_size,
@@ -475,15 +482,16 @@ class Callback1dProjectionPI(AbstractCallback):
                 single_eval_pos=self.related_context.x.shape[0]
             )
 
-            projected_prior_logits, _ = self.error_model.convolve_probs_with_error(
+            projected_prior_logits, _, conv_criterion = self.error_model.convolve_probs_with_error(
                 logits=prior_logits,
+                logits_borders=self.model.criterion.borders,
                 x_train=x_train[:, :, 1:],
                 x_test=self.related_context.x[:, :, 1:],  # TODO check this in the original code
                 y_error=-y_error,
                 reverse=False,
             )
 
-            projected_prior_points = self.model.criterion.median(projected_prior_logits)
+            projected_prior_points = conv_criterion.median(projected_prior_logits)
 
             fig.add_trace(go.Scatter3d(
                 x=self.related_context.x[:, 0, 1].cpu().numpy(),
@@ -494,22 +502,22 @@ class Callback1dProjectionPI(AbstractCallback):
             ), row=3, col=2)
 
             # DIRAC PROJECTED PRIOR DATA ------
-            dirac_prior_logits, _ = self.error_model.dirac_forward(
-                x_train=x_train[:, :, 1:].repeat(1, self.num_related, 1),
-                dirac_x=self.related_context.x[:, :, 1:],
-                dirac_y=self.related_context.y,
-                y_error=-y_error,
-                reverse=False
-            )
-
-            dirac_prior_points = self.model.criterion.median(dirac_prior_logits)
-            fig.add_trace(go.Scatter3d(
-                x=self.related_context.x[:, 0, 1].cpu().numpy(),
-                y=self.related_context.x[:, 0, 2].cpu().numpy(),
-                z=dirac_prior_points[:, 0].cpu().numpy(),
-                name='Dirac Prior Points',
-                mode='markers', marker=dict(size=2, color='orange'),
-            ), row=3, col=2)
+            # dirac_prior_logits, _ = self.error_model.dirac_forward(
+            #     x_train=x_train[:, :, 1:].repeat(1, self.num_related, 1),
+            #     dirac_x=self.related_context.x[:, :, 1:],
+            #     dirac_y=self.related_context.y,
+            #     y_error=-y_error,
+            #     reverse=False
+            # )
+            #
+            # dirac_prior_points = self.model.criterion.median(dirac_prior_logits)
+            # fig.add_trace(go.Scatter3d(
+            #     x=self.related_context.x[:, 0, 1].cpu().numpy(),
+            #     y=self.related_context.x[:, 0, 2].cpu().numpy(),
+            #     z=dirac_prior_points[:, 0].cpu().numpy(),
+            #     name='Dirac Prior Points',
+            #     mode='markers', marker=dict(size=2, color='orange'),
+            # ), row=3, col=2)
 
             # TARGET DATA ------
             # add the scatter plot for x_train, y_train
@@ -517,7 +525,7 @@ class Callback1dProjectionPI(AbstractCallback):
                 x=x_train[:, 0, 1].cpu().numpy(),
                 y=x_train[:, 0, 2].cpu().numpy(),
                 z=y_train[:, 0].cpu().numpy(),
-                mode='markers', marker=dict(size=2, color='green'),
+                mode='markers', marker=dict(size=2, color='cyan'),
                 name='Training Points',
             ), row=3, col=2)
 
@@ -544,9 +552,16 @@ class Callback1dProjectionPI(AbstractCallback):
                 mode='markers', marker=dict(size=2, color='blue'),
             ), row=1, col=2)
 
-            predictions = torch.cat([target_logits, projected_prior_logits_grid], dim=1)
+            projected_logits_grid = projected_prior_logits_grid
+            lower = torch.where(conv_criterion.borders[conv_criterion.borders >= 0].min(
+            ) == conv_criterion.borders)[0].item()
+            upper = torch.where(conv_criterion.borders[conv_criterion.borders <= 1].max(
+            ) == conv_criterion.borders)[0].item()
+            projected_logits_grid = projected_logits_grid[:, :, lower:upper + 1]
+
+            predictions = torch.cat([target_logits, projected_logits_grid], dim=1)
             predictions = (predictions * self.weights.unsqueeze(-1)).sum(dim=1)
-            get_lower_upper_surfaces(self.model, predictions, X1, X2, fig, row=1, col=2,
+            get_lower_upper_surfaces(self.model.criterion, predictions, X1, X2, fig, row=1, col=2,
                                      name='final_predictions', grid_size=grid_size)
 
             # TARGET DATA ------
@@ -554,7 +569,7 @@ class Callback1dProjectionPI(AbstractCallback):
                 x=x_train[:, 0, 1].cpu().numpy(),
                 y=x_train[:, 0, 2].cpu().numpy(),
                 z=y_train[:, 0].cpu().numpy(),
-                mode='markers', marker=dict(size=2, color='green'),
+                mode='markers', marker=dict(size=2, color='cyan'),
                 name='Training Points',
             ), row=1, col=2)
 
