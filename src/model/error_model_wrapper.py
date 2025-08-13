@@ -12,7 +12,6 @@ from pfns4bo.bar_distribution import BarDistribution
 
 import logging
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -23,7 +22,6 @@ class WrappedErrorModel:
         self.error_model.eval()
         self.device = device
         self.error_model.to(device)
-
 
         self.error_borders = deepcopy(self.error_model.criterion.borders)
         self.target_borders = target_criterion.borders
@@ -38,30 +36,33 @@ class WrappedErrorModel:
         else:
             setattr(self.error_model, name, value)
 
-    def __call__(self, x_train, y_error, x_test, padding=None):
+    def __call__(self, x_train, y_error, x_test, padding=None, std_fwd=False):
         # Here we exaggerate the difference to meet the high resolution range [-2.5, 2.5]
         # of the model -- we will need to undo this later to communicate the
         # result distribution in the target binning for convolution.
         # now we determine the factor by whcih we need to scale y_error, such that
         # we do not exceed the error model's resolution range
-        self.FACTOR = 2.5 / max(y_error.abs().max(), 1e-6)  # avoid division by zero
-        y_error = self.FACTOR * y_error
 
-        # forward of the model
+        original_range = min(y_error), max(y_error)
+
+        # 1) Fit the y->z scaling for THIS batch (or cache from train to avoid leakage)
+        if std_fwd:
+            M = y_error.abs().max().clamp_min(1e-6)  # raw-space symmetric radius
+            self.alpha = 2.5 / M  # y -> z scale
+
+            # 2) Push targets & borders into model space
+            z_error = self.alpha * y_error  # z in [-2.5, 2.5]
+            self.error_model.criterion.borders = self.error_borders / self.alpha  # push-forward once
+            self.error_model.criterion.bucket_widths = self.error_model.criterion.borders[1:] - \
+                                                       self.error_model.criterion.borders[:-1]
+
+            y_error = z_error
+
+        # 3) Forward
         error_logits = self.error_model(
-            (
-                torch.cat([x_train, x_test], dim=0),
-                y_error
-            ),
+            (torch.cat([x_train, x_test], dim=0), y_error),
             single_eval_pos=x_train.shape[0],
-            # fixme: this model is not capable of accepting padding masks yet!
-            # src_key_padding_mask=torch.cat([
-            #     padding_mask,
-            #     torch.zeros(self.num_related, x_train.shape[0], dtype=torch.bool).to(self.device)
-            # ], dim=1)
         )
-
-        self.error_model.criterion.borders = self.error_borders / self.FACTOR
 
         # # scaling here affects the size of the kernel and the cost of the conv.
         # left = min(self.error_model.criterion.icdf(error_logits[:, 0, :], 0.01))
@@ -72,28 +73,52 @@ class WrappedErrorModel:
         # with those of the kernel_grid.
         # Later, we will convolve the error model's probabilities with the
         # kernel_grid.
-        left = min(self.error_model.criterion.borders)
-        right = max(self.error_model.criterion.borders)
-        #
-        step = self.target_borders[1] - self.target_borders[0]
-        idx = int((torch.round(right, decimals=3) - torch.round(left, decimals=3)) / step) + 1
-        rounded_left = torch.round(left, decimals=3).to(self.device)
-        kernel_grid = torch.round(self.target_borders[:idx] + rounded_left, decimals=3).to(
-            self.device)
+        left = self.error_model.criterion.borders[0]
+        right = self.error_model.criterion.borders[-1]
 
-        overlap_matrix = build_overlap_matrix(
+        step = self.target_borders[1] - self.target_borders[0]
+        rounded_left = torch.round(left, decimals=3).to(self.device)
+        kernel_grid = torch.arange(rounded_left, right + step, step).to(self.device)
+        # else:
+        #     # map onto 0.1
+        #     # 4) define the target borders we want to use for convolution
+        #     step = self.target_borders[1] - self.target_borders[0]
+        #     kernel_grid = torch.arange(1 + step.item(), step.item())
+
+        def build_coverage_matrix(E1, E2):
+            """
+            E1: 1D torch tensor of sorted bin edges for the first binning (len n1+1)
+            E2: 1D torch tensor of sorted bin edges for the second binning (len n2+1)
+            Returns: (n1 x n2) tensor M where M[i, j] is the fraction of first-bin i
+                     covered by second-bin j.
+            """
+            if torch.any(E1[1:] <= E1[:-1]) or torch.any(E2[1:] <= E2[:-1]):
+                raise ValueError("Edges must be strictly increasing.")
+
+            # Bin starts/ends
+            a1, b1 = E1[:-1], E1[1:]
+            a2, b2 = E2[:-1], E2[1:]
+
+            # Broadcast to compute pairwise overlaps
+            left = torch.maximum(a1[:, None], a2[None, :])
+            right = torch.minimum(b1[:, None], b2[None, :])
+            overlap = torch.clamp(right - left, min=0.0)
+
+            lengths1 = (b1 - a1)[:, None]  # shape: (n1, 1)
+            M = overlap / lengths1
+            return M
+
+        overlap = build_coverage_matrix(
             self.error_model.criterion.borders,
-            kernel_grid
+            kernel_grid,
         )
 
         # now we can redistribute the probabilities of the error model
         # onto the new grid:
         error_probs = torch.softmax(error_logits, dim=-1)
         error_probs = torch.matmul(
-            error_probs, overlap_matrix
+            error_probs, overlap
         )
-
-
 
         error_logits = torch.log(error_probs.clamp(min=1e-12))
 
@@ -283,68 +308,7 @@ class WrappedErrorModel:
 
         return convolved_logits, error_logits
 
-def build_overlap_matrix(orig_bounds, target_bounds):
-    n_ir = orig_bounds.size(0) - 1
-    n_reg = target_bounds.size(0) - 1
-    # Compute all left edges (shape [n_ir, n_reg])
-    left = torch.maximum(
-        orig_bounds[:-1].unsqueeze(1).expand(n_ir, n_reg),  # [n_ir, 1]
-        target_bounds[:-1].unsqueeze(0).expand(n_ir, n_reg)  # [1, n_reg]
-    )
-    # Compute all right edges
-    right = torch.minimum(
-        orig_bounds[1:].unsqueeze(1).expand(n_ir, n_reg),
-        target_bounds[1:].unsqueeze(0).expand(n_ir, n_reg)
-    )
-    # Compute overlap length, clamp negative overlaps to zero
-    overlap_len = torch.clamp(right - left, min=0.0)  # [n_ir, n_reg]
-    # Original bin lengths for normalization
-    orig_lengths = orig_bounds[1:] - orig_bounds[:-1]  # [n_ir]
-    # Normalize overlap lengths by original bin lengths (broadcasted)
-    overlap_matrix = overlap_len / orig_lengths.unsqueeze(1)  # [n_ir, n_reg]
-    return overlap_matrix
 
-# def project_probs_to_common_bins_batch(orig_probs, orig_bounds, target_bounds):
-#     """
-#     Project batched probability distributions defined on orig_bounds to target_bounds
-#     by fractional overlap of bins in PyTorch.
-#
-#     Args:
-#         orig_probs   : Tensor of shape (..., N) -- probabilities over original bins.
-#         orig_bounds  : 1D tensor of length N+1 -- bin edges of original distribution.
-#         target_bounds: 1D tensor of length M+1 -- bin edges of target distribution.
-#
-#     Returns:
-#         projected_probs : Tensor of shape (..., M) -- probabilities projected onto target bins.
-#     """
-#     # orig_probs: (..., N)
-#
-#     n_ir = orig_probs.size(0)
-#     n_reg = target_bounds.size(0) - 1
-#
-#     reg_masses = torch.zeros(n_reg, dtype=orig_probs.dtype, device=orig_probs.device)
-#
-#     i, j = 0, 0
-#     while i < n_ir and j < n_reg:
-#         left = torch.maximum(orig_bounds[i], target_bounds[j])
-#         right = torch.minimum(orig_bounds[i + 1], target_bounds[j + 1])
-#         overlap = right - left
-#
-#         if overlap > 0:
-#             frac = overlap / (orig_bounds[i + 1] - orig_bounds[i])
-#             reg_masses[j] += orig_probs[i] * frac
-#
-#         if orig_bounds[i + 1] < target_bounds[j + 1]:
-#             i += 1
-#         elif orig_bounds[i + 1] > target_bounds[j + 1]:
-#             j += 1
-#         else:
-#             i += 1
-#             j += 1
-#
-#     return reg_masses
-
-    return projected_probs
 
 
 def convolve_probs_with_error(probs, probs_bins, kernel, kernel_bins, plot=False, **kwargs):
@@ -645,11 +609,12 @@ if __name__ == '__main__':
     # new_bound_mean = target_criterion.mean(
     #     bound_projected_error_logits
     # ).detach().numpy().flatten()
-
+    we_model = torch.load(pfns4bo.bnn_model, weights_only=False)
+    we_model.eval()
     werror_model = WrappedErrorModel(
         target_criterion=target_criterion,
         device='cpu',
-        error_model=error_model
+        error_model=we_model
     )
 
     error_probs, kernel_grid, error_logits = werror_model(
@@ -681,30 +646,13 @@ if __name__ == '__main__':
         error_model=wp_model
     )
 
-    wprior_logits = wprior_model(
+    _, _, wprior_logits = wprior_model(
         x_train=x_train, y_error=y_prior, x_test=x_test)
 
 
-    # overlap = build_overlap_matrix(wprior_model.criterion.borders, target_criterion.borders)
-    #
-    # import matplotlib.pyplot as plt
-    # import numpy as np
-    #
-    # plt.pcolormesh(overlap.numpy(), cmap='plasma')
-    # plt.colorbar()
-    # plt.title('Overlap Matrix')
-    # plt.show()
-    #
-    #
-    # wprior_probs = torch.matmul(torch.softmax(prior_logits, dim=-1),overlap )
-    # wprior_logits = torch.log(wprior_probs.clamp(min=1e-12))
-    #
-    # wprior_model.criterion.borders = target_criterion.borders
-    # wprior_model.criterion.bucket_widths = target_criterion.borders[1:] - target_criterion.borders[:-1]
-    #
-    # w_prior_lower = wprior_model.criterion.icdf(prior_logits, 0.05)
-    # w_prior_upper = wprior_model.criterion.icdf(prior_logits, 0.95)
-    # w_prior_mean = wprior_model.criterion.mean(prior_logits)
+    w_prior_lower = wprior_model.criterion.icdf(wprior_logits, 0.05)
+    w_prior_upper = wprior_model.criterion.icdf(wprior_logits, 0.95)
+    w_prior_mean = wprior_model.criterion.mean(wprior_logits)
 
     # convolved_logits, error_logits = werror_model.convolve_probs_with_error(
     #     prior_logits, x_train, y_error, x_test,
@@ -751,8 +699,8 @@ if __name__ == '__main__':
 
     # PRIOR MODEL BOUNDS
     plt.fill_between(x_test_np, prior_lower.detach().cpu().numpy().flatten(),
-                        prior_upper.detach().cpu().numpy().flatten(), alpha=0.2, color="tab:purple",
-                        label="Prior 95% CI")
+                     prior_upper.detach().cpu().numpy().flatten(), alpha=0.2, color="tab:purple",
+                     label="Prior 95% CI")
     plt.plot(x_test_np, prior_mean.detach().cpu().numpy().flatten(), label="Prior Mean",
              color="tab:purple", linewidth=2)
 
@@ -760,12 +708,12 @@ if __name__ == '__main__':
     # sns.rugplot(y=target_criterion.borders.cpu().numpy(), color="tab:red")
 
     # WRAPPED PRIOR MODEL BOUNDS
-    # plt.fill_between(x_test_np, w_prior_lower.detach().cpu().numpy().flatten(),
-    #                     w_prior_upper.detach().cpu().numpy().flatten(), alpha=0.2, color
-    #                     ="tab:orange",
-    #                     label="Wrapped Prior 95% CI")
-    # plt.plot(x_test_np, w_prior_mean.detach().cpu().numpy().flatten(), label="Wrapped Prior Mean",
-    #             color="tab:orange", linewidth=2)
+    plt.fill_between(x_test_np, w_prior_lower.detach().cpu().numpy().flatten(),
+                        w_prior_upper.detach().cpu().numpy().flatten(), alpha=0.2, color
+                        ="tab:orange",
+                        label="Wrapped Prior 95% CI")
+    plt.plot(x_test_np, w_prior_mean.detach().cpu().numpy().flatten(), label="Wrapped Prior Mean",
+                color="tab:orange", linewidth=2)
 
     # plot the hline (0)
     plt.axhline(0, color='black', linestyle='--', linewidth=1)
@@ -778,7 +726,7 @@ if __name__ == '__main__':
     plt.show()
 
     # # plot the prior_model's border widths distribution
-    # plot_buckets( prior_model.criterion.borders / wprior_model.FACTOR )
+    # plot_buckets(prior_model.criterion.borders)
     # plot_buckets( target_criterion.borders)
 
-
+    print()
