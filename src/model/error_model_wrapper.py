@@ -12,6 +12,8 @@ from pfns4bo.bar_distribution import BarDistribution
 
 import logging
 
+from model.conv import batch_convolve_distributions, plot_convs_facet
+
 logger = logging.getLogger(__name__)
 
 
@@ -109,7 +111,7 @@ class WrappedErrorModel:
             return M
 
         overlap = build_coverage_matrix(
-            self.error_model.criterion.borders,
+            self.error_borders,
             kernel_grid,
         )
 
@@ -268,8 +270,13 @@ class WrappedErrorModel:
         # now we can return the logits of the target model
         return y_logits, dirac_y_error_logits
 
-    def convolve_probs_with_error(self, logits, x_train, y_error, x_test, padding=None,
-                                  reverse=False):
+    def convolve_probs_with_error(
+            self,
+            logits, logits_borders,
+            x_train, y_error, x_test,
+            padding=None,
+            reverse=False
+    ):
         """
         Here we want to convolve the probability distribution with the error model.
         This will basically shift and scale the logits of the target model
@@ -286,7 +293,7 @@ class WrappedErrorModel:
             "x_test[:, :, 0] should be in [0, 1]"
 
         error_probs_kernel, kernel_grid, error_logits = self.__call__(
-            x_train, y_error, x_test, padding
+            x_train=x_train, y_error=y_error, x_test=x_test, padding=padding
         )
 
         if reverse:
@@ -295,18 +302,40 @@ class WrappedErrorModel:
 
         probs = F.softmax(logits, dim=-1)
         T, B, D = probs.shape
+        T, B, D2 = error_probs_kernel.shape
 
         # flatten the time and batch dimensions for convolution
-        convolved_logits = convolve_probs_with_error(
-            # probs, probs_bins, kernel, kernel_bins
-            probs=probs.view(-1, D),
-            probs_bins=self.target_borders,
-            kernel=error_probs_kernel.view(-1, error_probs_kernel.shape[-1]),
-            kernel_bins=kernel_grid
+        C_batch, centers_conv, info = batch_convolve_distributions(
+            A=probs.view(-1, D),
+            B=error_probs_kernel.view(-1, D2),
+            edges_A=logits_borders.cpu().numpy(),
+            edges_B=kernel_grid.cpu().numpy(),
+            device=self.device
+        )
 
-        ).reshape(T, B, -1)
+        plot_convs_facet(
+            probs.view(-1, D)[:4].detach().numpy(),
+            error_probs_kernel.view(-1, D2)[:4].detach().numpy(),
+            C_batch[:4].detach().numpy(),
+            edges_A=logits_borders.cpu().numpy(),
+            edges_B=kernel_grid.cpu().numpy(),
+            centers_conv= centers_conv,
+            info=info,
+            xlim=(-1, 1),
+        )
 
-        return convolved_logits, error_logits
+        convolved_logits = torch.log(C_batch.clamp(min=1e-12)).reshape(T, B, centers_conv.shape[0])  # convert back to logits
+        centers_conv = torch.tensor(centers_conv, dtype=torch.float32).to(self.device)
+
+
+        # we need to fix the borders of the convolved distribution, by
+        # taking the centers_conv and taking the borders from it
+        borders = torch.zeros(centers_conv.shape[0] + 1, dtype=torch.float32).to(self.device)
+        borders[:-1] = centers_conv - (self.target_borders[1] - self.target_borders[0]) / 2
+        borders[-1] = centers_conv[-1] + (self.target_borders[1] - self.target_borders[0]) / 2
+
+
+        return convolved_logits, error_logits, BarDistribution(borders=borders)
 
 
 
@@ -586,29 +615,7 @@ if __name__ == '__main__':
     upper = error_model.criterion.icdf(error_logits, 0.95).detach().numpy().flatten()
     mean = error_model.criterion.mean(error_logits).detach().numpy().flatten()
 
-    # BORDER-Projection  -----------------------------
-    # notice, that here we only consider the overlap of the bins of the error model
-    # with the target model's (unadjusted bins). Since the error model lives in
-    # [-5. 5] and the target model in [0, 1]; anything that is outside of the target model's
-    # borders will be projected to the closest border of the target model.
-    # To account for this, we must align the error model's borders beforehand
-    # bound_projected_error_probs = project_probs_to_common_bins_batch(
-    #     torch.softmax(error_logits, dim=-1),
-    #     error_model.criterion.borders,
-    #     target_criterion.borders
-    # )
-    #
-    # bound_projected_error_logits = torch.log(bound_projected_error_probs.clamp(min=1e-12))
-    #
-    # new_bound_lower = target_criterion.icdf(
-    #     bound_projected_error_logits, 0.05
-    # ).detach().numpy().flatten()
-    # new_bound_upper = target_criterion.icdf(
-    #     bound_projected_error_logits, 0.95
-    # ).detach().numpy().flatten()
-    # new_bound_mean = target_criterion.mean(
-    #     bound_projected_error_logits
-    # ).detach().numpy().flatten()
+
     we_model = torch.load(pfns4bo.bnn_model, weights_only=False)
     we_model.eval()
     werror_model = WrappedErrorModel(
@@ -654,9 +661,16 @@ if __name__ == '__main__':
     w_prior_upper = wprior_model.criterion.icdf(wprior_logits, 0.95)
     w_prior_mean = wprior_model.criterion.mean(wprior_logits)
 
-    # convolved_logits, error_logits = werror_model.convolve_probs_with_error(
-    #     prior_logits, x_train, y_error, x_test,
-    # )
+    convolved_logits, error_logits, convolved_criterion = werror_model.convolve_probs_with_error(
+        logits=wprior_logits, logits_borders=wprior_model.criterion.borders,
+        x_train=x_train[:n], y_error=y_error, x_test=x_test,
+    )
+
+    convolved_lower = convolved_criterion.icdf(convolved_logits, 0.05)
+    convolved_upper = convolved_criterion.icdf(convolved_logits, 0.95)
+    convolved_mean = convolved_criterion.mean(convolved_logits)
+
+
 
     # PLOT THE RESULTS ------------------------------
     import torch
@@ -714,6 +728,13 @@ if __name__ == '__main__':
                         label="Wrapped Prior 95% CI")
     plt.plot(x_test_np, w_prior_mean.detach().cpu().numpy().flatten(), label="Wrapped Prior Mean",
                 color="tab:orange", linewidth=2)
+
+    # CONVOLVED BOUNDS
+    plt.fill_between(x_test_np, convolved_lower.detach().cpu().numpy().flatten(),
+                     convolved_upper.detach().cpu().numpy().flatten(), alpha=0.2, color="tab:gray",
+                     label="Convolved 95% CI")
+    plt.plot(x_test_np, convolved_mean.detach().cpu().numpy().flatten(), label="Convolved Mean",
+                color="tab:gray", linewidth=2)
 
     # plot the hline (0)
     plt.axhline(0, color='black', linestyle='--', linewidth=1)
