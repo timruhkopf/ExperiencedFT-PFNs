@@ -115,7 +115,7 @@ class AbstractModel(IFBOInterface):
             related_task_data,
             imputer=None,
             callbacks=(),
-            **kwargs
+            # **kwargs
     ):
         """
         Abstract base class for models that can be trained and evaluated on tasks.
@@ -143,7 +143,7 @@ class AbstractModel(IFBOInterface):
         self.device = device
         self.related_task_data = related_task_data
         self.callbacks = callbacks if callbacks is not None else []
-        self.kwargs = kwargs
+        # self.kwargs = kwargs
 
         self.__name__ = f'{self.__class__.__name__}_{self.strategy.__name__}'
 
@@ -171,7 +171,7 @@ class AbstractModel(IFBOInterface):
 
         self.related_context = DotDict({
             'x': related_context_x,
-            'y': related_context_y * 1.1 + 0.2,
+            'y': related_context_y,
             'padding_mask': padding_mask
         })
 
@@ -186,7 +186,7 @@ class AbstractModel(IFBOInterface):
                     related_context=self.related_context,
                     logger=self.logger,
                     device=self.device,
-                    **self.kwargs,
+                    # **self.kwargs,
                     # pass additional kwargs if needed
 
                 )

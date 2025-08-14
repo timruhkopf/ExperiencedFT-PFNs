@@ -37,11 +37,9 @@ surrogate_model:
     callbacks:
         - _target_: callbacks.callback_1d_projection.Callback1dProjectionPI
           _partial_: True
-    criterion: Null
 
-    incumbent_calculation: imputation-only
+
     flippable: False
-    verbose: True
 
 
 

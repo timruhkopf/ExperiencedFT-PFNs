@@ -698,6 +698,7 @@ class MFBenchPrior(TabularBenchmark):
         X = torch.stack(X, dim=1).to(self.device).float()
         Y = torch.stack(Y, dim=1).to(self.device).float()
         if self.name == "synthetic" and self.data_path is not None:
+            self.data_path.mkdir(parents=True, exist_ok=True)
             import json
             with open(self.data_path / 'config.json', 'w') as f:
                 json.dump(self.target_benchmark.relation_prior.model.parameter_signature(), f)
