@@ -325,7 +325,7 @@ class PPFN(AbstractModel):
             maximize=True
         )
 
-        self.last_step_predictions = torch.cat([target_logits, prior_logits], dim=0)
+        self.last_step_predictions = torch.cat([target_logits, prior_logits], dim=1)
         self.past_x_test = x_test
 
         # here we want to be maximally aggressive from the perspective of the priors,

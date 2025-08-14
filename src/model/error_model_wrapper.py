@@ -45,10 +45,10 @@ class WrappedErrorModel:
         # now we determine the factor by whcih we need to scale y_error, such that
         # we do not exceed the error model's resolution range
 
-        original_range = min(y_error), max(y_error)
 
         # 1) Fit the y->z scaling for THIS batch (or cache from train to avoid leakage)
         if std_fwd:
+            original_range = torch.min(y_error, dim=0), torch.max(y_error, dim=0)
             M = y_error.abs().max().clamp_min(1e-6)  # raw-space symmetric radius
             self.alpha = 2.5 / M  # y -> z scale
 

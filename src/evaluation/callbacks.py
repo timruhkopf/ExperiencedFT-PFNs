@@ -168,7 +168,7 @@ class Callback1DProjection(AbstractCallback):
     def on_trained_ppds(
             self,
             target_logits, prior_logits, error_logits, convolved_logits, convolved_criterion,
-        imputed_y,_error,
+            imputed_y, _error,
             x_train, y_train, x_test, inc
     ):
         import plotly.graph_objs as go
@@ -274,7 +274,7 @@ class Callback1DProjection(AbstractCallback):
 
 class Callback1dProjectionPI(AbstractCallback):
     __name__ = 'Callback1DProjectionPI'
-    STOP_AT = 200
+    STOP_AT = 15
 
     def on_trained_ppds(
             self,
@@ -324,16 +324,24 @@ class Callback1dProjectionPI(AbstractCallback):
                     row=row, col=col
                 )
 
+            B = self.num_related
+            rows, cols = 3, B + 1  # 3 rows, 2 + (B-1) columns
+            precision = 2
+            formatted_weights = [f"{w:.{precision}f}" for w in self.weights.tolist()]
+            titles = np.array([
+                ["Target"] + [f"Error {b}" for b in range(B)],
+
+                [""] + [f"Prior {b}" for b in range(B)],
+
+                [f"Final Prediction with weights {formatted_weights}"] + \
+                [f"Projected Prior {b}" for b in range(B)]
+            ])
+
             # Create subplot figure with 2 rows and 2 columns
             fig = make_subplots(
-                rows=3, cols=2,
-                subplot_titles=("Target", "final prediction", "Error", "plot4", "Raw Prior",
-                                "Projected Prior",),
-                specs=[[{"type": "surface"}, {"type": "surface"}],
-                       [{"type": "surface"}, {"type": "surface"}],
-                       [{"type": "surface"}, {"type": "surface"}]],  # specify plot types per
-                # subplot
-
+                rows=rows, cols=cols,
+                subplot_titles=titles.flatten().tolist(),
+                specs=[[{"type": "surface"} for _ in range(cols)] for _ in range(rows)],
                 vertical_spacing=0.03,  # default is ~0.3, smaller makes rows tighter
                 horizontal_spacing=0.03  # default is ~0.2, smaller makes
             )
@@ -359,8 +367,11 @@ class Callback1dProjectionPI(AbstractCallback):
                 single_eval_pos=x_train.shape[0]
             )
 
-            get_lower_upper_surfaces(self.model.criterion, target_logits, X1, X2, fig, row=1, col=1,
-                                     name='target', grid_size=grid_size)
+            get_lower_upper_surfaces(
+                self.model.criterion, target_logits, X1, X2, fig,
+                row=1, col=1,
+                name='target', grid_size=grid_size
+            )
 
             # TARGET DATA ------
             # add the scatter plot for x_train, y_train
@@ -384,91 +395,81 @@ class Callback1dProjectionPI(AbstractCallback):
                 single_eval_pos=self.related_context.x.shape[0]
             )
 
-            get_lower_upper_surfaces(self.model.criterion, prior_logits, X1, X2, fig, row=3, col=1,
-                                     name='prior', grid_size=grid_size)
+            for b in range(self.num_related):
+                prior_col = b + 2
+                get_lower_upper_surfaces(
+                    self.model.criterion, prior_logits[:, b, :], X1, X2, fig,
+                    row=2, col=prior_col, name='prior', grid_size=grid_size
+                )
 
-            # PRIOR DATA ------
-            # add the scatter plot for x_train, y_train
-            fig.add_trace(go.Scatter3d(
-                x=self.related_context.x[:, 0, 1].cpu().numpy(),
-                y=self.related_context.x[:, 0, 2].cpu().numpy(),
-                z=self.related_context.y[:, 0].cpu().numpy(),
-                name='Prior Points',
-                mode='markers', marker=dict(size=2, color='red'),
+                # PRIOR DATA ------
+                # add the scatter plot for x_train, y_train
+                fig.add_trace(go.Scatter3d(
+                    x=self.related_context.x[:, b, 1].cpu().numpy(),
+                    y=self.related_context.x[:, b, 2].cpu().numpy(),
+                    z=self.related_context.y[:, b].cpu().numpy(),
+                    name='Prior Points',
+                    mode='markers', marker=dict(size=2, color='red'),
 
-            ), row=3, col=1)
+                ), row=2, col=prior_col)
 
-            # IMPUTED ----
-            fig.add_trace(go.Scatter3d(
-                x=x_train[:, 0, 1].cpu().numpy(),
-                y=x_train[:, 0, 2].cpu().numpy(),
-                z=self.imputed_y[:, 0].cpu().numpy(),
-                name='imputed Prior Points',
-                mode='markers', marker=dict(size=2, color='purple'),
+                # IMPUTED ----
+                fig.add_trace(go.Scatter3d(
+                    x=x_train[:, 0, 1].cpu().numpy(),
+                    y=x_train[:, 0, 2].cpu().numpy(),
+                    z=self.imputed_y[:, b].cpu().numpy(),
+                    name='imputed Prior Points',
+                    mode='markers', marker=dict(size=2, color='purple'),
 
-            ), row=3, col=1)
+                ), row=2, col=prior_col)
 
-            # TARGET DATA ------
-            # add the scatter plot for x_train, y_train
-            fig.add_trace(go.Scatter3d(
-                x=x_train[:, 0, 1].cpu().numpy(),
-                y=x_train[:, 0, 2].cpu().numpy(),
-                z=y_train[:, 0].cpu().numpy(),
-                mode='markers', marker=dict(size=2, color='cyan'),
-                name='Training Points',
-            ), row=3, col=1)
+                # TARGET DATA ------
+                # add the scatter plot for x_train, y_train
+                fig.add_trace(go.Scatter3d(
+                    x=x_train[:, 0, 1].cpu().numpy(),
+                    y=x_train[:, 0, 2].cpu().numpy(),
+                    z=y_train[:, 0].cpu().numpy(),
+                    mode='markers', marker=dict(size=2, color='cyan'),
+                    name='Training Points',
+                ), row=2, col=prior_col)
 
             # ERROR MODEL -----------------------------------------------------
-            y_error = self.imputed_y - y_train.repeat(1,
-                                                      self.num_related)  # FIXME: check this in the original
-            # code
+            y_error = self.imputed_y - y_train.repeat(1, self.num_related)
+            # FIXME: check this in the original code
 
             error_probs_kernel, kernel_grid, error_logits = self.error_model(
-                x_train=x_train[:, :, 1:],
-                x_test=X_grid[:, :, 1:],
+                x_train=x_train[:, :, 1:].repeat(1, self.num_related, 1),
+                x_test=X_grid[:, :, 1:].repeat(1, self.num_related, 1),
                 y_error=y_error
             )
+            for b in range(self.num_related):
+                error_col = b + 2
+                get_lower_upper_surfaces(
+                    self.error_model.criterion, error_logits[:, b, :],
+                    X1, X2, fig,
+                    row=1, col=error_col, name='error', grid_size=grid_size
+                )
 
-            get_lower_upper_surfaces(self.error_model.criterion, error_logits, X1, X2, fig, row=2,
-                                     col=1, name='error', grid_size=grid_size)
-
-            # ERROR DATA ------
-            fig.add_trace(go.Scatter3d(
-                x=x_train[:, 0, 1].cpu().numpy(),
-                y=x_train[:, 0, 2].cpu().numpy(),
-                z=y_error[:, 0].cpu().numpy(),
-                name='imputed Prior Points',
-                mode='markers', marker=dict(size=2, color='yellow'),
-
-            ), row=2, col=1)
+                # ERROR DATA ------
+                fig.add_trace(go.Scatter3d(
+                    x=x_train[:, 0, 1].cpu().numpy(),
+                    y=x_train[:, 0, 2].cpu().numpy(),
+                    z=y_error[:, b:b + 1].flatten().cpu().numpy(),
+                    name='imputed Prior Points',
+                    mode='markers', marker=dict(size=2, color='yellow'),
+                ), row=1, col=error_col)
 
             # PROJECTED PRIOR MODEL ------------------------------------------
             projected_prior_logits_grid, _, conv_criterion = (
                 self.error_model.convolve_probs_with_error(
-                logits=prior_logits,
-                logits_borders=self.model.criterion.borders,
-                x_train=x_train[:, :, 1:],  # TODO check this in the original code
-                x_test=X_grid[:, :, 1:],  # TODO check this in the original code
-                y_error=-y_error,
-                reverse=False,
-            ))
-
-            get_lower_upper_surfaces(
-                conv_criterion, projected_prior_logits_grid,
-                X1, X2, fig,
-                row=3, col=2,
-                grid_size=grid_size,
-                name='projected_prior')
-
-            # TRUE PRIOR DATA ------
-            # add the scatter plot for x_train, y_train
-            fig.add_trace(go.Scatter3d(
-                x=self.related_context.x[:, 0, 1].cpu().numpy(),
-                y=self.related_context.x[:, 0, 2].cpu().numpy(),
-                z=self.related_context.y[:, 0].cpu().numpy(),
-                name='Prior Points',
-                mode='markers', marker=dict(size=2, color='red'),
-            ), row=3, col=2)
+                    logits=prior_logits,
+                    logits_borders=self.model.criterion.borders,
+                    x_train=x_train[:, :, 1:].repeat(1, self.num_related, 1),
+                    # TODO check this in the original code
+                    x_test=X_grid[:, :, 1:].repeat(1, self.num_related, 1),
+                    y_error=-y_error,
+                    reverse=False,
+                ))
 
             # PROJECTED PRIOR DATA ------
             prior_logits = self.model(
@@ -485,49 +486,70 @@ class Callback1dProjectionPI(AbstractCallback):
             projected_prior_logits, _, conv_criterion = self.error_model.convolve_probs_with_error(
                 logits=prior_logits,
                 logits_borders=self.model.criterion.borders,
-                x_train=x_train[:, :, 1:],
+                x_train=x_train[:, :, 1:].repeat(1, self.num_related, 1),
+                # TODO check this in the original code
                 x_test=self.related_context.x[:, :, 1:],  # TODO check this in the original code
                 y_error=-y_error,
                 reverse=False,
             )
 
-            projected_prior_points = conv_criterion.median(projected_prior_logits)
+            for b in range(self.num_related):
+                projected_col = b + 2
 
-            fig.add_trace(go.Scatter3d(
-                x=self.related_context.x[:, 0, 1].cpu().numpy(),
-                y=self.related_context.x[:, 0, 2].cpu().numpy(),
-                z=projected_prior_points[:, 0].cpu().numpy(),
-                name='Projected Prior Points',
-                mode='markers', marker=dict(size=2, color='yellow'),
-            ), row=3, col=2)
+                get_lower_upper_surfaces(
+                    conv_criterion, projected_prior_logits_grid[:, b:b + 1, :],
+                    X1, X2, fig,
+                    row=3, col=projected_col,
+                    grid_size=grid_size,
+                    name='projected_prior')
 
-            # DIRAC PROJECTED PRIOR DATA ------
-            # dirac_prior_logits, _ = self.error_model.dirac_forward(
-            #     x_train=x_train[:, :, 1:].repeat(1, self.num_related, 1),
-            #     dirac_x=self.related_context.x[:, :, 1:],
-            #     dirac_y=self.related_context.y,
-            #     y_error=-y_error,
-            #     reverse=False
-            # )
-            #
-            # dirac_prior_points = self.model.criterion.median(dirac_prior_logits)
-            # fig.add_trace(go.Scatter3d(
-            #     x=self.related_context.x[:, 0, 1].cpu().numpy(),
-            #     y=self.related_context.x[:, 0, 2].cpu().numpy(),
-            #     z=dirac_prior_points[:, 0].cpu().numpy(),
-            #     name='Dirac Prior Points',
-            #     mode='markers', marker=dict(size=2, color='orange'),
-            # ), row=3, col=2)
+                # TRUE PRIOR DATA ------
+                # add the scatter plot for x_train, y_train
+                fig.add_trace(go.Scatter3d(
+                    x=self.related_context.x[:, b, 1].cpu().numpy(),
+                    y=self.related_context.x[:, b, 2].cpu().numpy(),
+                    z=self.related_context.y[:, b].cpu().numpy(),
+                    name='Prior Points',
+                    mode='markers', marker=dict(size=2, color='red'),
+                ), row=3, col=projected_col)
 
-            # TARGET DATA ------
-            # add the scatter plot for x_train, y_train
-            fig.add_trace(go.Scatter3d(
-                x=x_train[:, 0, 1].cpu().numpy(),
-                y=x_train[:, 0, 2].cpu().numpy(),
-                z=y_train[:, 0].cpu().numpy(),
-                mode='markers', marker=dict(size=2, color='cyan'),
-                name='Training Points',
-            ), row=3, col=2)
+                projected_prior_points = conv_criterion.median(projected_prior_logits[:, b, :])
+
+                fig.add_trace(go.Scatter3d(
+                    x=self.related_context.x[:, b, 1].cpu().numpy(),
+                    y=self.related_context.x[:, b, 2].cpu().numpy(),
+                    z=projected_prior_points.cpu().numpy(),
+                    name='Projected Prior Points',
+                    mode='markers', marker=dict(size=2, color='yellow'),
+                ), row=3, col=projected_col)
+
+                # DIRAC PROJECTED PRIOR DATA ------
+                # dirac_prior_logits, _ = self.error_model.dirac_forward(
+                #     x_train=x_train[:, :, 1:].repeat(1, self.num_related, 1),
+                #     dirac_x=self.related_context.x[:, :, 1:],
+                #     dirac_y=self.related_context.y,
+                #     y_error=-y_error,
+                #     reverse=False
+                # )
+                #
+                # dirac_prior_points = self.model.criterion.median(dirac_prior_logits)
+                # fig.add_trace(go.Scatter3d(
+                #     x=self.related_context.x[:, 0, 1].cpu().numpy(),
+                #     y=self.related_context.x[:, 0, 2].cpu().numpy(),
+                #     z=dirac_prior_points[:, 0].cpu().numpy(),
+                #     name='Dirac Prior Points',
+                #     mode='markers', marker=dict(size=2, color='orange'),
+                # ), row=3, col=2)
+
+                # TARGET DATA ------
+                # add the scatter plot for x_train, y_train
+                fig.add_trace(go.Scatter3d(
+                    x=x_train[:, 0, 1].cpu().numpy(),
+                    y=x_train[:, 0, 2].cpu().numpy(),
+                    z=y_train[:, 0].cpu().numpy(),
+                    mode='markers', marker=dict(size=2, color='cyan'),
+                    name='Training Points',
+                ), row=3, col=projected_col)
 
             # FINAL PREDICTIONS ------------------------------------------
 
@@ -541,7 +563,7 @@ class Callback1dProjectionPI(AbstractCallback):
                 z=median_predictions.cpu().numpy(),
                 name='Final predictions',
                 mode='markers', marker=dict(size=2, color='blue'),
-            ), row=1, col=1)
+            ), row=3, col=1)
 
             # FINAL PREDICTIONS DATA - mixed plot ----
             fig.add_trace(go.Scatter3d(
@@ -550,7 +572,7 @@ class Callback1dProjectionPI(AbstractCallback):
                 z=median_predictions.cpu().numpy(),
                 name='Final predictions',
                 mode='markers', marker=dict(size=2, color='blue'),
-            ), row=1, col=2)
+            ), row=3, col=1)
 
             projected_logits_grid = projected_prior_logits_grid
             lower = torch.where(conv_criterion.borders[conv_criterion.borders >= 0].min(
@@ -561,8 +583,11 @@ class Callback1dProjectionPI(AbstractCallback):
 
             predictions = torch.cat([target_logits, projected_logits_grid], dim=1)
             predictions = (predictions * self.weights.unsqueeze(-1)).sum(dim=1)
-            get_lower_upper_surfaces(self.model.criterion, predictions, X1, X2, fig, row=1, col=2,
-                                     name='final_predictions', grid_size=grid_size)
+            get_lower_upper_surfaces(
+                self.model.criterion, predictions, X1, X2, fig,
+                row=3, col=1,
+                name='final_predictions', grid_size=grid_size
+            )
 
             # TARGET DATA ------
             fig.add_trace(go.Scatter3d(
@@ -571,7 +596,7 @@ class Callback1dProjectionPI(AbstractCallback):
                 z=y_train[:, 0].cpu().numpy(),
                 mode='markers', marker=dict(size=2, color='cyan'),
                 name='Training Points',
-            ), row=1, col=2)
+            ), row=3, col=1)
 
             # PLOT SETTINGS -----------------------------------------------------
             axis = dict(xaxis_title='fidelity', yaxis_title='lambda', zaxis_title='f(x,lambda)')
@@ -584,6 +609,7 @@ class Callback1dProjectionPI(AbstractCallback):
 
             # fig.show()
             plot(fig)
+            plt.clf()
 
             # todo counterfactuals
             # counterfactuals = self.error_model.dirac
