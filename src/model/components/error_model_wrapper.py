@@ -5,14 +5,11 @@ import pfns4bo
 import torch
 import torch.nn.functional as F
 
-import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
 from pfns4bo.bar_distribution import BarDistribution
 
 import logging
 
-from model.conv import batch_convolve_distributions, plot_convs_facet
+from model.components.conv import batch_convolve_distributions
 
 logger = logging.getLogger(__name__)
 

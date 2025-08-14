@@ -1,10 +1,18 @@
 import torch
 
-class Imputer:
-    def __init__(self, model, criterion, imputation_mode):
+class PriorImputer:
+    def __init__(self, imputation_mode):
+        self.imputation_mode = imputation_mode
+
+    def __post_init__(self, parent_model, model, criterion, related_context, logger, device):
+        self.parent_model = parent_model
         self.model = model
         self.criterion = criterion
-        self.imputation_mode = imputation_mode
+        self.related_context = related_context
+        self.num_related = related_context.x.shape[1]
+        self.logger = logger
+        self.device = device
+
 
     def __call__(self, x_train, y_train, x_test: torch.Tensor, ) -> torch.Tensor:
         """

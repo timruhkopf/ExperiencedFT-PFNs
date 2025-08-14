@@ -1,0 +1,49 @@
+defaults:
+  - ifbo
+
+name: ppfn
+mf: True
+sh_based: False
+
+
+surrogate_model:
+  meta:
+    name: 'error_ppfn'
+
+  cls:
+    _target_: src.model.abstractmodel.AbstractModel
+
+    initial_design:
+      _target_: src.model.initial_design.maxpi_initial_design.MaxPIInitialDesign
+      size: 10
+
+    strategy:
+      _target_: src.model.strategies.error_model.ErrorModelStrategies
+      model_avg: ppd_mixture_eqw
+      counterfactor:
+        _target_: src.model.components.counterfact.Counterfactor
+        counterfit: median
+
+    imputer:
+      _target_: src.model.components.imputor.PriorImputer
+      imputation_mode: median
+
+    model:
+      _target_:  ifbo.surrogate.FTPFN
+      version: "0.0.1"
+      device: ${device}
+      target_path: ${repo_root}/data/.model
+
+    callbacks:
+        - _target_: callbacks.callback_1d_projection.Callback1dProjectionPI
+          _partial_: True
+    criterion: Null
+
+    incumbent_calculation: imputation-only
+    flippable: False
+    verbose: True
+
+
+
+
+

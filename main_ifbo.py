@@ -26,7 +26,7 @@ from ifBO_icml2024.src.pfns_hpo.pfns_hpo.run import process_mfpbench_trajectorie
     process_taskset_mfpbench_with_step_0_prior, preprocess_tabular, set_bounds_from_table
 from neps_run import neps_run
 
-from model.batch_padded_pfn import parse_batch_for_padded_train_data
+from dataset.batch_padded_pfn import parse_batch_for_padded_train_data
 from src.utils.seeding import SeededRandomContext
 from utils.dotdict import DotDict
 from utils.filelogger_json import BufferedDictLogger

@@ -1,10 +1,9 @@
 import torch
 
-from model.imputor import Imputer
-from model.ppfn import PPFN
+from model.strategies.abstract_strategy import AbstractStrategy
 
 
-class PFNV2(PPFN):
+class PFNV2(AbstractStrategy):
 
     def __init__(
             self, model, criterion, logger,
@@ -35,7 +34,12 @@ class PFNV2(PPFN):
         self.num_related = None
         self.related_context = None
 
-    def mixture_strategy(
+    def __post_init__(self, parent_model, model, related_context, callbacks, logger, device,
+                      **kwargs):
+        pass
+
+
+    def __call__(
             self,
             imputed_y,
             related_context,

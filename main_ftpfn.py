@@ -20,7 +20,7 @@ from ifbo.transformer import TransformerModel
 
 from evaluation.deprec.meta_train_test_split import folds_of_size
 from evaluation.deprec.test_on_new_task_nll import TestOnNewTaskNLL
-from model.batch_padded_pfn import parse_batch_for_padded_train_data
+from dataset.batch_padded_pfn import parse_batch_for_padded_train_data
 from src.utils.filelogger import BufferedFileLogger
 from src.utils.seeding import SeededRandomContext
 

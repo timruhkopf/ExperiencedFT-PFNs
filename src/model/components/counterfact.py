@@ -1,25 +1,26 @@
 import torch
-from torch import nn
 
 
 class Counterfactor:
-    def __init__(self, model: nn.Module, device: torch.device,
-                 error_model, criterion: nn.Module, logger,
-                 counterfit: str = 'median', num_related: int = 5,
-                 n_mc: int = 10,  # number of Monte Carlo samples for counterfitting
-                 ):
+    def __init__(
+            self,
+            counterfit: str = 'median', num_related: int = 5,
+            n_mc: int = 10,  # number of Monte Carlo samples for counterfeiting
+    ):
+        self.counterfit = counterfit  # 'median' or 'mc'
+        self.n_mc = n_mc  # number of Monte Carlo samples for counterfeiting
 
+    def __post_init__(self, parent_model, model, criterion, error_model, related_context, logger,
+                                                                     device):
+        self.parent_model = parent_model
         self.model = model
         self.criterion = criterion
-
-        self.error_model = error_model
-        self.num_related = num_related
-
-        self.counterfit = counterfit  # 'median' or 'mc'
-        self.n_mc = n_mc  # number of Monte Carlo samples for counterfitting
-
+        self.related_context = related_context
+        self.num_related = related_context.x.shape[1]
         self.logger = logger
         self.device = device
+        self.error_model = error_model  # the error model to project the prior data into the target task space
+
 
     def __call__(self, x_train, y_train, related_context, imputed_y) -> torch.Tensor:
         # Let us collect the counterfactual data:
@@ -48,7 +49,7 @@ class Counterfactor:
             n_mc = 1  # for compatability purposes
 
         elif self.counterfit == 'mc':
-            from src.model.imputor import sample_logits
+            from model.components.imputor import sample_logits
 
             n_mc = 3
             mc_counterfactural_y = []

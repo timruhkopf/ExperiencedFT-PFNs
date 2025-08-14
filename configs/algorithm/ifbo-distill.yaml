@@ -1,5 +1,0 @@
-defaults:
-  - ifbo
-  - /model/distill@surrogate_model
-#  - /model/pfn_softmax@searcher.surrogate_model
-

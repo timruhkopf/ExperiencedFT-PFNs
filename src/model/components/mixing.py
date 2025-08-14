@@ -2,7 +2,7 @@ import math
 
 import torch
 
-from model.calc_reliability import calc_target_cv_nll, calc_imputed_linalg_reliability
+from model.components.calc_reliability import calc_target_cv_nll, calc_imputed_linalg_reliability
 
 class EqualWeights:
     def __init__(self, *args, **kwargs):

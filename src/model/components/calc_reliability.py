@@ -5,7 +5,7 @@ from typing import Dict
 import torch
 from ifbo.transformer import TransformerModel
 from ifbo import BarDistribution, FTPFN
-from model.batch_padded_pfn import MyBatch
+from dataset.batch_padded_pfn import MyBatch
 
 
 def _calc_reliability(

@@ -1,6 +1,0 @@
-# @package model.cls.decay_fn
-
-_partial_: True
-_target_: src.model.decay.constant_exponential
-lambda_: 0.005
-constant: 100
