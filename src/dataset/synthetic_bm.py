@@ -70,12 +70,18 @@ class BNNManager:
     _initialized = False
 
     @classmethod
-    def get_instance(cls, dim_hyperparameters, n_curve_param):
-        if cls._instance is None:
-            cls._instance = DatasetPrior(dim_hyperparameters, n_curve_param)
-            cls._instance.new_dataset()
-            cls._initialized = True
-        return cls._instance
+    def get_instance(cls, dim_hyperparameters, n_curve_param, same=True):
+        if same == True:
+            if cls._instance is None:
+                cls._instance = DatasetPrior(dim_hyperparameters, n_curve_param)
+                cls._instance.new_dataset()
+                cls._initialized = True
+
+            return cls._instance
+        else:
+            d = DatasetPrior(dim_hyperparameters, n_curve_param)
+            d.new_dataset()
+            return d
 
 
 class SyntheticBenchmark(Benchmark):
@@ -94,6 +100,7 @@ class SyntheticBenchmark(Benchmark):
         cost_metric: str | None = None,
         dim_hyperparameters: int  = 6,
         max_fidelities: int = 50,
+        same=True,
     ):
         self.n_configs = 500 # Number of configurations to sample
         self.max_fidelities = max_fidelities  # Maximum number of epochs
@@ -111,14 +118,14 @@ class SyntheticBenchmark(Benchmark):
         if bnn_seed is None:
             self.relation_prior = BNNManager.get_instance(
             dim_hyperparameters = self.dim_hyperparameters,
-            n_curve_param = n_curve_param,
+            n_curve_param = n_curve_param, same=same
             )
 
         else:
             with SeededRandomContext(bnn_seed):
                 self.relation_prior = BNNManager.get_instance(
                     dim_hyperparameters=self.dim_hyperparameters,
-                    n_curve_param=n_curve_param,
+                    n_curve_param=n_curve_param, same=same,
                 )
             # # seeding verification: ----------------
             #     from copy import deepcopy

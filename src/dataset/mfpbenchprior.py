@@ -170,8 +170,13 @@ class MFBenchPrior(TabularBenchmark):
                         self.related_benchmarks.append(SyntheticBenchmark(value_metric="value", cost_metric="fid_cost", seed=seed + i + 1, dim_hyperparameters=self.dim_hyperparameters))
                     else:
                         self.related_benchmarks.append(SyntheticBenchmark(value_metric="value", cost_metric="fid_cost", dim_hyperparameters=self.dim_hyperparameters))
-                else:
-                    related_task = self.target_benchmark.create_related_task(n_layers=self.n_layers, dim_hyperparameters=self.dim_hyperparameters, **self.reset_kwargs)
+                else: # get a new Prior instance!
+                    # related_task = self.target_benchmark.create_related_task(
+                    #     n_layers=self.n_layers, dim_hyperparameters=self.dim_hyperparameters,
+                    #     **self.reset_kwargs, same=False)
+                    related_task= SyntheticBenchmark(value_metric="value",
+                                                     cost_metric="fid_cost",
+                                                     dim_hyperparameters=self.dim_hyperparameters, same=False)
                     self.related_benchmarks.append(related_task)
 
             # if self.bnn_is_fixed:
@@ -660,6 +665,9 @@ class MFBenchPrior(TabularBenchmark):
                            weights_only=True)
             )
             assert self.target_benchmark.relation_prior.model is self.related_benchmarks[0].relation_prior.model
+            if self.related_ratio != 1.0:
+                assert not self.related_benchmarks[0].relation_prior.model is \
+                           self.related_benchmarks[1].relation_prior.model
             return torch.load(self.data_path / 'batch.pt', map_location=self.device,
                               weights_only=False)
 
