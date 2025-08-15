@@ -9,6 +9,134 @@ from plotly.offline import plot
 from callbacks.abstract_callback import AbstractCallback
 
 
+def get_lower_upper_surfaces(criterion, logits, x1, x2, fig, row, col, grid_size,
+                             name='', ):
+    lower = criterion.icdf(logits, 0.25).numpy().reshape(-1)
+    mean = criterion.mean(logits).numpy().reshape(-1)
+    upper = criterion.icdf(logits, 0.75).numpy().reshape(-1)
+
+    # Lower quantile
+    fig.add_trace(go.Surface(
+        x=x1, y=x2, z=lower.reshape(grid_size, grid_size), colorscale='Oranges',
+        opacity=0.5,
+        showscale=False, coloraxis=None
+        # name=f'25th Q {name}'
+    ),
+        row=row, col=col
+    )
+
+    # Upper quantile
+    fig.add_trace(go.Surface(
+        x=x1, y=x2, z=upper.reshape(grid_size, grid_size), colorscale='Oranges',
+        opacity=0.7, showscale=False, coloraxis=None
+        #             name=f'75th Q {name}'
+    ),
+        row=row, col=col
+    )
+
+
+class Callback1dProjectionPFNContext(AbstractCallback):
+    __name__ = 'Callback1DProjectionPFNContext'
+    STOP_AT = 200
+
+    def on_trained_ppds(
+            self,
+            target_logits, prior_logits, error_logits, projected_logits, convolved_criterion,
+            imputed_y, y_error,
+            x_train, y_train, x_test, inc
+    ):
+        self.target_logits = target_logits
+        self.prior_logits = prior_logits
+        self.error_logits = error_logits
+        self.projected_logits = projected_logits
+        self.imputed_y = imputed_y
+        self.y_error = y_error
+        self.x_train = x_train
+        self.y_train = y_train
+        self.x_test = x_test
+        self.inc = inc
+
+    def on_final_weights(self, predictions, weights):
+        self.predictions = predictions
+        self.weights = weights
+
+    def on_acq_end_mixture(self, x_train, y_train, x_test, inc, predictions):
+        print()
+        if self.step(x_train) == self.STOP_AT:
+            # make a meshgrid for the x_grid
+            grid_size = 50
+            x1 = np.linspace(0, 1, grid_size)
+            x2 = np.linspace(0, 1, grid_size)
+            X1, X2 = np.meshgrid(x1, x2)
+            config_id = torch.tensor((X1 * 999).ravel()).floor()
+            X_grid = torch.vstack([config_id, torch.tensor(X1.ravel()), torch.tensor(X2.ravel())]).T
+            X_grid = X_grid.to(self.device).float().unsqueeze(1)
+
+            fig = make_subplots(
+                rows=2, cols=self.num_related + 1,
+                subplot_titles=["Target"] + ['merged'], #[f"Prior {b}" for b in range(
+            # self.num_related)] ,
+                specs=[[{"type": "surface"} for _ in range(self.num_related + 1)],
+                       [{"type": "scatter"}] + [{"type": "surface"} for _ in range(self.num_related)]]
+            )
+
+            # META-AWARE -----------------------------------------------------
+            target_surface_logits = self.parent_model.strategy(x_train, X_grid, y_train, inc)
+            get_lower_upper_surfaces(
+                self.model.criterion, target_surface_logits, X1, X2, fig,
+                row=1, col=2,
+                name='meta-aware', grid_size=grid_size
+            )
+
+            # FT-PFN (Meta-UN-aware) -----------------------------------------------------
+            target_logits = self.model(
+                (
+                    torch.cat([
+                        x_train,
+                        X_grid
+                    ]),
+                    y_train
+                ),
+                single_eval_pos=x_train.shape[0]
+            )
+
+            get_lower_upper_surfaces(
+                self.model.criterion, target_logits, X1, X2, fig,
+                row=1, col=1,
+                name='target', grid_size=grid_size
+            )
+
+            # TARGET DATA ------
+
+            for (row, col) in [(1, 1), ( 1,2)]:
+                # TARGET DATA ------
+                # add the scatter plot for x_train, y_train
+                fig.add_trace(go.Scatter3d(
+                    x=x_train[:, 0, 1].cpu().numpy(),
+                    y=x_train[:, 0, 2].cpu().numpy(),
+                    z=y_train[:, 0].cpu().numpy(),
+                    mode='markers', marker=dict(size=2, color='cyan'),
+                    name='Training Points',
+                ), row=row, col=col)
+
+            fig.update_layout(
+                height=1000, width=2000, title_text="Plotly Subplots Example",
+                scene1=dict(
+                    xaxis_title='fidelity',
+                    yaxis_title='lambda',
+                    zaxis_title='f(x,lambda)',
+                ),
+                scene2=dict(
+                    xaxis_title='fidelity',
+                    yaxis_title='lambda',
+                    zaxis_title='f(x,lambda)',
+                )
+            )
+            # fig.show()
+            plot(fig)
+            plt.clf()
+
+
 class Callback1dProjectionPI(AbstractCallback):
     __name__ = 'Callback1DProjectionPI'
     STOP_AT = 11
@@ -35,31 +163,9 @@ class Callback1dProjectionPI(AbstractCallback):
         self.weights = weights
 
     def on_acq_end_mixture(self, x_train, y_train, x_test, inc, predictions):
+        print()
         if self.step(x_train) == self.STOP_AT:
-            def get_lower_upper_surfaces(criterion, logits, x1, x2, fig, row, col, grid_size,
-                                         name='', ):
-                lower = criterion.icdf(logits, 0.25).numpy().reshape(-1)
-                mean = criterion.mean(logits).numpy().reshape(-1)
-                upper = criterion.icdf(logits, 0.75).numpy().reshape(-1)
 
-                # Lower quantile
-                fig.add_trace(go.Surface(
-                    x=x1, y=x2, z=lower.reshape(grid_size, grid_size), colorscale='Oranges',
-                    opacity=0.5,
-                    showscale=False, coloraxis=None
-                    # name=f'25th Q {name}'
-                ),
-                    row=row, col=col
-                )
-
-                # Upper quantile
-                fig.add_trace(go.Surface(
-                    x=x1, y=x2, z=upper.reshape(grid_size, grid_size), colorscale='Oranges',
-                    opacity=0.7, showscale=False, coloraxis=None
-                    #             name=f'75th Q {name}'
-                ),
-                    row=row, col=col
-                )
 
             self.error_model = self.parent_model.strategy.error_model
 
@@ -76,11 +182,14 @@ class Callback1dProjectionPI(AbstractCallback):
                 [f"Projected Prior {b}" for b in range(B)]
             ])
 
+            specs = [[{"type": "surface"} for _ in range(cols)] for _ in range(rows)]
+            specs[1][0] = {"type": "scatter"}  # Target data
+
             # Create subplot figure with 2 rows and 2 columns
             fig = make_subplots(
                 rows=rows, cols=cols,
                 subplot_titles=titles.flatten().tolist(),
-                specs=[[{"type": "surface"} for _ in range(cols)] for _ in range(rows)],
+                specs=specs,
                 vertical_spacing=0.03,  # default is ~0.3, smaller makes rows tighter
                 horizontal_spacing=0.03  # default is ~0.2, smaller makes
             )
@@ -205,7 +314,7 @@ class Callback1dProjectionPI(AbstractCallback):
                     # TODO check this in the original code
                     x_test=X_grid[:, :, 1:].repeat(1, self.num_related, 1),
                     y_error=y_error,
-                    reverse=True,
+                    reverse=False,
                 ))
 
             # PROJECTED PRIOR DATA ------
@@ -227,7 +336,7 @@ class Callback1dProjectionPI(AbstractCallback):
                 # TODO check this in the original code
                 x_test=self.related_context.x[:, :, 1:],  # TODO check this in the original code
                 y_error=y_error,
-                reverse=True,
+                reverse=False,
             )
 
             for b in range(self.num_related):
@@ -316,6 +425,13 @@ class Callback1dProjectionPI(AbstractCallback):
                 name='final_predictions', grid_size=grid_size
             )
 
+            # WEIGHTS -----------------------------------------------------
+            df = self.logger.df[self.logger.df['metrics'] == 'weights']
+
+            pattern = r'^weight_\d+$'
+
+            for col in df.columns[df.columns.to_series().str.match(pattern)]:
+                fig.add_trace(go.Scatter(x=df['step'], y=df[col], mode='lines', name=col), row=2, col=1)
 
             # PLOT SETTINGS -----------------------------------------------------
             axis = dict(xaxis_title='fidelity', yaxis_title='lambda', zaxis_title='f(x,lambda)')

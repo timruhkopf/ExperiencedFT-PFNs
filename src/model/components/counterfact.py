@@ -56,9 +56,9 @@ class Counterfactor:
             for b in range(self.num_related):
                 mc_counterfactural_y.append(
                     sample_logits(
-                        counterfactural_logits[:, 0, :].squeeze(1),
+                        counterfactural_logits[:, b, :].squeeze(1),
                         self.n_mc,
-                        self.criterion.borders
+                        bardist.borders
                     )
                 )
 
@@ -70,7 +70,7 @@ class Counterfactor:
 
 
         else:
-            raise ValueError(f"Unknown counterfitting mode: {self.counterfit}, n_mc {self.n_mc}.")
+            raise ValueError(f"Unknown counterfiting mode: {self.counterfit}, n_mc {self.n_mc}.")
 
         # Get the logits for the target task data under the counterfactual prior PPD
         prior_counterfactual_logits = self.model(
@@ -91,10 +91,10 @@ class Counterfactor:
         # would explain the observed data. This gives us the relative weight of each prior
         prior_evidence = torch.stack([
             self.criterion(prior_counterfactual_logits[:, b, :].squeeze(1), y_train)
-            for b in range(self.num_related * n_mc)
+            for b in range(self.num_related * self.n_mc)
         ], dim=0).to(self.device).mean(dim=1)
 
-        prior_evidence = prior_evidence.reshape(self.num_related, n_mc, -1).mean(dim=1)
+        prior_evidence = prior_evidence.reshape(self.num_related, self.n_mc, -1).mean(dim=1)
         prior_evidence = prior_evidence.squeeze(1)  # (n_related,)
 
         prior_weights = torch.softmax(-prior_evidence, dim=-1)
