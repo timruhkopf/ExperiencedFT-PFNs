@@ -1,5 +1,6 @@
 import torch
 
+from model.components.imputor import PriorImputer
 from model.strategies.abstract_strategy import AbstractStrategy
 
 
@@ -23,7 +24,7 @@ class PFNV2(AbstractStrategy):
 
         self.min_context_size = min_context_size
         self.incumbent_calculation = incumbent_calculation
-        self.imputer = Imputer(
+        self.imputer = PriorImputer(
             model, criterion, imputation_mode
         )
 
@@ -80,7 +81,7 @@ class PFNV2(AbstractStrategy):
         return target_logits.mean(dim=1)
 
 
-class PPFNV3(PFNV2):
+class PPFNV3(AbstractStrategy):
 
     def __init__(self, model, criterion, logger,
                  related_task_data, min_context_size, imputation_mode='median',
