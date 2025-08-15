@@ -112,15 +112,22 @@ class Callback1dProjectionPI(AbstractCallback):
                 name='target', grid_size=grid_size
             )
 
-            # TARGET DATA ------
-            # add the scatter plot for x_train, y_train
-            fig.add_trace(go.Scatter3d(
-                x=x_train[:, 0, 1].cpu().numpy(),
-                y=x_train[:, 0, 2].cpu().numpy(),
-                z=y_train[:, 0].cpu().numpy(),
-                mode='markers', marker=dict(size=2, color='cyan'),
-                name='Training Points',
-            ), row=1, col=1)
+            target_locations = {(row, col) for row in range(2, rows + 1)
+                                for col in range(1, cols + 1)}
+
+            target_locations.add((1, 1))
+            target_locations.discard((2, 1))
+
+            for (row, col) in target_locations:
+                # TARGET DATA ------
+                # add the scatter plot for x_train, y_train
+                fig.add_trace(go.Scatter3d(
+                    x=x_train[:, 0, 1].cpu().numpy(),
+                    y=x_train[:, 0, 2].cpu().numpy(),
+                    z=y_train[:, 0].cpu().numpy(),
+                    mode='markers', marker=dict(size=2, color='cyan'),
+                    name='Training Points',
+                ), row=row, col=col)
 
             # PRIOR MODEL -----------------------------------------------------
             prior_logits = self.model(
@@ -162,18 +169,9 @@ class Callback1dProjectionPI(AbstractCallback):
 
                 ), row=2, col=prior_col)
 
-                # TARGET DATA ------
-                # add the scatter plot for x_train, y_train
-                fig.add_trace(go.Scatter3d(
-                    x=x_train[:, 0, 1].cpu().numpy(),
-                    y=x_train[:, 0, 2].cpu().numpy(),
-                    z=y_train[:, 0].cpu().numpy(),
-                    mode='markers', marker=dict(size=2, color='cyan'),
-                    name='Training Points',
-                ), row=2, col=prior_col)
 
             # ERROR MODEL -----------------------------------------------------
-            y_error = self.imputed_y - y_train.repeat(1, self.num_related)
+            y_error = y_train.repeat(1, self.num_related) - self.imputed_y
             # FIXME: check this in the original code
 
             error_probs_kernel, kernel_grid, error_logits = self.error_model(
@@ -206,8 +204,8 @@ class Callback1dProjectionPI(AbstractCallback):
                     x_train=x_train[:, :, 1:].repeat(1, self.num_related, 1),
                     # TODO check this in the original code
                     x_test=X_grid[:, :, 1:].repeat(1, self.num_related, 1),
-                    y_error=-y_error,
-                    reverse=False,
+                    y_error=y_error,
+                    reverse=True,
                 ))
 
             # PROJECTED PRIOR DATA ------
@@ -228,8 +226,8 @@ class Callback1dProjectionPI(AbstractCallback):
                 x_train=x_train[:, :, 1:].repeat(1, self.num_related, 1),
                 # TODO check this in the original code
                 x_test=self.related_context.x[:, :, 1:],  # TODO check this in the original code
-                y_error=-y_error,
-                reverse=False,
+                y_error=y_error,
+                reverse=True,
             )
 
             for b in range(self.num_related):
@@ -263,31 +261,21 @@ class Callback1dProjectionPI(AbstractCallback):
                 ), row=3, col=projected_col)
 
                 # DIRAC PROJECTED PRIOR DATA ------
-                # dirac_prior_logits, _ = self.error_model.dirac_forward(
-                #     x_train=x_train[:, :, 1:].repeat(1, self.num_related, 1),
-                #     dirac_x=self.related_context.x[:, :, 1:],
-                #     dirac_y=self.related_context.y,
-                #     y_error=-y_error,
-                #     reverse=False
-                # )
-                #
-                # dirac_prior_points = self.model.criterion.median(dirac_prior_logits)
-                # fig.add_trace(go.Scatter3d(
-                #     x=self.related_context.x[:, 0, 1].cpu().numpy(),
-                #     y=self.related_context.x[:, 0, 2].cpu().numpy(),
-                #     z=dirac_prior_points[:, 0].cpu().numpy(),
-                #     name='Dirac Prior Points',
-                #     mode='markers', marker=dict(size=2, color='orange'),
-                # ), row=3, col=2)
+                dirac_prior_logits, _,  bardist = self.error_model.dirac_forward(
+                    x_train=x_train[:, :, 1:].repeat(1, self.num_related, 1),
+                    dirac_x=self.related_context.x[:, :, 1:],
+                    dirac_y=self.related_context.y,
+                    y_error=y_error,
+                    reverse=False
+                )
 
-                # TARGET DATA ------
-                # add the scatter plot for x_train, y_train
+                dirac_prior_points = bardist.median(dirac_prior_logits)
                 fig.add_trace(go.Scatter3d(
-                    x=x_train[:, 0, 1].cpu().numpy(),
-                    y=x_train[:, 0, 2].cpu().numpy(),
-                    z=y_train[:, 0].cpu().numpy(),
-                    mode='markers', marker=dict(size=2, color='cyan'),
-                    name='Training Points',
+                    x=self.related_context.x[:, b, 1].cpu().numpy(),
+                    y=self.related_context.x[:, b, 2].cpu().numpy(),
+                    z=dirac_prior_points[:, b].cpu().numpy(),
+                    name='Dirac Prior Points',
+                    mode='markers', marker=dict(size=2, color='orange'),
                 ), row=3, col=projected_col)
 
             # FINAL PREDICTIONS ------------------------------------------
@@ -328,14 +316,6 @@ class Callback1dProjectionPI(AbstractCallback):
                 name='final_predictions', grid_size=grid_size
             )
 
-            # TARGET DATA ------
-            fig.add_trace(go.Scatter3d(
-                x=x_train[:, 0, 1].cpu().numpy(),
-                y=x_train[:, 0, 2].cpu().numpy(),
-                z=y_train[:, 0].cpu().numpy(),
-                mode='markers', marker=dict(size=2, color='cyan'),
-                name='Training Points',
-            ), row=3, col=1)
 
             # PLOT SETTINGS -----------------------------------------------------
             axis = dict(xaxis_title='fidelity', yaxis_title='lambda', zaxis_title='f(x,lambda)')

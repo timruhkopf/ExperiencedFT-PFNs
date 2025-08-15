@@ -5,7 +5,7 @@ class Counterfactor:
     def __init__(
             self,
             counterfit: str = 'median', num_related: int = 5,
-            n_mc: int = 10,  # number of Monte Carlo samples for counterfeiting
+            n_mc: int = 1,  # number of Monte Carlo samples for counterfeiting
     ):
         self.counterfit = counterfit  # 'median' or 'mc'
         self.n_mc = n_mc  # number of Monte Carlo samples for counterfeiting
@@ -22,25 +22,25 @@ class Counterfactor:
         self.error_model = error_model  # the error model to project the prior data into the target task space
 
 
-    def __call__(self, x_train, y_train, related_context, imputed_y) -> torch.Tensor:
+    def __call__(self, x_train, y_train, y_error, related_context, imputed_y) -> torch.Tensor:
         # Let us collect the counterfactual data:
         # the prior data is projected into the target task space by the
         # learned error model.
         # Notice, that the prior data is observed and therefore has dirac mass
         step = x_train.shape[0]
 
-        counterfactural_logits, error_logits = self.error_model.dirac_forward(
+        counterfactural_logits, error_logits, bardist = self.error_model.dirac_forward(
             x_train=x_train[:, :, 1:].repeat(1, self.num_related, 1),
             dirac_x=related_context.x[:, :, 1:],
             dirac_y=related_context.y,
-            y_error=y_train.repeat(1, self.num_related) - imputed_y,
+            y_error=y_error,
             reverse=True
         )
 
         # Now we collect the y values for the counterfactual data.
-        if self.counterfit == 'median':
+        if self.counterfit == 'median' and self.n_mc ==1:
             counterfactual_y = torch.stack([
-                self.criterion.median(counterfactural_logits[:, b, :].squeeze(1))
+                bardist.median(counterfactural_logits[:, b, :].squeeze(1))
                 for b in range(self.num_related)
             ], dim=1).to(self.device)
 
@@ -51,22 +51,26 @@ class Counterfactor:
         elif self.counterfit == 'mc':
             from model.components.imputor import sample_logits
 
-            n_mc = 3
+
             mc_counterfactural_y = []
             for b in range(self.num_related):
                 mc_counterfactural_y.append(
                     sample_logits(
                         counterfactural_logits[:, 0, :].squeeze(1),
-                        n_mc,
+                        self.n_mc,
                         self.criterion.borders
                     )
                 )
 
             mc_counterfactural_y = torch.stack(mc_counterfactural_y, dim=1).to(self.device)
-            counterfactual_y = mc_counterfactural_y.reshape(self.num_related * n_mc, -1).T
+            counterfactual_y = mc_counterfactural_y.reshape(self.num_related * self.n_mc, -1).T
 
-            related_x = related_context.x.repeat(1, n_mc, 1)
-            query = x_train.repeat(1, self.num_related * n_mc, 1)
+            related_x = related_context.x.repeat(1, self.n_mc, 1)
+            query = x_train.repeat(1, self.num_related * self.n_mc, 1)
+
+
+        else:
+            raise ValueError(f"Unknown counterfitting mode: {self.counterfit}, n_mc {self.n_mc}.")
 
         # Get the logits for the target task data under the counterfactual prior PPD
         prior_counterfactual_logits = self.model(

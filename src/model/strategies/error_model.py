@@ -1,6 +1,7 @@
 import pfns4bo
 import torch
 
+from model.components.calc_reliability import calc_target_cv_nll
 from model.components.counterfact import Counterfactor
 from model.components.error_model_wrapper import WrappedErrorModel
 from model.strategies.abstract_strategy import AbstractStrategy
@@ -23,7 +24,7 @@ class ErrorModelStrategies(AbstractStrategy):
             device=self.device, error_model=torch.load(pfns4bo.bnn_model, weights_only=False)
         )
 
-        self.updated_prior_validation = self.counterfactor.__post_init__(
+        self.counterfactor.__post_init__(
             parent_model=self.parent_model,
             model=self.model,
             device=self.device,
@@ -121,18 +122,13 @@ class ErrorModelStrategies(AbstractStrategy):
         # x_test, related_context.x, (and if debug=True x_train) in the target task space
 
         # (Bayesian model averaging) -----------
-        # prior_predictions = convolved_logits[:-step]
-
-        # p(y|M_i) = p(y|M_i, D) p(D|M_i) but as logits!
-        # predictions = torch.concat([target_logits, prior_predictions], dim=1).to(self.device)
-
         query = x_test.shape[0]
         predictions = torch.cat(
             [target_logits[:query], projected_logits[:query]], dim=1
         ).to(self.device)
 
-        self.last_step_predictions = predictions
-        self.past_x_test = x_test
+        self.parent_model.interim_results['last_step_predictions'] = predictions
+        self.parent_model.interim_results['past_x_test'] = x_test
 
         if self.model_avg == 'project_eqw':  # equally weighted average
             # here we simply average the predictions over the projected prior with convolved
@@ -142,8 +138,9 @@ class ErrorModelStrategies(AbstractStrategy):
                 callback.on_final_weights(predictions, weights)
             return (predictions * weights.unsqueeze(-1)).sum(dim=1)
 
-        prior_weights, prior_evidence = self.updated_prior_validation(
+        prior_weights, prior_evidence = self.counterfactor(
             x_train=x_train,
+            y_error=y_error,
             y_train=y_train,
             related_context=self.related_context,
             imputed_y=imputed_y,
@@ -163,14 +160,12 @@ class ErrorModelStrategies(AbstractStrategy):
             plt.grid(True)
             plt.show()
 
-        # given the prior weights, we can now calculate the weighted average of the
-        # prior predictions:
-        # p(y|.) = \sum_i  p(y|M_i) p(M_i | D)
-        prior_prediction = (predictions[:, 1:] * prior_weights.unsqueeze(-1)).sum(dim=1)
-
         if self.model_avg == 'prior-mixture':
             # here we simply average the predictions over the related tasks
-            return prior_prediction
+            weights = torch.ones(self.num_related +1)
+            weights[0] = 0
+            weights[1:] = prior_weights
+
 
         if self.model_avg == 'bma-decay':
             # In this case we do
@@ -200,10 +195,13 @@ class ErrorModelStrategies(AbstractStrategy):
                 plt.show()
 
             weights = torch.cat([torch.tensor([alpha]), (1 - alpha) * prior_weights], dim=0)
+            self.logger.log(
+                {'metrics': 'weights', 'step': step,
+                 **{f'weight_{i}': w.item()
+                    for i, w in enumerate(weights)}},
+            )
             for callback in self.callbacks:
                 callback.on_final_weights(predictions, weights)
-
-            return alpha * predictions[:, 0] + (1 - alpha) * prior_prediction
 
         if self.model_avg == 'bma-cv-target':
             assert x_train.shape[0] >= 10, \
@@ -212,7 +210,7 @@ class ErrorModelStrategies(AbstractStrategy):
                 x_train.squeeze(1),
                 y_train.squeeze(1),
                 self.model,
-                self.criterion,
+                self.model.criterion,
                 splits=5,
                 random_state=42
             ).unsqueeze(0).to(self.device)
@@ -246,22 +244,21 @@ class ErrorModelStrategies(AbstractStrategy):
         if self.model_avg == 'past_surprise':
             # Here we look at the history of the respective model's predictions
             # and find out how each model (target and related) were surprised by the outcome
-            config_idx = x_train[-1, :, 0] == self.past_x_test[:, :, 0]
-            config = (x_train[-1, :, 2:] == self.past_x_test[:, :, 2:]).all(
-                dim=-1)  # ignore fidelity!
-            last_prediction = self.last_step_predictions[config_idx.flatten() & config.flatten(), :,
-            :]
+            config_idx = x_train[-1, :, 0] == self.parent_model.interim_results['past_x_test'][:, :, 0]
+            config = (x_train[-1, :, 2:] == self.parent_model.interim_results['past_x_test'[:, :, 2:]]).all(dim=-1)  # ignore fidelity!
+            last_prediction = self.last_step_predictions[config_idx.flatten() & config.flatten(), :, :]
 
             surprise = torch.stack([
-                self.criterion(last_prediction[:, b, :].squeeze(1), y_train[-1, :,])
+                self.model.criterion(last_prediction[:, b, :].squeeze(1), y_train[-1, :,])
                 for b in range(self.num_related + 1)
             ], dim=0).to(self.device).mean(dim=1)
 
-            self.past_surprises.append(surprise)
+            self.parent_model.interim_results['past_surprises'].append(surprise)
 
             # FIXME: we can adjust the surprise by how wrong the error model was and by how much
             #  we know better how the error looks like for this point now!
-            surprise = torch.stack(self.past_surprises, dim=0).mean(dim=0)
+            surprise = torch.stack(self.parent_model.interim_results['past_surprises'], dim=0).mean(
+                dim=0)
 
             # we will want to use the history of surprises
             weights = torch.softmax(-surprise, dim=-1)
