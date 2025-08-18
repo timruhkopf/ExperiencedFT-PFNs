@@ -1,5 +1,7 @@
 defaults:
   - ifbo
+  - initial_design@surrogate_model.cls.initial_design: maxpi
+  - strategy@surrogate_model.cls.strategy: error
 
 name: ppfn
 mf: True
@@ -12,18 +14,6 @@ surrogate_model:
 
   cls:
     _target_: src.model.abstractmodel.AbstractModel
-
-    initial_design:
-      _target_: src.model.initial_design.maxpi_initial_design.MaxPIInitialDesign
-      size: 10
-
-    strategy:
-      _target_: src.model.strategies.error_model.ErrorModelStrategies
-      model_avg: ppd_mixture_eqw
-      counterfactor:
-        _target_: src.model.components.counterfact.Counterfactor
-        counterfit: mc
-        n_mc: 5
 
     imputer:
       _target_: src.model.components.imputor.PriorImputer

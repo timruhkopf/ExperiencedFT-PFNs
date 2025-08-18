@@ -1,0 +1,2 @@
+# @package algorithm
+_target_: src.model.components.weights.PastSurpriseWeights

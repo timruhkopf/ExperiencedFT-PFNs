@@ -1,5 +1,9 @@
 defaults:
+
   - ifbo
+  - weights@surrogate_model.cls.weights: mean-weights
+  - strategy@surrogate_model.cls.strategy: joint-context
+  - initial_design@surrogate_model.cls.initial_design: maxpi
 
 name: ppfn
 mf: True
@@ -8,20 +12,10 @@ sh_based: False
 
 surrogate_model:
   meta:
-    name: 'error_ppfn'
+    name: 'ppfn-joint-context'
 
   cls:
     _target_: src.model.abstractmodel.AbstractModel
-
-    initial_design:
-      _target_: src.model.initial_design.maxpi_initial_design.MaxPIInitialDesign
-      size: 10
-
-    strategy:
-      _target_: src.model.strategies.meta_context.SplitMetaContextStrategy
-      imputer:
-        _target_: src.model.components.imputor.PriorImputer
-        imputation_mode: median
 
     imputer:
       _target_: src.model.components.imputor.PriorImputer

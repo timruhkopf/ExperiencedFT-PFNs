@@ -179,13 +179,7 @@ class ErrorModelStrategies(AbstractStrategy):
             #     plt.show()
 
             weights = torch.cat([torch.tensor([alpha]), (1 - alpha) * prior_weights], dim=0)
-            self.logger.log(
-                {'metrics': 'weights', 'step': step,
-                 **{f'weight_{i}': w.item()
-                    for i, w in enumerate(weights)}},
-            )
-            for callback in self.callbacks:
-                callback.on_final_weights(predictions, weights)
+
 
         if self.model_avg == 'bma-cv-target':
             assert x_train.shape[0] >= 10, \
@@ -200,11 +194,7 @@ class ErrorModelStrategies(AbstractStrategy):
             ).unsqueeze(0).to(self.device)
 
             weights = torch.softmax(-torch.cat([target_nll, prior_evidence]), dim=-1)
-            self.logger.log(
-                {'metrics': 'weights', 'step': step,
-                 **{f'weight_{i}': w.item()
-                    for i, w in enumerate(weights)}},
-            )
+
 
         if self.model_avg == 'bma':
             raise NotImplementedError(
@@ -235,11 +225,6 @@ class ErrorModelStrategies(AbstractStrategy):
 
             # we will want to use the history of surprises
             weights = torch.softmax(surprise, dim=-1)
-            self.logger.log(
-                {'metrics': 'weights', 'step': step,
-                 **{f'weight_{i}': w.item()
-                    for i, w in enumerate(weights)}},
-            )
 
         if self.model_avg == 'past_suprise_updated_error':
             # we take the best possible prediction, by retrospectively updating the predictions
@@ -248,6 +233,12 @@ class ErrorModelStrategies(AbstractStrategy):
             # access to the future and in turn will adversely bias
             # against the target task predictions, because it won't be updated
             pass
+
+        self.logger.log(
+            {'metrics': 'weights', 'step': step,
+             **{f'weight_{i}': w.item()
+                for i, w in enumerate(weights)}},
+        )
 
         for callback in self.callbacks:
             callback.on_final_weights(predictions, weights)

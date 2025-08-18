@@ -46,7 +46,6 @@ class Counterfactor:
 
             related_x = related_context.x
             query = x_train.repeat(1, self.num_related, 1)
-            n_mc = 1  # for compatability purposes
 
         elif self.counterfit == 'mc':
             from model.components.imputor import sample_logits

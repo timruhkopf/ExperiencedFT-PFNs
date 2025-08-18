@@ -113,6 +113,7 @@ class AbstractModel(IFBOInterface):
             model,
             device,
             related_task_data,
+            weights=None, # weight strategy
             imputer=None,
             callbacks=(),
             # **kwargs
@@ -133,6 +134,7 @@ class AbstractModel(IFBOInterface):
         self.initial_design = initial_design
         self.strategy = strategy
         self.imputer = imputer
+        self.weights = weights  # weight strategy,
         self.flippable_related = flippable
         self.logger = logger
 
@@ -222,6 +224,15 @@ class AbstractModel(IFBOInterface):
                 device=self.device
             )
 
+        if self.weights is not None:
+            self.weights.__post_init__(
+                parent_model=self,
+                model=self.model,
+                related_context=self.related_context,
+                logger=self.logger,
+                device=self.device
+            )
+
         self.initialized = True
 
     def _preprocess(self, x_train, y_train, x_test, inc, minimize=True):
@@ -269,6 +280,8 @@ class AbstractModel(IFBOInterface):
         x_train, y_train, x_test, inc, = \
             self._preprocess(x_train, y_train, x_test, inc, minimize=minimize)
 
+
+
         for callback in self.callbacks:
             callback.on_acq_start(x_train, y_train, x_test, inc)
 
@@ -304,6 +317,8 @@ class AbstractModel(IFBOInterface):
                 y_train=y_train,
                 inc=inc,
             )
+
+
 
             for callback in self.callbacks:
                 callback.on_acq_end_mixture(x_train, y_train, x_test, inc, predictions)

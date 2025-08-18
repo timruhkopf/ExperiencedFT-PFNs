@@ -2,6 +2,7 @@
 
 defaults:
   - benchmark: lcbench
+  - algorithm: ifbo-ppfn-context
   - override hydra/job_logging: full
   - _self_
 

@@ -1,8 +1,6 @@
 
 
 class AbstractStrategy:
-    def __init__(self):
-        pass
 
     def __post_init__(self, parent_model, model, related_context, callbacks, logger, device,
                       **kwargs):
@@ -15,5 +13,5 @@ class AbstractStrategy:
         self.device = device
         self.kwargs = kwargs
 
-    def __call__(self, x_train, x_test, y_train, inc):
+    def __call__(self, x_train, x_test, y_train, inc, *args, **kwargs):
         raise NotImplementedError('This method should be implemented in a subclass.')
