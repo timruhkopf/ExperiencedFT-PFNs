@@ -141,6 +141,48 @@ class Callback1dProjectionPFNContext(AbstractCallback):
                         mode='markers', marker=dict(size=2, color='red'),
                     ), row=2, col=prior_col)
 
+            # SURPRISE MODEL -----------------------------------------------------
+            if 'surprise_logits' in self.parent_model.interim_results.keys():
+                predictions = self.parent_model.interim_results['surprise_logits']
+                predictions = torch.stack(predictions, dim=0).squeeze()
+
+                # first on target task
+                target_predictions = predictions[:, 0, :]
+                target_predictions = self.model.criterion.median(target_predictions)
+                fig.add_trace(go.Scatter3d(
+                    x=x_train[:, 0, 1].cpu().numpy(),
+                    y=x_train[:, 0, 2].cpu().numpy(),
+                    z=target_predictions.cpu().numpy(),
+                    name='Final predictions',
+                    mode='markers',
+                    marker=dict(size=2, color='blue')
+                    # marker=dict(
+                    #     size=2,
+                    #     color=x_train[:, 0, 0].cpu().numpy(),  # Color by step
+                    #     colorscale='Viridis',  # Or any colorscale you like
+                    #     colorbar=dict(title='Step')
+                    # ),
+                ), row=1, col=1)
+
+                # then on meta-aware task
+                for b in range(self.num_related):
+                    prior_col = b + 2
+                    meta_task_predictions = predictions[:, b + 1, :]
+                    meta_task_predictions = self.model.criterion.median(meta_task_predictions)
+                    fig.add_trace(go.Scatter3d(
+                        x=x_train[:, 0, 1].cpu().numpy(),
+                        y=x_train[:, 0, 2].cpu().numpy(),
+                        z=meta_task_predictions.cpu().numpy(),
+                        name='Final predictions',
+                        mode='markers',
+                        marker=dict(size=2, color='blue')
+                        # marker=dict(
+                        #     size=2,
+                        #     color=x_train[:, 0, 0].cpu().numpy(),  # Color by step
+                        #     colorscale='Viridis',  # Or any colorscale you like
+                        #     colorbar=dict(title='Step')
+                        # ),
+                    ), row=2, col=prior_col)
 
             # TARGET DATA ------
             target_locations =  [(1, 1), (2, 1), *additional_target_locations]
@@ -162,7 +204,7 @@ class Callback1dProjectionPFNContext(AbstractCallback):
                 ), row=row, col=col)
 
             fig.update_layout(
-                height=1000, width=2000, title_text="Plotly Subplots Example",
+                height=2000, width=2000, title_text="Plotly Subplots Example",
                 scene1=dict(
                     xaxis_title='fidelity',
                     yaxis_title='lambda',

@@ -1,10 +1,15 @@
+import pfns4bo
 import torch
 import warnings
 import logging
 
 from model.components.calc_reliability import calc_target_cv_nll
+from model.components.ema_filter import ema_conv_causal
+from model.components.error_model_wrapper import WrappedErrorModel
+from model.components.map_binnings import project_probs_to_new_grid
 
 log = logging.getLogger(__name__)
+
 
 class AbstractWeights:
     """
@@ -59,6 +64,28 @@ class PriorWeights(AbstractWeights):
 class PastSurpriseWeights(AbstractWeights):
 
     def __call__(self, x_train, x_test, y_train, inc, recompute=False, *args, **kwargs) -> torch.Tensor:
+            self,
+            alpha=0.1,
+            bias_correction=True,
+            truncate=100
+    ):
+        self.ema_kwargs = {
+            'alpha': alpha,
+            'bias_correction': bias_correction,
+            'truncate': truncate
+        }
+        self.imputation_augmented = imputation_augmented
+    def __post_init__(self, related_context, device, logger, model, parent_model):
+        super().__post_init__(
+            related_context=related_context,
+            device=device,
+            logger=logger,
+            model=model,
+            parent_model=parent_model
+        )
+        self.parent_model.interim_results['surprise_logits'] = []
+    def __call__(self, x_train, x_test, y_train, inc, recompute=False, *args,
+                 **kwargs) -> torch.Tensor:
         """
         Here we look at the history of the respective model's predictions
         and find out how each model (target and related) were surprised by the outcome
@@ -74,18 +101,16 @@ class PastSurpriseWeights(AbstractWeights):
             warnings.warn('Detected no matching configuration in past_x_test. ')
             return torch.ones(self.num_related + 1, device=self.device) / (self.num_related + 1)
 
-
-
         if recompute:
             # we need to compute the last prediction
 
             last_target_prediction = self.model(
                 (
-                torch.cat(
-                    [x_train[:-1, :, :], past_x_test[config.squeeze(1), :, :]], dim=0
+                    torch.cat(
+                        [x_train[:-1, :, :], past_x_test[config.squeeze(1), :, :]], dim=0
+                    ),
+                    y_train[:-1, :]
                 ),
-                y_train[:-1, :]
-            ),
                 single_eval_pos=x_train.shape[0] - 1,
             )
 
@@ -97,31 +122,59 @@ class PastSurpriseWeights(AbstractWeights):
                 single_eval_pos=self.related_context.x.shape[0],
             )
             last_prediction = torch.cat(
-                [last_prior_prediction, last_target_prediction], dim=1
+                [last_target_prediction, projected_logits], dim=1
             )
 
         else:
             last_step_predictions = self.parent_model.interim_results['last_step_predictions']
             last_prediction = last_step_predictions[config.flatten(), :, :]
+        # for plotting purposes
+        self.parent_model.interim_results['surprise_logits'].append(last_prediction)
 
         surprise = torch.stack([
             self.model.criterion(last_prediction[:, b, :].squeeze(1), y_train[-1, :,])
             for b in range(self.num_related + 1)
         ], dim=0).to(self.device).mean(dim=1)
 
-        if 'surprise' not in self.parent_model.interim_results:
+        if 'past_surprises' not in self.parent_model.interim_results:
             self.parent_model.interim_results['past_surprises'] = []
 
         self.parent_model.interim_results['past_surprises'].append(surprise)
 
         # FIXME: we can adjust the surprise by how wrong the error model was and by how much
         #  we know better how the error looks like for this point now!
-        surprise = torch.stack(self.parent_model.interim_results['past_surprises'], dim=0).mean(
-            dim=0)
+        surprises = torch.stack(self.parent_model.interim_results['past_surprises'], dim=0).to(
+            self.device)
+
+        surprises = ema_conv_causal(surprises, **self.ema_kwargs)
 
         # we will want to use the history of surprises
-        weights = torch.softmax(surprise, dim=-1)
+        weights = torch.softmax(-surprises[-1], dim=-1)
         return weights
+
+    def plot(self, ax=None, show=True):
+        """
+        Plot the past surprises.
+        """
+        import matplotlib.pyplot as plt
+
+        if ax is None:
+            fig, ax = plt.subplots()
+
+        past_surprises = torch.stack(self.parent_model.interim_results['past_surprises'],
+                                     dim=0).cpu()
+        surprises = ema_conv_causal(past_surprises, **self.ema_kwargs)
+        weights = torch.softmax(-surprises, dim=-1).cpu().numpy()
+        ax.plot(weights)
+        ax.set_title('Past Surprises')
+        ax.set_xlabel('Step')
+        ax.set_ylabel('weight')
+
+        ax.legend([f'Model {i}' for i in range(self.num_related + 1)])
+
+        if show:
+            plt.show()
+        return ax
 
 
 class _CounterfactualPriorWeights(AbstractWeights):

@@ -10,6 +10,7 @@ from pfns4bo.bar_distribution import BarDistribution
 import logging
 
 from model.components.conv import batch_convolve_distributions
+from model.components.map_binnings import make_kernel_grid, project_probs_to_new_grid
 
 logger = logging.getLogger(__name__)
 
@@ -64,78 +65,31 @@ class WrappedErrorModel:
         )
 
         if self.error_model.criterion.borders.shape !=  self.target_borders.shape \
-            or not torch.all(self.error_model.criterion.borders == self.target_borders):
+                or not torch.all(self.error_model.criterion.borders == self.target_borders):
 
-            # # scaling here affects the size of the kernel and the cost of the conv.
-            # left = min(self.error_model.criterion.icdf(error_logits[:, 0, :], 0.01))
-            # right = max(self.error_model.criterion.icdf(error_logits[:, 0, :], 0.99))
 
-            # We computed the same step length as the target borders for the kernel_grid,
-            # so now we can compute the fractional overlap of the error model's bins
-            # with those of the kernel_grid.
-            # Later, we will convolve the error model's probabilities with the
-            # kernel_grid.
-            left = self.error_model.criterion.borders[0]
-            right = self.error_model.criterion.borders[-1]
+            kernel_grid = make_kernel_grid(
+                error_borders=self.error_borders,
+                target_borders=self.target_borders,
+                device=self.device,
+                round_decimals=3
+            )
 
-            step = self.target_borders[1] - self.target_borders[0]
-            rounded_left = torch.round(left, decimals=3).to(self.device)
-            kernel_grid = torch.arange(rounded_left, right + step, step).to(self.device)
-            # else:
-            #     # map onto 0.1
-            #     # 4) define the target borders we want to use for convolution
-            #     step = self.target_borders[1] - self.target_borders[0]
-            #     kernel_grid = torch.arange(1 + step.item(), step.item())
-
-            def build_coverage_matrix(E1, E2):
-                """
-                E1: 1D torch tensor of sorted bin edges for the first binning (len n1+1)
-                E2: 1D torch tensor of sorted bin edges for the second binning (len n2+1)
-                Returns: (n1 x n2) tensor M where M[i, j] is the fraction of first-bin i
-                         covered by second-bin j.
-                """
-                if torch.any(E1[1:] <= E1[:-1]) or torch.any(E2[1:] <= E2[:-1]):
-                    raise ValueError("Edges must be strictly increasing.")
-
-                # Bin starts/ends
-                a1, b1 = E1[:-1], E1[1:]
-                a2, b2 = E2[:-1], E2[1:]
-
-                # Broadcast to compute pairwise overlaps
-                left = torch.maximum(a1[:, None], a2[None, :])
-                right = torch.minimum(b1[:, None], b2[None, :])
-                overlap = torch.clamp(right - left, min=0.0)
-
-                lengths1 = (b1 - a1)[:, None]  # shape: (n1, 1)
-                M = overlap / lengths1
-                return M
-
-            overlap = build_coverage_matrix(
+            # TODO: since we always have the same border mapping, we could cache the overlap matrix
+            error_logits = project_probs_to_new_grid(
+                error_logits,
                 self.error_borders,
-                kernel_grid,
+                kernel_grid=kernel_grid,
+                return_logits=True
             )
-
-            # now we can redistribute the probabilities of the error model
-            # onto the new grid:
-            error_probs = torch.softmax(error_logits, dim=-1)
-            error_probs = torch.matmul(
-                error_probs, overlap
-            )
-
-            error_logits = torch.log(error_probs.clamp(min=1e-12))
-
-            # error_probs_kernel = project_probs_to_common_bins_batch(
-            #     F.softmax(error_logits, dim=-1),
-            #     self.error_model.criterion.borders,
-            #     kernel_grid
-            # )
 
             self.error_model.criterion.borders = kernel_grid
             self.error_model.criterion.bucket_widths = kernel_grid[1:] - kernel_grid[:-1]
 
         else:
-            error_probs = torch.softmax(error_logits, dim=-1)
             kernel_grid = self.target_borders
+
+        error_probs = torch.softmax(error_logits, dim=-1)
 
         return error_probs, kernel_grid, error_logits
 
