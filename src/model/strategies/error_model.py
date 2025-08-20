@@ -15,49 +15,6 @@ class ErrorModelStrategies(AbstractStrategy):
 
         self.err_model = torch.load(pfns4bo.bnn_model, weights_only=False)
 
-    def get_target_model(self, x_test, x_train, y_train):
-        return self.model(
-            (
-                torch.cat([x_train, x_test], dim=0),
-                y_train
-            ),
-            single_eval_pos=x_train.shape[0],
-            src_key_padding_mask=None
-        )
-
-    def get_prior_model(self, x_test):
-        return self.model(
-            (
-                torch.cat([
-                    self.related_context.x,
-                    x_test,
-                ], dim=0),
-                self.related_context.y
-            ),
-            single_eval_pos=self.related_context.x.shape[0],
-        )
-
-    def get_imputation_augmented_prior(self, x_train, x_test, imputed_y):
-
-        return self.model(
-            (
-                torch.cat([
-                    # train
-                    self.related_context.x,
-                    x_train.repeat(1, self.num_related, 1),
-
-                    # Query
-                    x_test.repeat(1, self.num_related, 1),
-                ], dim=0),
-                torch.cat([self.related_context.y, imputed_y, ], dim=0)
-            ),
-            single_eval_pos=self.related_context.x.shape[0] + x_train.shape[0],
-            # src_key_padding_mask=torch.cat([
-            #     padding_mask,
-            #     torch.zeros(self.num_related, x_train.shape[0], dtype=torch.bool).to(self.device)
-            # ], dim=1)
-        )
-
     def get_error_model(self, x_train, y_error, x_test, padding=None):
         """
         Get the error model predictions for the given training and test data.
@@ -94,7 +51,7 @@ class ErrorModelStrategies(AbstractStrategy):
 
         # Create a partial that fixes all arguments except x_test
         target_model = partial(
-            self.get_target_model,
+            self.parent_model.get_target_model,
             x_train=x_train, y_train=y_train
         )
         target_logits = target_model(x_test=x_test)
@@ -102,7 +59,7 @@ class ErrorModelStrategies(AbstractStrategy):
         # (Collect prior logits) -------------------------------------------
         # CAREFUL: here we also do the query forward for the evidence
         imputation_augmented_prior = partial(
-            self.get_imputation_augmented_prior,
+            self.parent_model.get_imputation_augmented_prior,
             x_train=x_train, imputed_y=imputed_y
         )
         imputation_augmented_prior_logits = imputation_augmented_prior(x_test=x_test)
@@ -137,7 +94,7 @@ class ErrorModelStrategies(AbstractStrategy):
             'imputation_augmented_prior': imputation_augmented_prior,
             'raw_error_model': error_model,
             'raw_error_criterion': self.err_model.criterion,
-            'prior_model': self.get_prior_model,
+            'prior_model': self.parent_model.get_prior_model,
             'y_error': y_error,
             'imputed_y': imputed_y,
         })  # for plotting purposes

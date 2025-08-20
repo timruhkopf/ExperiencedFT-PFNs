@@ -1,6 +1,24 @@
 import torch
 
 
+import functools
+import hashlib
+import torch
+
+def tensor_hash(tensor: torch.Tensor) -> str:
+    return hashlib.sha256(tensor.cpu().numpy().tobytes()).hexdigest()
+
+def cache_with_tensor_hash(func):
+    cache = {}
+    @functools.wraps(func)
+    def wrapper(E1, E2):
+        key = (tensor_hash(E1), tensor_hash(E2))
+        if key not in cache:
+            cache[key] = func(E1, E2)
+        return cache[key]
+    return wrapper
+
+@cache_with_tensor_hash
 def build_coverage_matrix(E1: torch.Tensor, E2: torch.Tensor) -> torch.Tensor:
     """
     Compute fractional overlap of bins defined by two sets of edges.
