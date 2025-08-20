@@ -23,7 +23,8 @@ class DistributionConvolver:
         logits.scatter_(-1, idx.unsqueeze(-1), 0.0)  # δ(y - y_obs)
         return logits
 
-    def convolve(self, A_logits, borders_A, B_logits, borders_B, reverse=False, padding=None):
+    def convolve(self, A_logits, borders_A, B_logits, borders_B, reverse=False,
+                 target_borders=None, padding=None):
         """
         Convolve two probability distributions (possibly on different grids).
 
@@ -141,6 +142,15 @@ class DistributionConvolver:
             centers_conv[:-1] + delta,
             centers_conv[-1:] + delta[-1:]
         ])
+
+        if target_borders is not None:
+            convolved_logits = project_probs_to_new_grid(
+                convolved_logits,
+                borders_conv,
+                target_borders,
+                return_logits=True
+            )
+            borders_conv = target_borders
 
         return convolved_logits, BarDistribution(borders=borders_conv)
 

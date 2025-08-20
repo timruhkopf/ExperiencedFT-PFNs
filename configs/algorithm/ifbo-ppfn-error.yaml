@@ -2,6 +2,7 @@ defaults:
   - ifbo
   - initial_design@surrogate_model.cls.initial_design: maxpi
   - strategy@surrogate_model.cls.strategy: error
+  - weights@surrogate_model.cls.weights: past-surprise
 
 name: ppfn
 mf: True

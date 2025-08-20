@@ -1,7 +1,2 @@
 
 _target_: src.model.strategies.error_model.ErrorModelStrategies
-model_avg: ppd_mixture_eqw
-counterfactor:
-  _target_: src.model.components.counterfact.Counterfactor
-  counterfit: mc
-  n_mc: 5

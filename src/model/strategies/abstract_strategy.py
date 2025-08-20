@@ -12,6 +12,7 @@ class AbstractStrategy:
         self.logger = logger
         self.device = device
         self.kwargs = kwargs
+        self.parent_model.interim_results.update(dict(past_surprises=[]))
 
     def __call__(self, x_train, x_test, y_train, inc, *args, **kwargs):
         raise NotImplementedError('This method should be implemented in a subclass.')
