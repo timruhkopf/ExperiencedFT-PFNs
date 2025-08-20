@@ -65,6 +65,12 @@ def make_kernel_grid(error_borders: torch.Tensor,
     """
     left = error_borders[0]
     right = error_borders[-1]
+
+    # now ensure we have a symmetric grid
+    max_range =  torch.max(torch.abs(left), torch.abs(right) )
+    left = -max_range
+    right = max_range
+
     step = target_borders[1] - target_borders[0]
     rounded_left = torch.round(left, decimals=round_decimals).to(device)
 

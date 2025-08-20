@@ -1,4 +1,3 @@
-import math
 from copy import deepcopy
 
 import pfns4bo
@@ -9,8 +8,8 @@ from pfns4bo.bar_distribution import BarDistribution
 
 import logging
 
-from model.components.conv import batch_convolve_distributions
-from model.components.map_binnings import make_kernel_grid, project_probs_to_new_grid
+from model.probability_conv.conv import batch_convolve_distributions
+from model.probability_conv.map_binnings import make_kernel_grid, project_probs_to_new_grid
 
 logger = logging.getLogger(__name__)
 

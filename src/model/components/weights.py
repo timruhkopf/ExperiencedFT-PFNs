@@ -6,7 +6,7 @@ import logging
 from model.components.calc_reliability import calc_target_cv_nll
 from model.components.ema_filter import ema_conv_causal
 from model.components.error_model_wrapper import WrappedErrorModel
-from model.components.map_binnings import project_probs_to_new_grid
+from model.probability_conv.map_binnings import project_probs_to_new_grid
 
 log = logging.getLogger(__name__)
 
@@ -63,8 +63,10 @@ class PriorWeights(AbstractWeights):
 
 class PastSurpriseWeights(AbstractWeights):
 
-    def __call__(self, x_train, x_test, y_train, inc, recompute=False, *args, **kwargs) -> torch.Tensor:
+    def __init__(
             self,
+            err_model='ft-pfn',
+            imputation_augmented=False,
             alpha=0.1,
             bias_correction=True,
             truncate=100
@@ -75,6 +77,8 @@ class PastSurpriseWeights(AbstractWeights):
             'truncate': truncate
         }
         self.imputation_augmented = imputation_augmented
+        self.err_model = err_model
+
     def __post_init__(self, related_context, device, logger, model, parent_model):
         super().__post_init__(
             related_context=related_context,
@@ -83,7 +87,15 @@ class PastSurpriseWeights(AbstractWeights):
             model=model,
             parent_model=parent_model
         )
+        self.error_model = WrappedErrorModel(
+            target_criterion=self.model.criterion,
+            device=self.device,
+            error_model=torch.load(pfns4bo.bnn_model, weights_only=False) \
+                if self.err_model == 'bnn' else self.model,
+        )
+
         self.parent_model.interim_results['surprise_logits'] = []
+
     def __call__(self, x_train, x_test, y_train, inc, recompute=False, *args,
                  **kwargs) -> torch.Tensor:
         """
@@ -113,14 +125,56 @@ class PastSurpriseWeights(AbstractWeights):
                 ),
                 single_eval_pos=x_train.shape[0] - 1,
             )
+            imputed_y = self.parent_model.interim_results['imputed_y']
 
-            last_prior_prediction = self.model(
-                (torch.cat(
-                    [self.related_context.x,
-                     past_x_test[config.squeeze(1), :, :].repeat(1, self.num_related, 1)], dim=0),
-                 self.related_context.y),
-                single_eval_pos=self.related_context.x.shape[0],
+            if self.imputation_augmented:
+                last_prior_prediction = self.model(
+                    (
+                        torch.cat([
+                            # train
+                            self.related_context.x,
+                            x_train.repeat(1, self.num_related, 1),
+
+                            # Query
+                            past_x_test[config.squeeze(1), :, :].repeat(1, self.num_related, 1),
+                        ], dim=0),
+                        torch.cat([self.related_context.y, imputed_y, ], dim=0)
+                    ),
+                    single_eval_pos=self.related_context.x.shape[0] + x_train.shape[0],
+
+                )
+            else:
+                last_prior_prediction = self.model(
+                    (torch.cat(
+                        [self.related_context.x,
+                         past_x_test[config.squeeze(1), :, :].repeat(1, self.num_related, 1)],
+                        dim=0),
+                     self.related_context.y),
+                    single_eval_pos=self.related_context.x.shape[0],
+                )
+
+            if self.err_model == 'bnn':
+                x = x_train[:, :, 1:]
+                x_t = past_x_test[config.squeeze(1), :, 1:]
+            else:
+                x = x_train
+                x_t = past_x_test[config.squeeze(1), :, :]
+
+            y_error = y_train.repeat(1, self.num_related) - imputed_y
+            projected_logits, error_logits, convolved_criterion = (
+                self.error_model.convolve_probs_with_error(
+                    logits=last_prior_prediction,
+                    logits_borders=self.model.criterion.borders,
+                    x_train=x.repeat(1, self.num_related, 1),
+                    x_test=x_t.repeat(1, self.num_related, 1),
+                    y_error=y_error
+                ))
+
+            projected_logits = project_probs_to_new_grid(
+                projected_logits, convolved_criterion.borders, self.model.criterion.borders,
+                return_logits=True
             )
+
             last_prediction = torch.cat(
                 [last_target_prediction, projected_logits], dim=1
             )
@@ -128,8 +182,10 @@ class PastSurpriseWeights(AbstractWeights):
         else:
             last_step_predictions = self.parent_model.interim_results['last_step_predictions']
             last_prediction = last_step_predictions[config.flatten(), :, :]
+
         # for plotting purposes
         self.parent_model.interim_results['surprise_logits'].append(last_prediction)
+        self.parent_model.interim_results['error_logits'] = error_logits
 
         surprise = torch.stack([
             self.model.criterion(last_prediction[:, b, :].squeeze(1), y_train[-1, :,])
