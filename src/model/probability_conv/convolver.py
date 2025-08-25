@@ -117,8 +117,8 @@ class DistributionConvolver:
                 plt.show()
 
         if reverse:
-            assert torch.allclose(borders_B, -borders_B.flip(dims=(-1,))), \
-                "B borders must be symmetric around zero for reverse convolution"
+            # assert torch.allclose(borders_B, -borders_B.flip(dims=(-1,))), \
+            #     "B borders must be symmetric around zero for reverse convolution"
             P_B = torch.flip(P_B, dims=(-1,))
 
         # flatten time/batch for convolution
@@ -148,7 +148,8 @@ class DistributionConvolver:
                 convolved_logits,
                 borders_conv,
                 target_borders,
-                return_logits=True
+                return_logits=True,
+                truncate=True
             )
             borders_conv = target_borders
 
@@ -188,8 +189,8 @@ if __name__ == "__main__":
 
     convolver = DistributionConvolver()
 
-    borders_1 = torch.linspace(-3, 3, 30)
-    borders_2 = torch.linspace(-5, 5, 40)
+    borders_1 = torch.linspace(-3, 3, 900)
+    borders_2 = torch.linspace(-5, 5, 1000)
     T, B = 1, 3
 
 

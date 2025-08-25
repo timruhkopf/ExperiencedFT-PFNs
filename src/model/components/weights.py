@@ -6,6 +6,7 @@ import logging
 from model.components.calc_reliability import calc_target_cv_nll
 from model.components.ema_filter import ema_conv_causal
 from model.components.error_model_wrapper import WrappedErrorModel
+from model.probability_conv.convolver import DistributionConvolver
 from model.probability_conv.map_binnings import project_probs_to_new_grid
 
 log = logging.getLogger(__name__)
@@ -61,12 +62,43 @@ class PriorWeights(AbstractWeights):
         return weights
 
 
+def override_call_decorator(func):
+    def wrapper(x_train, x_test, *args, **kwargs):
+        n_x_test = x_test.shape[0]
+
+        # we must consider, that we ask for the next fidelity of seen configurations
+        train = x_train.clone()
+        min_fidelity = train[:, :, 1].min()
+        train[:, :, 1] += min_fidelity
+
+        # we need to also consider, that in x_test we ask unseen configurations
+        test = x_test.clone()
+        test[:, :, 1] = min_fidelity
+
+        # METHOD OVERRIDE!
+        result_logits = func(
+            x_train=x_train,
+            x_test=torch.cat([x_test, train, test], dim=0) ,
+                   *args, **kwargs
+        )
+        test_logits = result_logits[:n_x_test, :, :]
+        lookahead_logits = result_logits[n_x_test:, :, :]
+
+        # gain access to the parent model
+        self = getattr(func, '__self__', None)
+        self.parent_model.interim_results.update({
+            f'last-{func.__name__}-lookahead' : lookahead_logits,
+            f'x_lookahead': torch.cat([train[:, 0:1, :], test[:, 0:1, :]],dim=0)
+
+        })
+
+        return test_logits
+    return wrapper
+
 class PastSurpriseWeights(AbstractWeights):
 
     def __init__(
             self,
-            err_model='ft-pfn',
-            imputation_augmented=False,
             alpha=0.1,
             bias_correction=True,
             truncate=100
@@ -76,8 +108,7 @@ class PastSurpriseWeights(AbstractWeights):
             'bias_correction': bias_correction,
             'truncate': truncate
         }
-        self.imputation_augmented = imputation_augmented
-        self.err_model = err_model
+
 
     def __post_init__(self, related_context, device, logger, model, parent_model):
         super().__post_init__(
@@ -87,14 +118,51 @@ class PastSurpriseWeights(AbstractWeights):
             model=model,
             parent_model=parent_model
         )
-        self.error_model = WrappedErrorModel(
-            target_criterion=self.model.criterion,
-            device=self.device,
-            error_model=torch.load(pfns4bo.bnn_model, weights_only=False) \
-                if self.err_model == 'bnn' else self.model,
-        )
 
-        self.parent_model.interim_results['surprise_logits'] = []
+        # for efficiency reasons, we decorate the model call to compute the one step lookahead
+        # logits, so we can have a check what we believed about y for the next step.
+        self.parent_model.strategy.get_target_model = override_call_decorator(
+            self.parent_model.strategy.get_target_model
+        )
+        self.parent_model.strategy.get_imputation_augmented_prior = override_call_decorator(
+            self.parent_model.strategy.get_imputation_augmented_prior
+        )
+        if hasattr(self.parent_model.strategy, 'get_error_model'):
+            self.parent_model.strategy.get_error_model = override_call_decorator(
+                self.parent_model.strategy.get_error_model
+            )
+        else:
+            raise NotImplementedError("Error Model not available")
+
+        self.parent_model.interim_results.update({
+            'surprise_logits': [],
+            'surprise_x': [],
+            'surprises_nll': [],
+            'last_step_logits': None,
+            'past_x_test': None,
+
+        })
+
+    @staticmethod
+    def find_extra_row_index(A, B):
+        """
+        Find the row not present in B, assuming A has exactly one extra row,
+        whose location is unkown.
+
+        :example:
+            i=3
+            A=torch.randn(10,3)
+            B = torch.cat([A.clone()[:i, :], torch.ones(1, 3), A.clone()[i:, :]])
+            assert i == find_extra_row_index(B,A)
+        :param A:
+        :param B:
+        :return:
+        """
+        a = set(tuple(v) for v in A.tolist())
+        b = set(tuple(v) for v in B.tolist())
+        new_idx = torch.tensor(list(b.difference(a)))
+
+        return torch.where((B == new_idx).all(dim=-1).flatten())[0].item()
 
     def __call__(self, x_train, x_test, y_train, inc, recompute=False, *args,
                  **kwargs) -> torch.Tensor:
@@ -102,110 +170,117 @@ class PastSurpriseWeights(AbstractWeights):
         Here we look at the history of the respective model's predictions
         and find out how each model (target and related) were surprised by the outcome
         """
+        interim_results = self.parent_model.interim_results
 
-        # find out which x belongs to the last prediction
-        past_x_test = self.parent_model.interim_results['past_x_test']
-        config_idx = x_train[-1, :, 0] == past_x_test[:, :, 0]
-        config = (x_train[-1, :, 2:] == past_x_test[:, :, 2:]).all(dim=-1)  # ignore fidelity!
+        target_lookahead = interim_results['last-get_target_model-lookahead']
+        imp_aug_lookahead = interim_results['last-get_imputation_augmented_prior-lookahead']
+        error_logits = interim_results['last-get_error_model-lookahead']
 
-        if not config.any():
-            log.warning('Detected no matching configuration in past_x_test. ')
-            warnings.warn('Detected no matching configuration in past_x_test. ')
-            return torch.ones(self.num_related + 1, device=self.device) / (self.num_related + 1)
+        # find out where x_train[-1, :, 0] is in x_lookahead
 
-        if recompute:
-            # we need to compute the last prediction
+        new_x = self.find_extra_row_index(
+            self.parent_model.interim_results['last-x_train'][:,0,:],
+            x_train[:,0,:],
+        )
 
-            last_target_prediction = self.model(
-                (
-                    torch.cat(
-                        [x_train[:-1, :, :], past_x_test[config.squeeze(1), :, :]], dim=0
-                    ),
-                    y_train[:-1, :]
-                ),
-                single_eval_pos=x_train.shape[0] - 1,
-            )
-            imputed_y = self.parent_model.interim_results['imputed_y']
 
-            if self.imputation_augmented:
-                last_prior_prediction = self.model(
-                    (
-                        torch.cat([
-                            # train
-                            self.related_context.x,
-                            x_train.repeat(1, self.num_related, 1),
+        x_lookahead = interim_results['x_lookahead']
+        config_idx = (x_train[new_x] == x_lookahead[:, 0, :]).all(dim=-1).flatten()
 
-                            # Query
-                            past_x_test[config.squeeze(1), :, :].repeat(1, self.num_related, 1),
-                        ], dim=0),
-                        torch.cat([self.related_context.y, imputed_y, ], dim=0)
-                    ),
-                    single_eval_pos=self.related_context.x.shape[0] + x_train.shape[0],
-
-                )
-            else:
-                last_prior_prediction = self.model(
-                    (torch.cat(
-                        [self.related_context.x,
-                         past_x_test[config.squeeze(1), :, :].repeat(1, self.num_related, 1)],
-                        dim=0),
-                     self.related_context.y),
-                    single_eval_pos=self.related_context.x.shape[0],
+        try:
+            projected_logits, projected_criterion = \
+                DistributionConvolver().to(self.device).convolve(
+                    A_logits=imp_aug_lookahead[config_idx, : ,:],
+                    borders_A=self.model.criterion.borders,
+                    B_logits=error_logits[config_idx, : ,:],
+                    borders_B=self.parent_model.strategy.err_model.criterion.borders,
+                    reverse=False,  # we convolve the error model with the prior
+                    target_borders=self.model.criterion.borders,
+                    padding=None  # no padding needed here
                 )
 
-            if self.err_model == 'bnn':
-                x = x_train[:, :, 1:]
-                x_t = past_x_test[config.squeeze(1), :, 1:]
-            else:
-                x = x_train
-                x_t = past_x_test[config.squeeze(1), :, :]
+            # import torch
+            # import matplotlib.pyplot as plt
+            # import seaborn as sns
+            #
+            # batch_size = imp_aug_lookahead.shape[1]  # 2 (batch dimension)
+            # logit_dim = imp_aug_lookahead.shape[2]  # 1000 (logits dimension)
+            #
+            # fig, axes = plt.subplots(1, batch_size, figsize=(12, 5), squeeze=False)
+            #
+            # # Apply softmax function along last dimension (dim=2)
+            # imp_aug_soft = torch.softmax(imp_aug_lookahead, dim=2)
+            # error_soft = torch.softmax(error_logits, dim=2)
+            # proj_soft = torch.softmax(projected_logits, dim=2)
+            #
+            # err_med = self.parent_model.strategy.err_model.criterion.median(error_logits)
+            # aug_med = self.model.criterion.median(imp_aug_lookahead)
+            # proj_med =self.model.criterion.median(projected_logits)
+            #
+            # for b in range(batch_size):
+            #     ax = axes[0, b]
+            #     # Select the batch distributions (1 x batch x logits)
+            #     imp_aug_probs = imp_aug_soft[0, b, :].cpu().numpy()
+            #     error_probs = error_soft[0, b, :].cpu().numpy()
+            #     proj_probs = proj_soft[0, b, :].cpu().numpy()
+            #
+            #     # Optional: Use borders as bin edges for histogram
+            #     borders = self.model.criterion.borders.cpu().numpy()  # shape: (1001,)
+            #
+            #     # Plot distribution curves as KDE or histograms
+            #     sns.lineplot(x=borders[:-1], y=imp_aug_probs, label='imp_aug', ax=ax, color='blue')
+            #     sns.lineplot(x=self.parent_model.strategy.err_model.criterion.borders[:-1],
+            #                  y=error_probs, label='error', ax=ax, color='red')
+            #     sns.lineplot(x=borders[:-1], y=proj_probs, label='projected', ax=ax, color='green')
+            #
+            #     ax.set_title(f'Batch {b}')
+            #     ax.set_xlabel('Logits bins')
+            #     ax.set_ylabel('Probability')
+            #     ax.legend()
+            #     # ax.set_xlim(0, 1)
+            #
+            # plt.tight_layout()
+            # plt.show()
 
-            y_error = y_train.repeat(1, self.num_related) - imputed_y
-            projected_logits, error_logits, convolved_criterion = (
-                self.error_model.convolve_probs_with_error(
-                    logits=last_prior_prediction,
-                    logits_borders=self.model.criterion.borders,
-                    x_train=x.repeat(1, self.num_related, 1),
-                    x_test=x_t.repeat(1, self.num_related, 1),
-                    y_error=y_error
-                ))
+            last_logits = torch.cat(
+                [target_lookahead[config_idx,:,:], projected_logits], dim=1
+            ).to(self.device)
+            interim_results['surprise_logits'].append(last_logits)
+            interim_results['surprise_x'].append(x_train[new_x].cpu().squeeze())
 
-            projected_logits = project_probs_to_new_grid(
-                projected_logits, convolved_criterion.borders, self.model.criterion.borders,
-                return_logits=True
+            logits = torch.stack(interim_results['surprise_logits'], dim=0).to(
+                self.device).squeeze()
+
+            probs = torch.softmax(logits, dim=-1)
+
+            samples = self.model.criterion.median(logits)
+
+            surprise = torch.stack([
+                self.model.criterion(last_logits[:, b, :].squeeze(1), y_train[new_x, :,])
+                for b in range(self.num_related + 1)
+            ], dim=0).to(self.device).mean(dim=1)
+
+            interim_results['surprises_nll'].append(surprise)
+
+            # FIXME: we can adjust the surprise by how wrong the error model was and by how much
+            #  we know better how the error looks like for this point now!
+        except Exception as e:
+            # this usually is a rare conv error
+            log.error(f"Error while computing past surprises: {e}")
+            warnings.warn(
+                "Error while computing past surprises, returning uniform weights.",
+                UserWarning
             )
 
-            last_prediction = torch.cat(
-                [last_target_prediction, projected_logits], dim=1
-            )
-
-        else:
-            last_step_predictions = self.parent_model.interim_results['last_step_predictions']
-            last_prediction = last_step_predictions[config.flatten(), :, :]
-
-        # for plotting purposes
-        self.parent_model.interim_results['surprise_logits'].append(last_prediction)
-        self.parent_model.interim_results['error_logits'] = error_logits
-
-        surprise = torch.stack([
-            self.model.criterion(last_prediction[:, b, :].squeeze(1), y_train[-1, :,])
-            for b in range(self.num_related + 1)
-        ], dim=0).to(self.device).mean(dim=1)
-
-        if 'past_surprises' not in self.parent_model.interim_results:
-            self.parent_model.interim_results['past_surprises'] = []
-
-        self.parent_model.interim_results['past_surprises'].append(surprise)
-
-        # FIXME: we can adjust the surprise by how wrong the error model was and by how much
-        #  we know better how the error looks like for this point now!
-        surprises = torch.stack(self.parent_model.interim_results['past_surprises'], dim=0).to(
+        surprises = torch.stack(interim_results['surprises_nll'], dim=0).to(
             self.device)
 
         surprises = ema_conv_causal(surprises, **self.ema_kwargs)
 
         # we will want to use the history of surprises
         weights = torch.softmax(-surprises[-1], dim=-1)
+
+        self.parent_model.interim_results['last-x_train'] = x_train.cpu()
         return weights
 
     def plot(self, ax=None, show=True):
@@ -217,12 +292,12 @@ class PastSurpriseWeights(AbstractWeights):
         if ax is None:
             fig, ax = plt.subplots()
 
-        past_surprises = torch.stack(self.parent_model.interim_results['past_surprises'],
+        past_surprises = torch.stack(self.parent_model.interim_results['surprises_nll'],
                                      dim=0).cpu()
         surprises = ema_conv_causal(past_surprises, **self.ema_kwargs)
         weights = torch.softmax(-surprises, dim=-1).cpu().numpy()
         ax.plot(weights)
-        ax.set_title('Past Surprises')
+        ax.set_title('surprises_nll')
         ax.set_xlabel('Step')
         ax.set_ylabel('weight')
 

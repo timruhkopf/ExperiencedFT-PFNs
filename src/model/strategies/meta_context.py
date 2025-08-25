@@ -1,3 +1,5 @@
+from functools import partial
+
 import torch
 
 from model.strategies.abstract_strategy import AbstractStrategy
@@ -31,21 +33,8 @@ class SplitMetaContextStrategy(AbstractStrategy):
             logger=self.logger,
             device=self.device
         )
-    def __call__(self, x_train, x_test, y_train, inc):
-        """
 
-        This strategy uses imputed y values under the prior and concatenates them to the
-        x_train and x_test, but it only ever uses a single related task at a time.
-        We abuse the batch dim to do it concurrently for all related tasks.
-
-        # FIXME: DISADVANTAGE: WE CAN ONLY USE 10 DIMENSIONS IN TOTAL FOR THE INPUT FEATURES.
-        # GIVEN THAT THE HP ALSO OCCUPY THIS SPACE, WE CAN ONLY USE 10 - HP_DIMENSIONS
-        # FOR THE RELATED TASKS.
-
-        """
-        imputed_y = self.parent_model.interim_results['imputed_y']
-        step = x_train.shape[0]
-
+    def get_prior_augmented_target_model(self, x_train, x_test,  y_train):
         # how does x_test look under the related tasks?
         imputed_y_test = self.imputer(
             x_train=self.related_context.x,
@@ -57,6 +46,7 @@ class SplitMetaContextStrategy(AbstractStrategy):
              f'{imputed_y_test.shape[-1]}:imputed_y_test > 10.\n'
              'Recommendation: reduce the number of priors!')
 
+        imputed_y = self.parent_model.interim_results['imputed_y']
 
         # Here we concatenate one imputed prior value to the HP dimension, but repeat it for all related tasks.
         features = torch.concat(
@@ -65,7 +55,7 @@ class SplitMetaContextStrategy(AbstractStrategy):
         features_test = torch.concat(
             [x_test.repeat(1, self.num_related, 1), imputed_y_test.unsqueeze(-1)], dim=-1
         )
-        prior_logits = self.model(
+        return self.model(
             (
                 torch.cat([features, features_test]),
                 y_train.repeat(1, self.num_related)
@@ -73,22 +63,36 @@ class SplitMetaContextStrategy(AbstractStrategy):
             single_eval_pos=x_train.shape[0],
             # src_key_padding_mask=padding_mask
         )
-        target_logits = self.model(
-            (
-                torch.cat([x_train, x_test], dim=0),
-                y_train
-            ),
-            single_eval_pos=x_train.shape[0],
-            # src_key_padding_mask=padding_mask
-        )
+
+    def __call__(self, x_train, x_test, y_train, inc):
+        """
+
+        This strategy uses imputed y values under the prior and concatenates them to the
+        x_train and x_test, but it only ever uses a single related task at a time.
+        We abuse the batch dim to do it concurrently for all related tasks.
+
+        """
+
+        step = x_train.shape[0]
+
+        prior_augmented_target_model = self.get_prior_augmented_target_model(x_train, y_train)
+        prior_logits = prior_augmented_target_model(x_test)
+
+        target_model = partial(self.parent_model.get_target_model, x_train=x_train, y_train=y_train)
+        target_logits = target_model(x_test)
+
         predictions = torch.cat((prior_logits, target_logits), dim=1)
-        self.parent_model.interim_results['past_x_test'] = x_test
-        self.parent_model.interim_results['last_step_predictions'] = predictions
 
-        self.parent_model.interim_results['logits'] = predictions # for plotting purposes
+        self.parent_model.interim_results.update({
+            'prior_augmented_target_model': prior_augmented_target_model,
+            'target_model': target_model,
+            'past_x_test': x_test,
+            'last_step_logits': predictions,
+            'error_logits': target_logits, # for plotting purposes
+        })
+
         # TODO find a weighing!
-
-        weights = self.parent_model.weights(x_train, x_test, y_train, inc, recompute=False)
+        weights = self.parent_model.weights(x_train, x_test, y_train, inc, recompute=True)
 
         self.logger.log(
             {'metrics': 'weights', 'step': step,
@@ -112,6 +116,11 @@ class JointMetaContextStrategy(SplitMetaContextStrategy):
         for the x_test values of course) and concatenate them to the hp dimension.
         ideally, the model will learn to recognize whether the prior y dims are relevant.
         They are basically a probing feature that may or may not be relevant for the target task.
+
+
+        # FIXME: DISADVANTAGE: WE CAN ONLY USE 10 DIMENSIONS IN TOTAL FOR THE INPUT FEATURES.
+        # GIVEN THAT THE HP ALSO OCCUPY THIS SPACE, WE CAN ONLY USE 10 - HP_DIMENSIONS
+        # FOR THE RELATED TASKS.
 
         :param x_train:
         :param x_test:

@@ -11,15 +11,15 @@ def tensor_hash(tensor: torch.Tensor) -> str:
 def cache_with_tensor_hash(func):
     cache = {}
     @functools.wraps(func)
-    def wrapper(E1, E2):
+    def wrapper(E1, E2, *args, **kwargs):
         key = (tensor_hash(E1), tensor_hash(E2))
         if key not in cache:
-            cache[key] = func(E1, E2)
+            cache[key] = func(E1, E2, *args, **kwargs)
         return cache[key]
     return wrapper
 
 @cache_with_tensor_hash
-def build_coverage_matrix(E1: torch.Tensor, E2: torch.Tensor) -> torch.Tensor:
+def build_coverage_matrix(E1: torch.Tensor, E2: torch.Tensor, truncate=False) -> torch.Tensor:
     """
     Compute fractional overlap of bins defined by two sets of edges.
 
@@ -46,21 +46,22 @@ def build_coverage_matrix(E1: torch.Tensor, E2: torch.Tensor) -> torch.Tensor:
     lengths1 = (b1 - a1)[:, None]  # shape: (n1, 1)
     frac_overlap = overlap / lengths1  # fractional overlap per old bin
 
-    # Identify old bins completely left or right out of new bin edges:
-    new_left_edge = a2[0]
-    new_right_edge = b2[-1]
+    if not truncate:
+        # Identify old bins completely left or right out of new bin edges:
+        new_left_edge = a2[0]
+        new_right_edge = b2[-1]
 
-    # Boolean mask for old bins fully to the left or right of new binning:
-    left_out_of_bounds = (b1 <= new_left_edge)  # old bin ends before new bins start
-    right_out_of_bounds = (a1 >= new_right_edge)  # old bin starts after new bins end
+        # Boolean mask for old bins fully to the left or right of new binning:
+        left_out_of_bounds = (b1 <= new_left_edge)  # old bin ends before new bins start
+        right_out_of_bounds = (a1 >= new_right_edge)  # old bin starts after new bins end
 
-    # For left out-of-bound old bins: zero all overlaps, assign full mass to first new bin
-    frac_overlap[left_out_of_bounds, :] = 0
-    frac_overlap[left_out_of_bounds, 0] = 1
+        # For left out-of-bound old bins: zero all overlaps, assign full mass to first new bin
+        frac_overlap[left_out_of_bounds, :] = 0
+        frac_overlap[left_out_of_bounds, 0] = 1
 
-    # For right out-of-bound old bins: zero all overlaps, assign full mass to last new bin
-    frac_overlap[right_out_of_bounds, :] = 0
-    frac_overlap[right_out_of_bounds, -1] = 1
+        # For right out-of-bound old bins: zero all overlaps, assign full mass to last new bin
+        frac_overlap[right_out_of_bounds, :] = 0
+        frac_overlap[right_out_of_bounds, -1] = 1
 
     return frac_overlap
 
@@ -98,7 +99,7 @@ def make_kernel_grid(error_borders: torch.Tensor,
 def project_probs_to_new_grid(error_logits: torch.Tensor,
                               error_borders: torch.Tensor,
                               kernel_grid: torch.Tensor,
-                              return_logits: bool = False) -> torch.Tensor:
+                              return_logits: bool = False, truncate=False) -> torch.Tensor:
     """
     Project error model probabilities onto a new kernel grid.
     Args:
@@ -109,7 +110,7 @@ def project_probs_to_new_grid(error_logits: torch.Tensor,
     Returns:
         error_probs_projected or error_logits_projected
     """
-    overlap = build_coverage_matrix(error_borders, kernel_grid)  # (n1, n2)
+    overlap = build_coverage_matrix(error_borders, kernel_grid, truncate)  # (n1, n2)
     error_probs = torch.softmax(error_logits, dim=-1)  # (batch, n1)
     error_probs_projected = torch.matmul(error_probs, overlap)  # (batch, n2)
 

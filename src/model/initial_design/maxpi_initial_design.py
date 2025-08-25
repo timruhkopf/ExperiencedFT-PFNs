@@ -1,3 +1,5 @@
+from functools import partial
+
 import torch
 
 from model.initial_design.abstract_intial_design import AbstractInitialDesign
@@ -49,28 +51,20 @@ class MaxPIInitialDesign(AbstractInitialDesign):
 
         # evaluate the query points under the related tasks augmented with the
         # imputed values at the location of observed points under the target task
-        prior_logits = self.model(
-            (
-                torch.cat([
-                    self.related_context.x,
-                    x_train.repeat(1, self.num_related, 1),
-                    x_test.repeat(1, self.num_related, 1)
-                ], dim=0),
-                torch.cat([self.related_context.y, imputed_y, ], dim=0)
-            ),
-            single_eval_pos=self.related_context.x.shape[0] + x_train.shape[0],
-            # src_key_padding_mask=torch.cat([
-            #     padding_mask,
-            #     torch.zeros(self.num_related, x_train.shape[0], dtype=torch.bool).to(self.device)
-            # ], dim=1)
+        imputation_augmented_prior_model = partial(
+            self.get_imputation_augmented_prior,
+            x_train=x_train,
+            imputed_y=imputed_y
         )
+        imp_aug_prior_logits = imputation_augmented_prior_model(x_test=x_test)
+
 
         # get the pi at the query points under the related tasks,
         prior_incumbents = prior_incumbents.unsqueeze(1).repeat(1, x_test.shape[0])
         acq_fn = getattr(self.model.criterion, acquisition_fn)
         acq_related = torch.stack([
             acq_fn(
-                prior_logits[:, b, :].squeeze(1),
+                imp_aug_prior_logits[:, b, :].squeeze(1),
                 best_f=prior_incumbents[b, :].unsqueeze(1),
                 maximize=True
             )
@@ -78,21 +72,20 @@ class MaxPIInitialDesign(AbstractInitialDesign):
         ], dim=0)
 
         # get the pi under the target task
-        target_logits = self.model(
-            (
-                torch.cat([x_train, x_test], dim=0),
-                y_train
-            ),
-            single_eval_pos=x_train.shape[0],
 
+        target_model = partial(
+            self.get_target_model,
+            x_train=x_train, y_train=y_train
         )
+        target_logits = target_model(x_test=x_test)
+
         acq_target = acq_fn(
             target_logits.squeeze(1), best_f=inc,
             maximize=True
         )
 
         self.parent_model.interim_results.update(dict(
-            last_step_predictions=torch.cat([target_logits, prior_logits], dim=1),
+            last_step_predictions=torch.cat([target_logits, imp_aug_prior_logits], dim=1),
             past_x_test=x_test
         ))
 

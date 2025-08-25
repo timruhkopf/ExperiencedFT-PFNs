@@ -160,51 +160,6 @@ class AbstractModel(IFBOInterface):
         self.num_related = None  # Number of related tasks, initialized during the first call to forward
         self.callback_kwargs = []
 
-    def get_target_model(self, x_test, x_train, y_train):
-        return self.model(
-            (
-                torch.cat([x_train, x_test], dim=0),
-                y_train
-            ),
-            single_eval_pos=x_train.shape[0],
-            src_key_padding_mask=None
-        )
-
-    def get_prior_model(self, x_test):
-        return self.model(
-            (
-                torch.cat([
-                    self.related_context.x,
-                    x_test,
-                ], dim=0),
-                self.related_context.y
-            ),
-            single_eval_pos=self.related_context.x.shape[0],
-        )
-
-
-    def get_imputation_augmented_prior(self, x_train, x_test, imputed_y):
-
-        return self.model(
-            (
-                torch.cat([
-                    # train
-                    self.related_context.x,
-                    x_train.repeat(1, self.num_related, 1),
-
-                    # Query
-                    x_test.repeat(1, self.num_related, 1),
-                ], dim=0),
-                torch.cat([self.related_context.y, imputed_y, ], dim=0)
-            ),
-            single_eval_pos=self.related_context.x.shape[0] + x_train.shape[0],
-            # src_key_padding_mask=torch.cat([
-            #     padding_mask,
-            #     torch.zeros(self.num_related, x_train.shape[0], dtype=torch.bool).to(self.device)
-            # ], dim=1)
-        )
-
-
     def __post_init__(self, related_context_data, minimize):
         related_context_x = related_context_data.x
         related_context_y = related_context_data.y
@@ -215,6 +170,11 @@ class AbstractModel(IFBOInterface):
 
         related_context_x = related_context_x.to(self.device)
         related_context_y = related_context_y.to(self.device)
+
+        related_context_y=related_context_y * 1.1 - 0.2
+        # min_val = transformed.min()
+        # max_val = transformed.max()
+        # related_context_y = (transformed - min_val) / (max_val - min_val)
 
         self.related_context = DotDict({
             'x': related_context_x,
@@ -349,6 +309,8 @@ class AbstractModel(IFBOInterface):
                 inc=inc,
                 acquisition_fn='pi'
             )
+            # we just need the last one for the next round
+            self.interim_results['last-x_train'] = x_train
 
             for callback in self.callbacks:
                 callback.on_acq_end_warmstart(x_train, y_train, x_test, inc, pi_values)

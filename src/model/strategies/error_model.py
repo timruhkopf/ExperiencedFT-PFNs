@@ -51,7 +51,7 @@ class ErrorModelStrategies(AbstractStrategy):
 
         # Create a partial that fixes all arguments except x_test
         target_model = partial(
-            self.parent_model.get_target_model,
+            self.get_target_model,
             x_train=x_train, y_train=y_train
         )
         target_logits = target_model(x_test=x_test)
@@ -59,7 +59,7 @@ class ErrorModelStrategies(AbstractStrategy):
         # (Collect prior logits) -------------------------------------------
         # CAREFUL: here we also do the query forward for the evidence
         imputation_augmented_prior = partial(
-            self.parent_model.get_imputation_augmented_prior,
+            self.get_imputation_augmented_prior,
             x_train=x_train, imputed_y=imputed_y
         )
         imputation_augmented_prior_logits = imputation_augmented_prior(x_test=x_test)
@@ -94,7 +94,7 @@ class ErrorModelStrategies(AbstractStrategy):
             'imputation_augmented_prior': imputation_augmented_prior,
             'raw_error_model': error_model,
             'raw_error_criterion': self.err_model.criterion,
-            'prior_model': self.parent_model.get_prior_model,
+            'prior_model': self.get_prior_model,
             'y_error': y_error,
             'imputed_y': imputed_y,
         })  # for plotting purposes
