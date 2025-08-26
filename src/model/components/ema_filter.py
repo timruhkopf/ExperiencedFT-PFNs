@@ -49,7 +49,7 @@ if __name__ == '__main__':
 
     X = torch.stack([x1, x2, x3], dim=1)  # (T,3)
 
-    alpha = 0.1
+    alpha = 0.05
     Y = ema_conv_causal(X, alpha, truncate=100, bias_correction=True)
 
     # --- Plot: one chart per series (no subplots) ---
