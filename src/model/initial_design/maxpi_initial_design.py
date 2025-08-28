@@ -1,3 +1,4 @@
+from copy import deepcopy
 from functools import partial
 
 import torch
@@ -9,7 +10,6 @@ class MaxPIInitialDesign(AbstractInitialDesign):
     def __init__(self, incumbent_calculation='imputation-only', **kwargs):
         self.incumbent_calculation = incumbent_calculation
         super().__init__(**kwargs)
-
 
     def __call__(
             self,
@@ -58,7 +58,6 @@ class MaxPIInitialDesign(AbstractInitialDesign):
         )
         imp_aug_prior_logits = imputation_augmented_prior_model(x_test=x_test)
 
-
         # get the pi at the query points under the related tasks,
         prior_incumbents = prior_incumbents.unsqueeze(1).repeat(1, x_test.shape[0])
         acq_fn = getattr(self.model.criterion, acquisition_fn)
@@ -91,4 +90,61 @@ class MaxPIInitialDesign(AbstractInitialDesign):
 
         # here we want to be maximally aggressive from the perspective of the priors,
         # and encourage exploring successful incumbents under the related tasks
-        return torch.cat([acq_target.unsqueeze(0), acq_related], dim=0).max(axis=0).values
+        self.suggestions = torch.cat([acq_target.unsqueeze(0), acq_related], dim=0)
+        return self.suggestions.max(axis=0).values
+
+
+class RepeatedMaxPIInitialDesign(MaxPIInitialDesign):
+    def __init__(self, repetitions=5, **kwargs):
+        self.repetitions = repetitions
+        super().__init__(**kwargs)
+        self.cashed_suggestion = None
+        self.last_x_test = None
+        self.counter = 0
+
+    def __call__(
+            self,
+            x_train,
+            x_test,
+            y_train,
+            inc,
+            acquisition_fn='pi'
+    ) -> torch.Tensor:
+        """
+        Here, we choose a configuration based on each prior and repeat it irrespective of the
+        change in the acquisition function values for the number of repetitions, before we
+        move to the next configuration sampled from the next prior
+        :param x_train:
+        :param x_test:
+        :param y_train:
+        :param inc:
+        :param acquisition_fn:
+        :return:
+        """
+
+        if self.counter % self.repetitions == 0:
+            pi = super().__call__(
+                x_train=x_train,
+                x_test=x_test,
+                y_train=y_train,
+                inc=inc,
+                acquisition_fn=acquisition_fn
+            )
+            self.cashed_suggestion = deepcopy(self.suggestions)
+
+            # now find the new test config, that we want to pursue for multiple steps
+            # once we completed the repetitions, we move to the next prior
+            prior_idx = self.counter // self.repetitions % (self.num_related + 1)
+
+            # start with the priors first!
+            new_config_idx = self.cashed_suggestion[-(prior_idx+1)].argmax()
+            self.new_config = x_test[new_config_idx, :].unsqueeze(1)
+
+        self.counter += 1
+
+        # suggestion = ((x_test[:, :, 0] == self.new_config[:, :, 0]).flatten()  \
+        #               * (x_test[:, :, 2:] == self.new_config[:, :, 2:]).flatten())
+        suggestion = (x_test[:, :, 2:] == self.new_config[:, :, 2:]).flatten()
+
+        # print(self.new_config, x_test[suggestion])
+        return suggestion.float()

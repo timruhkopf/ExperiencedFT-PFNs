@@ -96,7 +96,7 @@ class PastSurpriseWeights(AbstractWeights):
     def find_extra_row_index(A, B):
         """
         Find the row not present in B, assuming A has exactly one extra row,
-        whose location is unkown.
+        whose location is unknown.
 
         :example:
             i=3

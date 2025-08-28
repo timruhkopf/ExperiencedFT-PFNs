@@ -1,6 +1,7 @@
 defaults:
 
   - ifbo
+    # override using e.g. algorithm/weights@algorithm.surrogate_model.cls.weights=past-surprise
   - weights@surrogate_model.cls.weights: mean-weights
   - strategy@surrogate_model.cls.strategy: joint-context
   - initial_design@surrogate_model.cls.initial_design: maxpi
