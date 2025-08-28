@@ -518,6 +518,17 @@ class Callback1dProjectionPI(AbstractCallback):
                 dim=1)
             median_predictions = self.model.criterion.median(mixed_logits)
 
+            acq = self.model.criterion.pi(
+                mixed_logits.squeeze(1),
+                best_f=inc,
+                maximize=True
+            )
+
+            if self.parent_model.contender_bonus is not None:
+                acq = self.parent_model.contender_bonus(x_train, y_train, x_test, acq, inc)
+
+
+
             for row, col in [(1, 1), (3, 1)]:
                 # FINAL PREDICTIONS DATA - target task plot ----
                 fig.add_trace(go.Scatter3d(
@@ -525,7 +536,14 @@ class Callback1dProjectionPI(AbstractCallback):
                     y=x_test[:, 0, 2].cpu().numpy(),
                     z=median_predictions.cpu().numpy(),
                     name='Final predictions',
-                    mode='markers', marker=dict(size=2, color='blue'),
+                    mode='markers',
+                    # colour by acquisition function value
+                    marker=dict(
+                        size=2,
+                        color=acq.cpu().numpy(),  # Color by acquisition function value
+                        colorscale='Plasma',  # Or any colorscale you like
+                        colorbar=dict(title='Acquisition Value')
+                    ),
                 ), row=row, col=col)
 
             # MERGED PROJECTIONS ------------------------------------------
@@ -537,6 +555,9 @@ class Callback1dProjectionPI(AbstractCallback):
                 row=3, col=1,
                 name='final_predictions', grid_size=grid_size
             )
+
+
+
 
 
             # Counterfactuals -----------------------------------------------------
@@ -653,7 +674,7 @@ class Callback1dProjectionPI(AbstractCallback):
             # PLOT SETTINGS -----------------------------------------------------
             axis = dict(xaxis_title='fidelity', yaxis_title='lambda', zaxis_title='f(x,lambda)')
             fig.update_layout(
-                height=2000, width=2000, title_text="Plotly Subplots Example",
+                height=2000, width=2000, title_text=f"pPFNs at step {x_train.shape[0]}",
 
                 **{f'scene{i}': axis for i in range(1, 6)}
 

@@ -1,0 +1,4 @@
+_target_: src.model.components.contender_bonus.BudgetBasedPIBonus
+
+max_boost : 0.5
+boost_type : 'exp'

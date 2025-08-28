@@ -1,8 +1,10 @@
 import logging
+from typing import Union
 
 import torch
 
 from ifbo.transformer import TransformerModel
+from src.model.components.contender_bonus import BudgetBasedPIBonus
 from utils.dotdict import DotDict
 
 log = logging.getLogger(__name__)
@@ -113,9 +115,10 @@ class AbstractModel(IFBOInterface):
             model,
             device,
             related_task_data,
-            weights=None, # weight strategy
+            weights=None,  # weight strategy
             imputer=None,
             callbacks=(),
+            contender_bonus: Union[None, BudgetBasedPIBonus] = None
             # **kwargs
     ):
         """
@@ -145,10 +148,10 @@ class AbstractModel(IFBOInterface):
         self.device = device
         self.related_task_data = related_task_data
         self.callbacks = callbacks if callbacks is not None else []
+        self.contender_bonus = contender_bonus
         # self.kwargs = kwargs
 
         self.__name__ = f'{self.__class__.__name__}_{self.strategy.__name__}'
-
 
         self.initialized = False  # initializing the related_context during first call to meet
         # flipping needs
@@ -171,7 +174,7 @@ class AbstractModel(IFBOInterface):
         related_context_x = related_context_x.to(self.device)
         related_context_y = related_context_y.to(self.device)
 
-        related_context_y=related_context_y * 1.1 - 0.2
+        # related_context_y=related_context_y * 1.1 - 0.2
         # min_val = transformed.min()
         # max_val = transformed.max()
         # related_context_y = (transformed - min_val) / (max_val - min_val)
@@ -286,8 +289,6 @@ class AbstractModel(IFBOInterface):
         x_train, y_train, x_test, inc, = \
             self._preprocess(x_train, y_train, x_test, inc, minimize=minimize)
 
-
-
         for callback in self.callbacks:
             callback.on_acq_start(x_train, y_train, x_test, inc)
 
@@ -315,20 +316,52 @@ class AbstractModel(IFBOInterface):
             for callback in self.callbacks:
                 callback.on_acq_end_warmstart(x_train, y_train, x_test, inc, pi_values)
 
-            return {"acq_values": pi_values, "predictions": None}
+            acq = pi_values
+            predictions = None
 
 
         else:
+            acq = None
             predictions = self.strategy(
                 x_train=x_train,
                 x_test=x_test,
                 y_train=y_train,
                 inc=inc,
             )
-
-
-
             for callback in self.callbacks:
                 callback.on_acq_end_mixture(x_train, y_train, x_test, inc, predictions)
 
-        return {"acq_values": None, "predictions": predictions}
+        if self.contender_bonus is not None:
+            # Encouraging in-depth exploration of configurations that have already been evaluated
+            # by adding a small bonus to their acquisition values.
+            # This reflects the belief, that a budget token to advance an existing configuration
+            # usually is informationally more valuable than a token to start a new configuration.
+            if predictions is not None:
+                acq = self.criterion.pi(
+                    predictions.squeeze(1),
+                    best_f=inc,
+                    maximize=True
+                )
+
+            acq = self.contender_bonus(
+                x_train, y_train, x_test,
+                acq, inc
+            )
+
+            # min_fid = torch.min(x_test).item()
+            # is_contender = (x_test[:,0,1] != min_fid)
+            # acq[is_contender] += self.contender_bonus
+            # acq = torch.clamp(acq, min=0, max=1)
+
+            if False:
+                import matplotlib.pyplot as plt
+
+                plt.hist(acq[is_contender], color='orange', label='x_train', alpha=0.1,
+                         density=True)
+                plt.hist(acq[~is_contender], color='blue', label='x_test', alpha=0.5,
+                         density=True)
+
+                plt.legend()
+                plt.show()
+
+        return {"acq_values": acq, "predictions": predictions}
