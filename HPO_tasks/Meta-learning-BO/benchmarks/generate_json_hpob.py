@@ -14,7 +14,7 @@ import os
 
 experiment_ids = ["MALIBO", "PFNs4BO", "PFNs4BO-PI", "PFNs4BO-EI", "mPFNs4BO"]
 experiment_ids = ["PFNs4BO-EI-IW", "PFNs4BO-PI", "PFNs4BO-PI-IW", "mPFNs4BO", "mPFNs4BO-IW"]
-experiment_ids =  ["PFNs4BO-PI", "PFNs4BO-EI", "PFNs4BO-EI-IW", "pPFNs4BO-simple", "pPFNs4BO-naive", "pPFNs4BO-pca", "pPFNs4BO-pca-ei"]
+experiment_ids =  ["PFNs4BO-PI", "PFNs4BO-EI", "PFNs4BO-EI-IW", "pPFNs4BO-simple", "pPFNs4BO-naive", "pPFNs4BO-pca", "pPFNs4BO-naive-ei", "pPFNs4BO-simple-ei", "pPFNs4BO-pca-ei", "pPFNs4BO-pca4-ei", "pPFNs4BO-pca18-ei"]
 
 
 seeds = ["test0", "test1", "test2", "test3", "test4"]
