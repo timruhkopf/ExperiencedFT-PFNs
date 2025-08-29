@@ -175,7 +175,7 @@ if __name__ == "__main__":
                     import pfns4bo
                     from mpfns4bo.pfns4bo_opt import PFNs4BO
                     from pfns4bo.scripts.tune_input_warping import fit_input_warping
-                    optimizer = PFNs4BO(torch.load( pfns4bo.hebo_plus_model), fit_encoder=fit_input_warping, device=args.device, acq_function_type='pi', apply_power_transform=True, input_power_transform=True)
+                    optimizer = PFNs4BO(torch.load( pfns4bo.hebo_plus_model), fit_encoder=fit_input_warping, device=args.device, acq_function_type='pi', apply_power_transform=True, input_power_transform=False)
 
                 elif args.method == "PFNs4BO-PI":
                     import pfns4bo
