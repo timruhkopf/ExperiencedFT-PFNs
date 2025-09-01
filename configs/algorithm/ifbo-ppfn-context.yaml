@@ -28,9 +28,9 @@ surrogate_model:
       device: ${device}
       target_path: ${repo_root}/data/.model
 
-    callbacks:
-        - _target_: callbacks.callback_1d_projection.Callback1dProjectionPFNContext
-          _partial_: True
+#    callbacks:
+#        - _target_: callbacks.callback_1d_projection.Callback1dProjectionPFNContext
+#          _partial_: True
 
 
     flippable: False
