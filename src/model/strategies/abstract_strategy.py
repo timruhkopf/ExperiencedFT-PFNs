@@ -7,6 +7,7 @@ class AbstractStrategy:
                       **kwargs):
         self.parent_model = parent_model
         self.model = model
+        self.model.to(device)
         self.related_context = related_context
         self.num_related = related_context.x.shape[1]
         self.callbacks = callbacks

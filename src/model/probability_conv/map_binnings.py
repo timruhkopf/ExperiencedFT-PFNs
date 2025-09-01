@@ -110,7 +110,8 @@ def project_probs_to_new_grid(error_logits: torch.Tensor,
     Returns:
         error_probs_projected or error_logits_projected
     """
-    overlap = build_coverage_matrix(error_borders, kernel_grid, truncate)  # (n1, n2)
+    overlap = build_coverage_matrix(error_borders, kernel_grid, truncate).to(error_logits.device)
+    # (n1, n2)
     error_probs = torch.softmax(error_logits, dim=-1)  # (batch, n1)
     error_probs_projected = torch.matmul(error_probs, overlap)  # (batch, n2)
 

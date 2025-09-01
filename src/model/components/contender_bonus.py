@@ -72,8 +72,8 @@ class BudgetBasedPIBonus:
         flat_test_fids = test_fids.reshape(-1)
 
         # Convert configs to bytes keys (for exact matching)
-        train_bytes = [cfg.numpy().tobytes() for cfg in flat_train_configs]
-        test_bytes = [cfg.numpy().tobytes() for cfg in flat_test_configs]
+        train_bytes = [cfg.cpu().numpy().tobytes() for cfg in flat_train_configs]
+        test_bytes = [cfg.cpu().numpy().tobytes() for cfg in flat_test_configs]
 
         max_fidelity_map = {}
         for cfg_bytes, fid in zip(train_bytes, flat_train_fids):
@@ -81,7 +81,8 @@ class BudgetBasedPIBonus:
             if cfg_bytes not in max_fidelity_map or fid_val > max_fidelity_map[cfg_bytes]:
                 max_fidelity_map[cfg_bytes] = fid_val
 
-        budgets = torch.tensor([max_fidelity_map.get(cfg_bytes, 0.0) for cfg_bytes in test_bytes])
+        budgets = torch.tensor([max_fidelity_map.get(cfg_bytes, 0.0) for cfg_bytes in
+                                test_bytes]).to(x_test.device)
         budgets = budgets.reshape(T, B)
         return budgets
 

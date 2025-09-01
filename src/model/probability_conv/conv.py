@@ -131,7 +131,7 @@ def batch_convolve_distributions(A: torch.Tensor,
             'centers_A_u': centers_A_u, 'centers_B_u': centers_B_u,
             'centerA0': centerA0, 'centerB0': centerB0}
 
-    return C_valid.cpu(), centers_conv, info
+    return C_valid, centers_conv, info
 
 
 def plot_convs_facet(A, B, C, edges_A, edges_B, centers_conv, info, max_cols=3, xlim=None):

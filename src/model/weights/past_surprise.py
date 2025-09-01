@@ -112,7 +112,7 @@ class PastSurpriseWeights(AbstractWeights):
         """
         a = set(tuple(v) for v in A.tolist())
         b = set(tuple(v) for v in B.tolist())
-        new_idx = torch.tensor(list(b.difference(a)))
+        new_idx = torch.tensor(list(b.difference(a))).to(A.device)
 
         return torch.where((B == new_idx).all(dim=-1).flatten())[0].item()
 
