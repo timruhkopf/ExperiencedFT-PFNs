@@ -1,0 +1,7 @@
+
+_target_: src.model.strategies.meta_context.JointBatchedMetaContextStrategy
+imputer:
+  _target_: src.model.components.imputor.PriorImputer
+  imputation_mode: median
+D: 1
+convolve: False
