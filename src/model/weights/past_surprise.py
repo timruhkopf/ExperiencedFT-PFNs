@@ -80,8 +80,11 @@ class PastSurpriseWeights(AbstractWeights):
             self.parent_model.strategy.get_error_model = override_call_decorator(
                 self.parent_model.strategy.get_error_model
             )
-        else:
-            raise NotImplementedError("Error Model not available")
+
+        if hasattr(self.parent_model.strategy, 'get_prior_augmented_target_model'):
+            self.parent_model.strategy.get_prior_augmented_target_model = override_call_decorator(
+                self.parent_model.strategy.get_prior_augmented_target_model
+            )
 
         self.parent_model.interim_results.update({
             'surprise_logits': [],
@@ -119,13 +122,12 @@ class PastSurpriseWeights(AbstractWeights):
         Here we look at the history of the respective model's predictions
         and find out how each model (target and related) were surprised by the outcome
         """
+        if x_train.shape[0] == 1:
+            return torch.ones(self.num_related + 1).to(self.device) / (self.num_related + 1)
+
         interim_results = self.parent_model.interim_results
-
         target_lookahead = interim_results['last-get_target_model-lookahead']
-        imp_aug_lookahead = interim_results['last-get_imputation_augmented_prior-lookahead']
-        error_logits = interim_results['last-get_error_model-lookahead']
 
-        # find out where x_train[-1, :, 0] is in x_lookahead
 
         new_x = self.find_extra_row_index(
             self.parent_model.interim_results['last-x_train'][:, 0, :],
@@ -135,100 +137,132 @@ class PastSurpriseWeights(AbstractWeights):
         x_lookahead = interim_results['x_lookahead']
         config_idx = (x_train[new_x] == x_lookahead[:, 0, :]).all(dim=-1).flatten()
 
-        try:
-            projected_logits, projected_criterion = \
-                DistributionConvolver().to(self.device).convolve(
-                    A_logits=imp_aug_lookahead[config_idx, :, :],
-                    borders_A=self.model.criterion.borders,
-                    B_logits=error_logits[config_idx, :, :],
-                    borders_B=self.parent_model.strategy.err_model.criterion.borders,
-                    reverse=False,  # we convolve the error model with the prior
-                    target_borders=self.model.criterion.borders,
-                    padding=None  # no padding needed here
-                )
+        if hasattr(self.parent_model.strategy, 'get_error_model'):
+            imp_aug_lookahead = interim_results['last-get_imputation_augmented_prior-lookahead']
+            error_logits = interim_results['last-get_error_model-lookahead']
+            try:
+                projected_logits, projected_criterion = \
+                    DistributionConvolver().to(self.device).convolve(
+                        A_logits=imp_aug_lookahead[config_idx, :, :],
+                        borders_A=self.model.criterion.borders,
+                        B_logits=error_logits[config_idx, :, :],
+                        borders_B=self.parent_model.strategy.err_model.criterion.borders,
+                        reverse=False,  # we convolve the error model with the prior
+                        target_borders=self.model.criterion.borders,
+                        padding=None  # no padding needed here
+                    )
 
-            # import torch
-            # import matplotlib.pyplot as plt
-            # import seaborn as sns
-            #
-            # batch_size = imp_aug_lookahead.shape[1]  # 2 (batch dimension)
-            # logit_dim = imp_aug_lookahead.shape[2]  # 1000 (logits dimension)
-            #
-            # fig, axes = plt.subplots(1, batch_size, figsize=(12, 5), squeeze=False)
-            #
-            # # Apply softmax function along last dimension (dim=2)
-            # imp_aug_soft = torch.softmax(imp_aug_lookahead, dim=2)
-            # error_soft = torch.softmax(error_logits, dim=2)
-            # proj_soft = torch.softmax(projected_logits, dim=2)
-            #
-            # err_med = self.parent_model.strategy.err_model.criterion.median(error_logits)
-            # aug_med = self.model.criterion.median(imp_aug_lookahead)
-            # proj_med =self.model.criterion.median(projected_logits)
-            #
-            # for b in range(batch_size):
-            #     ax = axes[0, b]
-            #     # Select the batch distributions (1 x batch x logits)
-            #     imp_aug_probs = imp_aug_soft[0, b, :].cpu().numpy()
-            #     error_probs = error_soft[0, b, :].cpu().numpy()
-            #     proj_probs = proj_soft[0, b, :].cpu().numpy()
-            #
-            #     # Optional: Use borders as bin edges for histogram
-            #     borders = self.model.criterion.borders.cpu().numpy()  # shape: (1001,)
-            #
-            #     # Plot distribution curves as KDE or histograms
-            #     sns.lineplot(x=borders[:-1], y=imp_aug_probs, label='imp_aug', ax=ax, color='blue')
-            #     sns.lineplot(x=self.parent_model.strategy.err_model.criterion.borders[:-1],
-            #                  y=error_probs, label='error', ax=ax, color='red')
-            #     sns.lineplot(x=borders[:-1], y=proj_probs, label='projected', ax=ax, color='green')
-            #
-            #     ax.set_title(f'Batch {b}')
-            #     ax.set_xlabel('Logits bins')
-            #     ax.set_ylabel('Probability')
-            #     ax.legend()
-            #     # ax.set_xlim(0, 1)
-            #
-            # plt.tight_layout()
-            # plt.show()
+                # import torch
+                # import matplotlib.pyplot as plt
+                # import seaborn as sns
+                #
+                # batch_size = imp_aug_lookahead.shape[1]  # 2 (batch dimension)
+                # logit_dim = imp_aug_lookahead.shape[2]  # 1000 (logits dimension)
+                #
+                # fig, axes = plt.subplots(1, batch_size, figsize=(12, 5), squeeze=False)
+                #
+                # # Apply softmax function along last dimension (dim=2)
+                # imp_aug_soft = torch.softmax(imp_aug_lookahead, dim=2)
+                # error_soft = torch.softmax(error_logits, dim=2)
+                # proj_soft = torch.softmax(projected_logits, dim=2)
+                #
+                # err_med = self.parent_model.strategy.err_model.criterion.median(error_logits)
+                # aug_med = self.model.criterion.median(imp_aug_lookahead)
+                # proj_med =self.model.criterion.median(projected_logits)
+                #
+                # for b in range(batch_size):
+                #     ax = axes[0, b]
+                #     # Select the batch distributions (1 x batch x logits)
+                #     imp_aug_probs = imp_aug_soft[0, b, :].cpu().numpy()
+                #     error_probs = error_soft[0, b, :].cpu().numpy()
+                #     proj_probs = proj_soft[0, b, :].cpu().numpy()
+                #
+                #     # Optional: Use borders as bin edges for histogram
+                #     borders = self.model.criterion.borders.cpu().numpy()  # shape: (1001,)
+                #
+                #     # Plot distribution curves as KDE or histograms
+                #     sns.lineplot(x=borders[:-1], y=imp_aug_probs, label='imp_aug', ax=ax, color='blue')
+                #     sns.lineplot(x=self.parent_model.strategy.err_model.criterion.borders[:-1],
+                #                  y=error_probs, label='error', ax=ax, color='red')
+                #     sns.lineplot(x=borders[:-1], y=proj_probs, label='projected', ax=ax, color='green')
+                #
+                #     ax.set_title(f'Batch {b}')
+                #     ax.set_xlabel('Logits bins')
+                #     ax.set_ylabel('Probability')
+                #     ax.legend()
+                #     # ax.set_xlim(0, 1)
+                #
+                # plt.tight_layout()
+                # plt.show()
+
+                last_logits = torch.cat(
+                    [target_lookahead[config_idx, :, :], projected_logits], dim=1
+                ).to(self.device)
+                interim_results['surprise_logits'].append(last_logits)
+                interim_results['surprise_x'].append(x_train[new_x].cpu().squeeze())
+
+                logits = torch.stack(interim_results['surprise_logits'], dim=0).to(
+                    self.device).squeeze()
+
+                probs = torch.softmax(logits, dim=-1)
+
+                samples = self.model.criterion.median(logits)
+
+                surprise = torch.stack([
+                    self.model.criterion(last_logits[:, b, :].squeeze(1), y_train[new_x, :,])
+                    for b in range(self.num_related + 1)
+                ], dim=0).to(self.device).mean(dim=1)
+
+                interim_results['surprises_nll'].append(surprise)
+
+                # FIXME: we can adjust the surprise by how wrong the error model was and by how much
+                #  we know better how the error looks like for this point now!
+            except Exception as e:
+                # this usually is a rare conv error
+                log.error(f"Error while computing past surprises: {e}")
+                warnings.warn(
+                    "Error while computing past surprises, returning uniform weights.",
+                    UserWarning
+                )
+        else:
+            imp_aug_target_lookahead = interim_results['last-get_prior_augmented_target_model-lookahead']
 
             last_logits = torch.cat(
-                [target_lookahead[config_idx, :, :], projected_logits], dim=1
+                [target_lookahead[config_idx, :, :], imp_aug_target_lookahead[config_idx, :, :]], dim=1
             ).to(self.device)
-            interim_results['surprise_logits'].append(last_logits)
-            interim_results['surprise_x'].append(x_train[new_x].cpu().squeeze())
+            if len(last_logits) > 0:
+                interim_results['surprise_logits'].append(last_logits)
+                interim_results['surprise_x'].append(x_train[new_x].cpu().squeeze())
 
-            logits = torch.stack(interim_results['surprise_logits'], dim=0).to(
-                self.device).squeeze()
+                # logits = torch.stack(interim_results['surprise_logits'], dim=0).to(
+                #     self.device).squeeze()
+                #
+                # probs = torch.softmax(logits, dim=-1)
+                #
+                # samples = self.model.criterion.median(logits)
 
-            probs = torch.softmax(logits, dim=-1)
+                surprise = torch.stack([
+                    self.model.criterion(last_logits[:, b, :].squeeze(1), y_train[new_x, :,])
+                    for b in range(self.num_related + 1)
+                ], dim=0).to(self.device).mean(dim=1)
 
-            samples = self.model.criterion.median(logits)
-
-            surprise = torch.stack([
-                self.model.criterion(last_logits[:, b, :].squeeze(1), y_train[new_x, :,])
-                for b in range(self.num_related + 1)
-            ], dim=0).to(self.device).mean(dim=1)
-
-            interim_results['surprises_nll'].append(surprise)
-
-            # FIXME: we can adjust the surprise by how wrong the error model was and by how much
-            #  we know better how the error looks like for this point now!
-        except Exception as e:
-            # this usually is a rare conv error
-            log.error(f"Error while computing past surprises: {e}")
-            warnings.warn(
-                "Error while computing past surprises, returning uniform weights.",
-                UserWarning
-            )
-
-        surprises = torch.stack(interim_results['surprises_nll'], dim=0).to(
-            self.device)
+                interim_results['surprises_nll'].append(surprise)
+            else:
+                warnings.warn(
+                    "No new lookahead logits were found, returning uniform weights.",
+                    UserWarning
+                )
+        if any([len(t)>0 for t in interim_results['surprises_nll'] ]):
+            surprises = torch.stack(interim_results['surprises_nll'], dim=0).to(
+                self.device)
+        else:
+            surprises = -torch.ones(1, self.num_related + 1).to(self.device)
 
         surprises = ema_conv_causal(surprises, **self.ema_kwargs)
 
         # we will want to use the history of surprises
-        weights = torch.softmax(-surprises[-1], dim=-1)
+        weights = torch.softmax(-surprises[-1], dim=-1).to(self.device)
 
-        self.parent_model.interim_results['last-x_train'] = x_train.cpu()
         return weights
 
     def plot(self, ax=None, show=True):

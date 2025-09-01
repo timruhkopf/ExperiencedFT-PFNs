@@ -38,7 +38,7 @@ def get_lower_upper_surfaces(criterion, logits, x1, x2, fig, row, col, grid_size
 
 class Callback1dProjectionPFNContext(AbstractCallback):
     __name__ = 'Callback1DProjectionPFNContext'
-    STOP_AT = 301
+    STOP_AT = 300
 
     def on_trained_ppds(
             self,
@@ -95,77 +95,136 @@ class Callback1dProjectionPFNContext(AbstractCallback):
                               col=2)
 
             # FT-PFN (Meta-UN-aware) -----------------------------------------------------
-            target_logits = self.model(
-                (
-                    torch.cat([
-                        x_train,
-                        X_grid
-                    ]),
-                    y_train
-                ),
-                single_eval_pos=x_train.shape[0]
-            )
-
-            get_lower_upper_surfaces(
-                self.model.criterion, target_logits, X1, X2, fig,
-                row=1, col=1,
-                name='target', grid_size=grid_size
-            )
-
-            # META-AWARE (joint) -----------------------------------------------------
-            target_surface_logits = self.parent_model.strategy(x_train, X_grid, y_train, inc)
-            get_lower_upper_surfaces(
-                self.model.criterion, target_surface_logits, X1, X2, fig,
-                row=2, col=1,
-                name='meta-aware', grid_size=grid_size
-            )
+            # target_logits = self.model(
+            #     (
+            #         torch.cat([
+            #             x_train,
+            #             X_grid
+            #         ]),
+            #         y_train
+            #     ),
+            #     single_eval_pos=x_train.shape[0]
+            # )
+            #
+            # get_lower_upper_surfaces(
+            #     self.model.criterion, target_logits, X1, X2, fig,
+            #     row=1, col=1,
+            #     name='target', grid_size=grid_size
+            # )
 
             # META-AWARE (Marginals) -----------------------------------------------------
-            logits = self.parent_model.interim_results['logits']
-            additional_target_locations = []
-            if logits.shape[1] > 1:
-                additional_target_locations = [(2, b + 2) for b in range(self.num_related)]
-                logits = logits[:, 1:, :]
-                for b in range(self.num_related):
-                    prior_col = b + 2
-                    get_lower_upper_surfaces(
-                        self.model.criterion, logits[:, b, :], X1, X2, fig,
-                        row=2, col=prior_col, name=f'prior {b}', grid_size=grid_size
-                    )
+            # target_surface_logits = self.parent_model.strategy(x_train, X_grid, y_train, inc)
+            prior_augmented_target_model =self.parent_model.interim_results[
+                'prior_augmented_target_model']
+            target_model =self.parent_model.interim_results['target_model']
+            prior_logits = prior_augmented_target_model(x_test=X_grid)
+            target_logits = target_model(x_test=X_grid)
+            target_surface_logits = torch.cat((prior_logits, target_logits), dim=1)
 
-                # PRIOR DATA -----------------------------------------------------
-                for b in range(self.num_related):
-                    prior_col = b + 2
-                    # add the scatter plot for x_train, y_train
-                    fig.add_trace(go.Scatter3d(
-                        x=self.related_context.x[:, b, 1].cpu().numpy(),
-                        y=self.related_context.x[:, b, 2].cpu().numpy(),
-                        z=self.related_context.y[:, b].cpu().numpy(),
-                        name='Prior Points',
-                        mode='markers', marker=dict(size=2, color='red'),
-                    ), row=2, col=prior_col)
+
+            get_lower_upper_surfaces(
+                self.model.criterion, target_surface_logits[:,0,:], X1, X2, fig,
+                row=1, col=1,
+                name='meta-aware', grid_size=grid_size
+            )
+            for b in range(1, self.num_related +1):
+                prior_col = b + 1
+                get_lower_upper_surfaces(
+                    self.model.criterion, target_surface_logits[:,b,:], X1, X2, fig,
+                    row=2, col=prior_col,
+                    name='meta-aware', grid_size=grid_size
+                )
+
+
+            # META-AWARE (Joint) -----------------------------------------------------
+            weights = torch.from_numpy(df.iloc[-1][df.columns[df.columns.to_series().str.match(
+                pattern)]].values.astype(np.float32)).to(self.device)
+            mixed_logits = (target_surface_logits * weights.reshape(1, self.num_related + 1, 1)).sum(dim=1)
+            get_lower_upper_surfaces(
+                self.model.criterion, mixed_logits, X1, X2, fig,
+                row=2, col=1,
+                name='meta-aware-mixed', grid_size=grid_size
+            )
+
+
+            # logits = self.parent_model.interim_results['logits']
+            # predictions = torch.cat((prior_logits, target_logits), dim=1)
+            additional_target_locations = []
+            if self.num_related > 1:
+                additional_target_locations = [(2, b + 2) for b in range(self.num_related)]
+            # logits = logits[:, 1:, :]
+            # for b in range(self.num_related):
+            #     prior_col = b + 2
+            # get_lower_upper_surfaces(
+            #     self.model.criterion, logits[:, b, :], X1, X2, fig,
+            #     row=2, col=prior_col, name=f'prior {b}', grid_size=grid_size
+            # )
+
+            # PRIOR DATA -----------------------------------------------------
+            for b in range(self.num_related):
+                prior_col = b + 2
+                # add the scatter plot for x_train, y_train
+                fig.add_trace(go.Scatter3d(
+                    x=self.related_context.x[:, b, 1].cpu().numpy(),
+                    y=self.related_context.x[:, b, 2].cpu().numpy(),
+                    z=self.related_context.y[:, b].cpu().numpy(),
+                    name='Prior Points',
+                    mode='markers', marker=dict(size=2, color='red'),
+                ), row=2, col=prior_col)
 
             # SURPRISE MODEL -----------------------------------------------------
+            # if 'surprise_logits' in self.parent_model.interim_results.keys():
+            #     predictions = self.parent_model.interim_results['surprise_logits']
+            #     predictions = torch.stack(predictions, dim=0).squeeze()
+            #
+            #
+            #
+            #     # then on meta-aware task
+            #     for b in range(1, self.num_related+1):
+            #         prior_col = b + 1
+            #         meta_task_predictions = predictions[:, b , :]
+            #         meta_task_predictions = self.model.criterion.median(meta_task_predictions)
+            #         fig.add_trace(go.Scatter3d(
+            #             x=x_train[:, 0, 1].cpu().numpy(),
+            #             y=x_train[:, 0, 2].cpu().numpy(),
+            #             z=meta_task_predictions.cpu().numpy(),
+            #             name='Final predictions',
+            #             mode='markers',
+            #             marker=dict(size=2, color='blue')
+            #             # marker=dict(
+            #             #     size=2,
+            #             #     color=x_train[:, 0, 0].cpu().numpy(),  # Color by step
+            #             #     colorscale='Viridis',  # Or any colorscale you like
+            #             #     colorbar=dict(title='Step')
+            #             # ),
+            #         ), row=2, col=prior_col)
+
             if 'surprise_logits' in self.parent_model.interim_results.keys():
                 predictions = self.parent_model.interim_results['surprise_logits']
-                predictions = torch.stack(predictions, dim=0).squeeze()
+                future_x = self.parent_model.interim_results['surprise_x']
+                predictions = torch.cat(predictions, dim=0)
+                future_x = [fx if not torch.equal(fx, torch.empty((0, 3))) else
+                            torch.ones(3).to(self.device) * np.nan for fx in future_x]
+                future_x = torch.stack(future_x, dim=0)
 
                 # first on target task
                 target_predictions = predictions[:, 0, :]
                 target_predictions = self.model.criterion.median(target_predictions)
+
                 fig.add_trace(go.Scatter3d(
-                    x=x_train[:, 0, 1].cpu().numpy(),
-                    y=x_train[:, 0, 2].cpu().numpy(),
+                    x=future_x[:, 1].cpu().numpy(),
+                    y=future_x[:, 2].cpu().numpy(),
                     z=target_predictions.cpu().numpy(),
-                    name='Final predictions',
+                    name='past surprises',
                     mode='markers',
-                    marker=dict(size=2, color='blue')
+                    marker=dict(size=2, color='cyan')
                     # marker=dict(
                     #     size=2,
-                    #     color=x_train[:, 0, 0].cpu().numpy(),  # Color by step
-                    #     colorscale='Viridis',  # Or any colorscale you like
+                    #     color=future_x[:, 0].cpu().numpy(),  # Color by step
+                    #     colorscale='Plasma',  # Or any colorscale you like
                     #     colorbar=dict(title='Step')
                     # ),
+
                 ), row=1, col=1)
 
                 # then on meta-aware task
@@ -174,16 +233,16 @@ class Callback1dProjectionPFNContext(AbstractCallback):
                     meta_task_predictions = predictions[:, b + 1, :]
                     meta_task_predictions = self.model.criterion.median(meta_task_predictions)
                     fig.add_trace(go.Scatter3d(
-                        x=x_train[:, 0, 1].cpu().numpy(),
-                        y=x_train[:, 0, 2].cpu().numpy(),
+                        x=future_x[:, 1].cpu().numpy(),
+                        y=future_x[:, 2].cpu().numpy(),
                         z=meta_task_predictions.cpu().numpy(),
-                        name='Final predictions',
+                        name='past surprises',
                         mode='markers',
-                        marker=dict(size=2, color='blue')
+                        marker=dict(size=2, color='cyan')
                         # marker=dict(
                         #     size=2,
-                        #     color=x_train[:, 0, 0].cpu().numpy(),  # Color by step
-                        #     colorscale='Viridis',  # Or any colorscale you like
+                        #     color=future_x[:, 0].cpu().numpy(),  # Color by step
+                        #     colorscale='Plasma',  # Or any colorscale you like
                         #     colorbar=dict(title='Step')
                         # ),
                     ), row=2, col=prior_col)
@@ -191,8 +250,8 @@ class Callback1dProjectionPFNContext(AbstractCallback):
             # TARGET DATA ------
             target_locations = [(1, 1), (2, 1), *additional_target_locations]
             for (row, col) in target_locations:
-                # TARGET DATA ------
-                # add the scatter plot for x_train, y_train
+            # TARGET DATA ------
+            # add the scatter plot for x_train, y_train
                 fig.add_trace(go.Scatter3d(
                     x=x_train[:, 0, 1].cpu().numpy(),
                     y=x_train[:, 0, 2].cpu().numpy(),
@@ -207,39 +266,39 @@ class Callback1dProjectionPFNContext(AbstractCallback):
                     name='Training Points',
                 ), row=row, col=col)
 
-            # ERROR MODEL -----------------------------------------------------
-            imputed_y = self.parent_model.interim_results['imputed_y']
-            y_error = y_train.repeat(1, self.num_related) - imputed_y - 0.5
-
-            if self.parent_model.weights.err_model == 'bnn':
-                x = x_train[:, :, 1:].repeat(1, self.num_related, 1)
-                x_t = X_grid[:, :, 1:].repeat(1, self.num_related, 1)
-            else:
-                x = x_train.repeat(1, self.num_related, 1)
-                x_t = X_grid.repeat(1, self.num_related, 1)
-
-            error_probs, kernel_grid, error_logits = error_model(
-                x_train=x,
-                x_test=x_t,
-                y_error=-y_error
-            )
-
-            for b in range(self.num_related):
-                error_col = b + 2
-                get_lower_upper_surfaces(
-                    error_criterion, error_logits[:, b, :],
-                    X1, X2, fig,
-                    row=3, col=error_col, name='error', grid_size=grid_size
-                )
-
-                # ERROR DATA ------
-                fig.add_trace(go.Scatter3d(
-                    x=x_train[:, 0, 1].cpu().numpy(),
-                    y=x_train[:, 0, 2].cpu().numpy(),
-                    z=-y_error[:, b:b + 1].flatten().cpu().numpy(),
-                    name='imputed Prior Points',
-                    mode='markers', marker=dict(size=2, color='yellow'),
-                ), row=3, col=error_col)
+            # # ERROR MODEL -----------------------------------------------------
+            # imputed_y = self.parent_model.interim_results['imputed_y']
+            # y_error = y_train.repeat(1, self.num_related) - imputed_y - 0.5
+            #
+            # if self.parent_model.weights.err_model == 'bnn':
+            #     x = x_train[:, :, 1:].repeat(1, self.num_related, 1)
+            #     x_t = X_grid[:, :, 1:].repeat(1, self.num_related, 1)
+            # else:
+            #     x = x_train.repeat(1, self.num_related, 1)
+            #     x_t = X_grid.repeat(1, self.num_related, 1)
+            #
+            # error_probs, kernel_grid, error_logits = error_model(
+            #     x_train=x,
+            #     x_test=x_t,
+            #     y_error=-y_error
+            # )
+            #
+            # for b in range(self.num_related):
+            #     error_col = b + 2
+            #     get_lower_upper_surfaces(
+            #         error_criterion, error_logits[:, b, :],
+            #         X1, X2, fig,
+            #         row=3, col=error_col, name='error', grid_size=grid_size
+            #     )
+            #
+            #     # ERROR DATA ------
+            #     fig.add_trace(go.Scatter3d(
+            #         x=x_train[:, 0, 1].cpu().numpy(),
+            #         y=x_train[:, 0, 2].cpu().numpy(),
+            #         z=-y_error[:, b:b + 1].flatten().cpu().numpy(),
+            #         name='imputed Prior Points',
+            #         mode='markers', marker=dict(size=2, color='yellow'),
+            #     ), row=3, col=error_col)
 
             # LAYOUT SETTINGS -----------------------------------------------------
             fig.update_layout(

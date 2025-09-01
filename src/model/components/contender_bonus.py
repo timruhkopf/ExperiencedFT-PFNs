@@ -98,8 +98,11 @@ class BudgetBasedPIBonus:
         priors = func(budgets, **self.boost_kwargs)
 
         mask = (base_pis > advance_threshold) & (budgets > 0).flatten()
+        # 90% quantile - 10% quantile range for dynamic scaling
+        dynamic_range = torch.quantile(base_pis, 0.9) - torch.quantile(base_pis, 0.1)
+        boost = self.max_boost * dynamic_range if dynamic_range > 0 else self.max_boost
         boosted_pis = base_pis.clone()
-        boosted_pis[mask] += (self.max_boost * priors).flatten()[mask]
+        boosted_pis[mask] += (boost * priors).flatten()[mask]
         return torch.clamp(boosted_pis, 0., 1.)
 
     # ---------------- Plotting Helpers ----------------

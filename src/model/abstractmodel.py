@@ -310,8 +310,6 @@ class AbstractModel(IFBOInterface):
                 inc=inc,
                 acquisition_fn='pi'
             )
-            # we just need the last one for the next round
-            self.interim_results['last-x_train'] = x_train
 
             for callback in self.callbacks:
                 callback.on_acq_end_warmstart(x_train, y_train, x_test, inc, pi_values)
@@ -363,5 +361,8 @@ class AbstractModel(IFBOInterface):
 
                 plt.legend()
                 plt.show()
+
+        # we just need the last one for the next round
+        self.interim_results['last-x_train'] = x_train
 
         return {"acq_values": acq, "predictions": predictions}
