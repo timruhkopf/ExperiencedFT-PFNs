@@ -3,6 +3,7 @@ from functools import partial
 import pfns4bo
 import torch
 
+from ifBO_icml2024.src.PFNs4HPO.pfns4hpo.bar_distribution import BarDistribution
 from model.probability_conv.convolver import DistributionConvolver
 from model.strategies.abstract_strategy import AbstractStrategy
 
@@ -78,22 +79,30 @@ class ErrorModelStrategies(AbstractStrategy):
         )
         error_logits = error_model(x_test=x_test.repeat(1, self.num_related, 1)) # unnormalized
 
+        # TODO: crop the error_logits to the range [-1, 1] (based on the borders of the error model)
+        #  this will reduce memory consumption and speed up the convolution (the error model has too
+        #  wide borders anyways, given the target model's borders)
+        new_error_logits= torch.where(self.err_model.criterion.borders>=-1.)[0].min()
+        new_error_logits_end= torch.where(self.err_model.criterion.borders<=1.)[0].max()
+        error_logits = error_logits[:, :, new_error_logits:new_error_logits_end]
+        error_borders = self.err_model.criterion.borders[new_error_logits:new_error_logits_end+1]
+        new_error_criterion = BarDistribution(borders=error_borders)
 
         projected_logits, projected_criterion = \
             DistributionConvolver().to(self.device).convolve(
             A_logits=imputation_augmented_prior_logits,
             borders_A=self.model.criterion.borders,
             B_logits=error_logits,
-            borders_B=self.err_model.criterion.borders,
+            borders_B=new_error_criterion.borders,
             reverse=False,  # we convolve the error model with the prior
             target_borders=self.model.criterion.borders,
             padding=None  # no padding needed here
         )
 
         self.parent_model.interim_results.update({
-            'target_model': target_model,
-            'imputation_augmented_prior': imputation_augmented_prior,
-            'raw_error_model': error_model,
+            # 'target_model': target_model,
+            # 'imputation_augmented_prior': imputation_augmented_prior,
+            # 'raw_error_model': error_model,
             'raw_error_criterion': self.err_model.criterion,
             'prior_model': self.get_prior_model,
             'y_error': y_error.cpu(),
