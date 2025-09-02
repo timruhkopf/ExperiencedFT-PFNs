@@ -3,12 +3,16 @@ import fnmatch
 import ast
 from pathlib import Path
 from typing import List, Dict
+
+import numpy as np
 import pandas as pd
 from multiprocessing import Pool
 from functools import partial
 import fire
 import yaml
 from omegaconf import DictConfig, OmegaConf
+
+from ifBO_icml2024.src.pfns_hpo.pfns_hpo.regret_plot import calculate_continuations
 
 
 def find_files_recursive(root_dir, pattern):
@@ -67,6 +71,109 @@ def parse_loss_config_file(filepath, hydra_config: Dict):
     return pd.DataFrame(rows)
 
 
+def parse_config_data(filepath, hydra_config: Dict,
+                      continuations: bool = True,
+            wallclock: bool = False,
+            overhead: bool = False,
+            strict: bool = False,
+            analysis: bool = False
+
+    ) -> pd.DataFrame:
+    """Collects a single run for a benchmark-algorithm-seed combination."""
+    filepath = Path(filepath)
+
+    # (Parse the CSV file) -------------------------------
+    assert filepath.exists(), f"{filepath} does not exist!"
+
+    df = pd.read_csv(filepath, float_precision="round_trip")
+    if analysis:
+        try:
+            df_analysis = pd.read_csv(
+                filepath.parent.parent / "analysis_data.csv", float_precision="round_trip",
+                index_col=0
+            )
+            df = pd.concat([df, df_analysis], axis=1)
+        except:
+            pass
+
+    # sort by time
+    # NOTE: key assumption - only single worker runs
+    time_cols = ["result.info_dict.start_time", "result.info_dict.end_time"]
+    df.sort_values(by=time_cols, inplace=True, ignore_index=True)
+
+    # calculate continuations
+    if continuations:
+        if "arlind_root_directory" in str(filepath):
+            df.loc[:, "result.info_dict.fidelity"] = 1
+        else:
+            calculate_continuations(df, inplace=True)
+
+    # adding cumulative fidelities for the x-axis
+    df.loc[:, "cumsum_fidelity"] = df["result.info_dict.fidelity"].cumsum()
+    # make cumulative fidelity the index of the sorted dataframe
+    # df.set_index("cumsum_fidelity")
+    df = df.set_index(df.cumsum_fidelity.values)
+
+    # adding a column with the incumbent trace of the `loss`
+    df.loc[:, "inc_loss"] = np.minimum.accumulate(df["result.loss"].values)
+
+    # adding benchmark costs
+    df.loc[:, "benchmark_costs"] = (
+            df.loc[:, "metadata.time_end"] - df.loc[:, "metadata.time_sampled"]
+    )
+    # adding sampling_times
+    df.loc[:, "sampling_times"] = df.loc[:, "metadata.time_sampled"].diff(-1).fillna(0).abs()
+    # adding overhead time
+    df.loc[:, "overhead"] = (
+            df.loc[:, "sampling_times"] - df.loc[:, "benchmark_costs"]
+    ).clip(0, 1e24)
+
+    # adding wallclock time
+    df.loc[:, "wallclock_without_overhead"] = df.loc[:, "result.info_dict.cost"]  # .cumsum()
+    # adding wallclock time with overhead
+    df.loc[:, "wallclock_with_overhead"] = (
+            df.loc[:, "wallclock_without_overhead"] + df.loc[:, "overhead"]  # .cumsum()
+    )
+
+    # summing up overhead time
+    df.loc[:, "overhead"] = df.loc[:, "overhead"]  # .cumsum()
+
+    if (wallclock or overhead) and continuations and "arlind_root_directory" not in str(filepath):
+        fid_variable = "result.info_dict.fidelity"
+        if wallclock and overhead:
+            fid_variable = "wallclock_with_overhead"
+        elif wallclock and not overhead:
+            fid_variable = "wallclock_without_overhead"
+        elif not wallclock and overhead:
+            fid_variable = "overhead"
+
+        # if fid_variable in ["wallclock_with_overhead", "wallclock_without_overhead", "overhead"]:
+        if fid_variable in ["wallclock_without_overhead"]:
+            # calculate continuations
+            calculate_continuations(df, fid_var=fid_variable, inplace=True)
+            # adding cumulative fidelities for the x-axis
+            df.loc[:, "cumsum_fidelity"] = df[fid_variable].cumsum()
+            # make cumulative fidelity the index of the sorted dataframe
+            df = df.set_index(df.cumsum_fidelity.values)
+
+    # (Add hydra config to all rows) -------------------------------
+    for col, vals in hydra_config.items():
+        df[col] = vals
+    df["filepath"] = str(filepath)
+
+    # (Parse variables from the filepath) -------------------------------
+    # Regex pattern with named groups to extract the variables
+    pattern = r'neps_root_directory_(?P<target_task>[^_]+)_(?P<fold>\d+)_(?P<split_seed>\d+)_(?P<seed>\d+)_(?P<allocation_seed>\d+)'
+
+    # Extract variables to new columns
+    df_vars = df['filepath'].str.extract(pattern)
+
+    # Join extracted variables back to original dataframe if needed
+    df = df.join(df_vars, rsuffix='_extracted')
+
+    return df
+
+
 def group_files_by_hydra(files: List[str]) -> Dict[Path, List[str]]:
     groups = {}
     for f in files:
@@ -77,12 +184,13 @@ def group_files_by_hydra(files: List[str]) -> Dict[Path, List[str]]:
             continue
     return groups
 
-
-
-def process_group(item, keys):
+def process_group(item, keys, file_pattern):
     hydra_dir, group_files = item
     hydra_config = config_parser(hydra_dir, keys.copy())
-    parse_func = partial(parse_loss_config_file, hydra_config=hydra_config)
+    if file_pattern == "all_losses_and_configs.txt":
+        parse_func = partial(parse_loss_config_file, hydra_config=hydra_config)
+    elif file_pattern == "config_data.csv":
+        parse_func = partial(parse_config_data, hydra_config=hydra_config)
     dfs = [parse_func(f) for f in group_files]  # sequential inside group
     return pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
 
@@ -102,7 +210,7 @@ def parse_and_save(
 
     with Pool(workers) as pool:
         # Map process_group over groups in parallel
-        all_dfs = pool.map(partial(process_group, keys=keys), grouped.items())
+        all_dfs = pool.map(partial(process_group, keys=keys, file_pattern=file_pattern), grouped.items())
 
     df = pd.concat(all_dfs, ignore_index=True) if all_dfs else pd.DataFrame()
 
@@ -115,7 +223,6 @@ def parse_and_save(
         print(f"Saved {len(df)} rows to {csv}")
 
     return df
-
 
 
 if __name__ == '__main__':
