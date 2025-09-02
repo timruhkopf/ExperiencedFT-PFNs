@@ -1,15 +1,19 @@
 import json
 from pathlib import Path
-from typing import Dict
+from typing import Dict, List
+
+from scipy.stats import sem
 
 import numpy as np
 import pandas as pd
 from matplotlib import pyplot as plt
+import matplotlib as mpl
+mpl.rcParams['text.usetex'] = False
 
 from ifBO_icml2024.src.pfns_hpo.pfns_hpo.regret_plot import calculate_continuations
 from ifBO_icml2024.src.pfns_hpo.pfns_hpo.utils.plotting_utils import calc_bounds_per_benchmark, \
     normalize_and_calculate_regrets, reorder_for_aggregated_benchmark_plots, group_run_dataframes, \
-    get_plot_styles
+    get_plot_styles, smooth_gaussian
 from ifBO_icml2024.src.pfns_hpo.pfns_hpo.utils.plotting_utils import PLOT_SIZE
 from src.utils.read_neps import parse_and_save
 
@@ -34,6 +38,7 @@ def main(
 ):
     if output_path is None:
         output_path = Path(basedir) / "plots"
+        output_path.mkdir(parents=True, exist_ok=True)
     df = parse_and_save(
         root_dir=basedir,
         # TODO move this
@@ -41,7 +46,8 @@ def main(
               "benchmark.meta.name", "split_seed", "benchmark.cls.seed", ],
         file_pattern="config_data.csv",
     )
-
+    # fixme: uggly code ahead: make a product call and check if df.empty to avoid postprocessing
+    #  and nested loops
     plot_data = {
         f'{bench}_{fold}_{task}_{allocation_seed}': {
             algo: {
@@ -119,6 +125,71 @@ def main(
             overhead=overhead,
         )
 
+def group_run_dataframes_ppfn(
+    df_list: List[pd.DataFrame],
+    column_of_interest: str="inc_loss",
+    aggregate_by: str="cumsum_fidelity",
+    **kwargs
+):
+    """Given a list of dataframes, collates them based on the index."""
+    assert len(df_list), "Empty list! Needs at least one element as a pd.DataFrame!"
+    list_status = all(isinstance(element, (pd.DataFrame, pd.Series)) for element in df_list)
+    assert list_status, "All elements in the list are not pandas data types!"
+
+    # sets the index to be the cumulative fidelities and filters for the chosen columns
+    if isinstance(df_list[0], pd.DataFrame):
+        df_list = [
+            _df.set_index(aggregate_by).loc[:, column_of_interest] for _df in df_list
+        ]
+        # if a list of pd.Series, likely a grouping was performed already
+        # TODO: more strict check? check all the _df have the same length.
+        # assert all(df_list[0].shape[0] == _df.shape[0] for _df in df_list[1:])
+
+    # filter for the range of interest
+    x_range = kwargs.get("x_range", None)
+    if x_range is not None:
+        df_list = [df.loc[x_range[0]:x_range[1]] for df in df_list]
+    if sum([any(_df.index.values > x_range[1]) for _df in df_list]):
+        raise ValueError("Some dataframes have indices greater than the specified range!")
+    # get the last/max index
+    max_index = max(set().union(*[set(df.index) for df in df_list]))
+    # retains only the rows where incumbent values are updated, helps save memory
+    df_list = [df[df.diff().ne(0)] for df in df_list]
+
+    # remove spurious NaNs from index
+    df_list = [df.loc[df.index.dropna()] for df in df_list]
+
+    # removes duplicate indices
+    df_list = [df.loc[~df.index.duplicated(keep="first")] for df in df_list]
+
+    # collects the unique values seen for the x-axis
+    union_index = pd.Index(set([max_index]).union(*[set(df.index) for df in df_list])).sort_values()
+
+    # equalizes all data frames to have this unique list of x-axis values accounted for
+    df_values = np.array([
+        df.reindex(union_index, method='ffill').sort_index().values for df in df_list
+    ])
+
+    # smooth for analysis
+    if kwargs.get("analysis", False):
+        df_values = np.array(smooth_gaussian(df_values, sigma=0.35))
+
+    # if kwargs.get("nanmean", False):
+    #     df_values_ = np.nan_to_num(df_values, nan=1)
+    #     mean_df = pd.Series(df_values_.mean(axis=0), index=union_index).sort_index()
+    #     sem_df = pd.Series(sem(df_values_, axis=0), index=union_index).sort_index()
+    # else:
+    #     mean_df = pd.Series(df_values.mean(axis=0), index=union_index).sort_index()
+    #     sem_df = pd.Series(sem(df_values, axis=0), index=union_index).sort_index()
+
+    median_values = np.median(df_values, axis=0)
+    median_df = pd.Series(median_values, index=union_index).sort_index()
+    lower_quantile_values = np.quantile(df_values, 0.25, axis=0)
+    upper_quantile_values = np.quantile(df_values, 0.75, axis=0)
+
+    lower_quantile_df = pd.Series(lower_quantile_values, index=union_index).sort_index()
+    upper_quantile_df = pd.Series(upper_quantile_values, index=union_index).sort_index()
+    return median_df, (lower_quantile_df, upper_quantile_df)
 
 def get_aggregated_plot_style(
         plot_data: dict,
@@ -135,9 +206,15 @@ def get_aggregated_plot_style(
         wallclock: bool = False,
         overhead: bool = False,
         analysis: bool = False,
+        median: bool = True,
 
 ) -> None:
     """Plots a single plot aggregating performance of each algorithm across benchmarks."""
+    if median:
+        func = group_run_dataframes_ppfn
+    else:
+        func = group_run_dataframes
+
     plot_data = reorder_for_aggregated_benchmark_plots(plot_data)
     # processing data for plotting
     algo_perf = dict()  # nothing to do with https://arxiv.org/abs/2306.07179
@@ -147,15 +224,17 @@ def get_aggregated_plot_style(
         for seed, seed_data in algo_data.items():
             seeds.append(seed)
             # collecting the mean score across benchmarks
-            algo_perf[algo][seed], _ = group_run_dataframes(
+            algo_perf[algo][seed], _ = func(
                 list(seed_data.values()),
                 column_of_interest=column_of_interest,
                 analysis=analysis,
                 x_range=x_range,
             )
+
+
         # averaging score across seeds
         algo_perf[algo]["mean"], algo_perf[algo]["sem"] = (
-            group_run_dataframes(
+            func(
                 list(algo_perf[algo].values()),
                 column_of_interest=column_of_interest,
                 analysis=analysis,
@@ -179,13 +258,18 @@ def get_aggregated_plot_style(
     algo_order.sort(key=lambda x: x[1], reverse=True)
 
     fig, ax = plt.subplots(1, 1, figsize=(PLOT_SIZE * 2, int(PLOT_SIZE * 1.5)))
+    # Choose a colormap, e.g., 'tab20', 'nipy_spectral', etc.
+    cmap = plt.get_cmap('tab20')
+    num_algos = len(algo_order)
 
+    # Generate a list of colors (RGBA tuples)
+    colors = [cmap(i / num_algos) for i in range(num_algos)]
     for i, (algo, _) in enumerate(algo_order):
         algo_data = algo_perf[algo]
         ax.plot(
             algo_data["mean"].index.values,
             algo_data["mean"].values,
-            color=l_colors[algo] if algo in l_colors else f"C{i}",
+            color=colors[i],  #l_colors[algo] if algo in l_colors else f"C{i}",
             # linestyle=l_line_styles[algo],
             marker=l_markers[algo] if algo in l_markers else "o",
             # markersize=6,
@@ -194,14 +278,26 @@ def get_aggregated_plot_style(
             **marker_args,
             label=algo if algo not in label_map else label_map[algo],
         )
-        ax.fill_between(
-            algo_data["mean"].index.values,
-            algo_data["mean"].values - algo_data["sem"].values,
-            algo_data["mean"].values + algo_data["sem"].values,
-            facecolor=l_colors[algo] if algo in l_colors else f"C{i}",
-            alpha=0.1,
-            step="post"
-        )
+
+        if median:
+            ax.fill_between(
+                algo_data["mean"].index.values,
+                algo_data["sem"][0].values,
+                algo_data["sem"][1].values,
+                facecolor=colors[i],  #l_colors[algo] if algo in l_colors else f"C{i}",
+                alpha=0.1,
+                step="post"
+            )
+        else:
+            ax.fill_between(
+                algo_data["mean"].index.values,
+                algo_data["mean"].values - algo_data["sem"].values,
+                algo_data["mean"].values + algo_data["sem"].values,
+                facecolor=colors[i],  #l_colors[algo] if algo in l_colors else f"C{i}",
+                alpha=0.1,
+                step="post"
+            )
+
     if log_y:
         ax.set_yscale("log")
     if log_x:
