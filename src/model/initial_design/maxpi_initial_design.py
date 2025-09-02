@@ -36,7 +36,7 @@ class MaxPIInitialDesign(AbstractInitialDesign):
         :param acquisition_fn:
         :return: Acquisition values
         """
-        imputed_y = self.parent_model.interim_results['imputed_y']
+        imputed_y = self.parent_model.interim_results['imputed_y'].to(self.device)
 
         if self.incumbent_calculation == 'imputation-only':
             prior_incumbents = imputed_y.max(dim=0).values
@@ -84,8 +84,8 @@ class MaxPIInitialDesign(AbstractInitialDesign):
         )
 
         self.parent_model.interim_results.update(dict(
-            last_step_predictions=torch.cat([target_logits, imp_aug_prior_logits], dim=1),
-            past_x_test=x_test
+            last_step_predictions=torch.cat([target_logits, imp_aug_prior_logits], dim=1).cpu(),
+            past_x_test=x_test.cpu()
         ))
 
         # here we want to be maximally aggressive from the perspective of the priors,

@@ -35,8 +35,8 @@ def override_call_decorator(func):
         # gain access to the parent model
         self = getattr(func, '__self__', None)
         self.parent_model.interim_results.update({
-            f'last-{func.__name__}-lookahead': lookahead_logits,
-            f'x_lookahead': torch.cat([train[:, 0:1, :], test[:, 0:1, :]], dim=0)
+            f'last-{func.__name__}-lookahead': lookahead_logits.cpu(),
+            f'x_lookahead': torch.cat([train[:, 0:1, :], test[:, 0:1, :]], dim=0).cpu()
 
         })
 
@@ -130,7 +130,7 @@ class PastSurpriseWeights(AbstractWeights):
 
 
         new_x = self.find_extra_row_index(
-            self.parent_model.interim_results['last-x_train'][:, 0, :],
+            self.parent_model.interim_results['last-x_train'][:, 0, :].to(self.device),
             x_train[:, 0, :],
         )
 
@@ -275,7 +275,7 @@ class PastSurpriseWeights(AbstractWeights):
             fig, ax = plt.subplots()
 
         past_surprises = torch.stack(self.parent_model.interim_results['surprises_nll'],
-                                     dim=0).cpu()
+                                     dim=0).to(self.device)
         surprises = ema_conv_causal(past_surprises, **self.ema_kwargs)
         weights = torch.softmax(-surprises, dim=-1).cpu().numpy()
         ax.plot(weights)

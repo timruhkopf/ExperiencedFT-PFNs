@@ -200,8 +200,8 @@ class Callback1dProjectionPFNContext(AbstractCallback):
             #         ), row=2, col=prior_col)
 
             if 'surprise_logits' in self.parent_model.interim_results.keys():
-                predictions = self.parent_model.interim_results['surprise_logits']
-                future_x = self.parent_model.interim_results['surprise_x']
+                predictions = self.parent_model.interim_results['surprise_logits'].to(self.device)
+                future_x = self.parent_model.interim_results['surprise_x'].to(self.device)
                 predictions = torch.cat(predictions, dim=0)
                 future_x = [fx if not torch.equal(fx, torch.empty((0, 3))) else
                             torch.ones(3).to(self.device) * np.nan for fx in future_x]
@@ -674,8 +674,8 @@ class Callback1dProjectionPI(AbstractCallback):
 
             # SURPRISE MODEL -----------------------------------------------------
             if 'surprise_logits' in self.parent_model.interim_results.keys():
-                predictions = self.parent_model.interim_results['surprise_logits']
-                future_x = self.parent_model.interim_results['surprise_x']
+                predictions = self.parent_model.interim_results['surprise_logits'].to(self.device)
+                future_x = self.parent_model.interim_results['surprise_x'].to(self.device)
                 predictions = torch.cat(predictions, dim=0)
                 future_x = [fx if not torch.equal(fx, torch.empty((0, 3))) else
                 torch.ones(3).to(self.device)*np.nan for fx in future_x ]

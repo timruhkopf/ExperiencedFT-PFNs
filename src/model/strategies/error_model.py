@@ -43,7 +43,7 @@ class ErrorModelStrategies(AbstractStrategy):
     def __call__(self, x_train, x_test, y_train, inc):
 
         step = x_train.shape[0]
-        imputed_y = self.parent_model.interim_results['imputed_y']
+        imputed_y = self.parent_model.interim_results['imputed_y'].to(self.device)
 
         # TODO the following two forwards can be batched together with
         #  appropriate padding masks. this will save wallclock time
@@ -96,16 +96,16 @@ class ErrorModelStrategies(AbstractStrategy):
             'raw_error_model': error_model,
             'raw_error_criterion': self.err_model.criterion,
             'prior_model': self.get_prior_model,
-            'y_error': y_error,
-            'imputed_y': imputed_y,
+            'y_error': y_error.cpu(),
+            'imputed_y': imputed_y.cpu(),
         })  # for plotting purposes
 
         predictions = torch.cat(
             [target_logits, projected_logits], dim=1
         ).to(self.device)
         self.parent_model.interim_results.update({
-            'last_step_logits': predictions,
-            'past_x_test': x_test,
+            'last_step_logits': predictions.cpu(),
+            'past_x_test': x_test.cpu(),
         })
 
         weights = self.parent_model.weights(x_train, x_test, y_train, inc, recompute=False)

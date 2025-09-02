@@ -46,7 +46,7 @@ class SplitMetaContextStrategy(AbstractStrategy):
              f'{imputed_y_test.shape[-1]}:imputed_y_test > 10.\n'
              'Recommendation: reduce the number of priors!')
 
-        imputed_y = self.parent_model.interim_results['imputed_y']
+        imputed_y = self.parent_model.interim_results['imputed_y'].to(self.device)
 
         # Here we concatenate one imputed prior value to the HP dimension, but repeat it for all related tasks.
         features = torch.concat(
@@ -89,8 +89,8 @@ class SplitMetaContextStrategy(AbstractStrategy):
         self.parent_model.interim_results.update({
             'prior_augmented_target_model': prior_augmented_target_model,
             'target_model': target_model,
-            'past_x_test': x_test,
-            'logits': predictions,
+            'past_x_test': x_test.cpu(),
+            'logits': predictions.cpu(),
             # 'error_logits': target_logits,  # for plotting purposes
         })
 
@@ -156,7 +156,7 @@ class JointMetaContextStrategy(SplitMetaContextStrategy):
         else:
             prior_idx = torch.arange(self.num_related, device=self.device)
 
-        imputed_y = self.parent_model.interim_results['imputed_y']
+        imputed_y = self.parent_model.interim_results['imputed_y'].to(self.device)
 
         imputed_y_test = self.imputer(
             x_train=self.related_context.x[:, prior_idx, :],
@@ -180,7 +180,7 @@ class JointMetaContextStrategy(SplitMetaContextStrategy):
             # src_key_padding_mask=padding_mask
         )
 
-        self.parent_model.interim_results['logits'] = target_logits  # for plotting purposes
+        self.parent_model.interim_results['logits'] = target_logits.cpu()  # for plotting purposes
 
         # TODO past surprise weighing by prior?
 
@@ -234,7 +234,7 @@ class JointNoHPMetaContextStrategy(SplitMetaContextStrategy):
             weights = torch.ones(self.num_related + 1, device=self.device) / (self.num_related + 1)
 
         # Collect the y (train/test) values under the priors as "landmarking" features:
-        imputed_y = self.parent_model.interim_results['imputed_y']
+        imputed_y = self.parent_model.interim_results['imputed_y'].to(self.device)
         imputed_y = imputed_y[:, prior_idx]
         imputed_y = imputed_y.reshape(imputed_y.shape[0], 1 - 1)
 
@@ -276,7 +276,7 @@ class JointNoHPMetaContextStrategy(SplitMetaContextStrategy):
             )
             predictions = convolved_logits
 
-        self.parent_model.interim_results['logits'] = predictions  # for plotting purposes
+        self.parent_model.interim_results['logits'] = predictions.cpu()  # for plotting purposes
 
         # TODO past surprise weighing by prior?
 
@@ -315,7 +315,7 @@ class JointBatchedMetaContextStrategy(SplitMetaContextStrategy):
             # todo a separate fwd with different dimensionality on the excess tasks
 
         # get imputed prior values and pad if needed
-        imputed_y = self.parent_model.interim_results['imputed_y']  # (T, num_rel)
+        imputed_y = self.parent_model.interim_results['imputed_y'].cpu()  # (T, num_rel)
         imputed_y = imputed_y[:,:B*D].view(imputed_y.shape[0], B, D)
 
         # imputed test ys
