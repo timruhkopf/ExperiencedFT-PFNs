@@ -300,7 +300,7 @@ class AbstractModel(IFBOInterface):
                 y_train=self.related_context.y
             )
 
-            self.interim_results.update(dict(imputed_y=imputed_y, step=step))
+            self.interim_results.update(dict(imputed_y=imputed_y.cpu(), step=step))
 
         if step < self.initial_design.size:
             pi_values = self.initial_design(
@@ -363,6 +363,6 @@ class AbstractModel(IFBOInterface):
                 plt.show()
 
         # we just need the last one for the next round
-        self.interim_results['last-x_train'] = x_train
+        self.interim_results['last-x_train'] = x_train.cpu()
 
         return {"acq_values": acq, "predictions": predictions}

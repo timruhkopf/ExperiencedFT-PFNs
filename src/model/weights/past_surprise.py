@@ -126,7 +126,7 @@ class PastSurpriseWeights(AbstractWeights):
             return torch.ones(self.num_related + 1).to(self.device) / (self.num_related + 1)
 
         interim_results = self.parent_model.interim_results
-        target_lookahead = interim_results['last-get_target_model-lookahead']
+        target_lookahead = interim_results['last-get_target_model-lookahead'].to(self.device)
 
 
         new_x = self.find_extra_row_index(
@@ -138,8 +138,8 @@ class PastSurpriseWeights(AbstractWeights):
         config_idx = (x_train[new_x] == x_lookahead[:, 0, :]).all(dim=-1).flatten()
 
         if hasattr(self.parent_model.strategy, 'get_error_model'):
-            imp_aug_lookahead = interim_results['last-get_imputation_augmented_prior-lookahead']
-            error_logits = interim_results['last-get_error_model-lookahead']
+            imp_aug_lookahead = interim_results['last-get_imputation_augmented_prior-lookahead'].to(self.device)
+            error_logits = interim_results['last-get_error_model-lookahead'].to(self.device)
             try:
                 projected_logits, projected_criterion = \
                     DistributionConvolver().to(self.device).convolve(
@@ -225,7 +225,8 @@ class PastSurpriseWeights(AbstractWeights):
                     UserWarning
                 )
         else:
-            imp_aug_target_lookahead = interim_results['last-get_prior_augmented_target_model-lookahead']
+            imp_aug_target_lookahead = interim_results[
+                'last-get_prior_augmented_target_model-lookahead'].to(self.device)
 
             last_logits = torch.cat(
                 [target_lookahead[config_idx, :, :], imp_aug_target_lookahead[config_idx, :, :]], dim=1
