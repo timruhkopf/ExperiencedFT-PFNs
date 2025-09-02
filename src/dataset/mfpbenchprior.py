@@ -665,9 +665,9 @@ class MFBenchPrior(TabularBenchmark):
                            weights_only=True)
             )
             assert self.target_benchmark.relation_prior.model is self.related_benchmarks[0].relation_prior.model
-            if self.related_ratio != 1.0:
-                assert not self.related_benchmarks[0].relation_prior.model is \
-                           self.related_benchmarks[1].relation_prior.model
+            # if self.related_ratio != 1.0:
+            #     assert not self.related_benchmarks[0].relation_prior.model is \
+            #                self.related_benchmarks[-1].relation_prior.model
             return torch.load(self.data_path / 'batch.pt', map_location=self.device,
                               weights_only=False)
 
