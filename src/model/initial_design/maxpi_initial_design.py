@@ -144,7 +144,7 @@ class RepeatedMaxPIInitialDesign(MaxPIInitialDesign):
 
         # suggestion = ((x_test[:, :, 0] == self.new_config[:, :, 0]).flatten()  \
         #               * (x_test[:, :, 2:] == self.new_config[:, :, 2:]).flatten())
-        suggestion = (x_test[:, :, 2:] == self.new_config[:, :, 2:]).flatten()
+        suggestion = (x_test[:, :, 2:] == self.new_config[:, :, 2:]).all(dim=-1).flatten()
 
         # print(self.new_config, x_test[suggestion])
         return suggestion.float()
