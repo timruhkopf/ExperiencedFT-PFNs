@@ -7,9 +7,12 @@ name = "ExperiencedFTPFN"
 version = "0.5.0"
 description = "In-Context Distillation for warm starting FTPFN
 authors = [
-    { name="Tim Ruhkopf", email="timruhkopf@gmail.com" },
-    { name="Dang Hung Do"},
-    { name="Marius Lindauer"}
+    { name = "Tim Ruhkopf", email = "timruhkopf@gmail.com" },
+    { name = 'Amir Rezaei Balef' },
+    { name = "Dang Hung Do" },
+    { name = "Marcel Wever" },
+    { name = "Katharina Eggensperger" },
+    { name = "Marius Lindauer" }
 ]
 readme = "README.md"
 requires-python = ">=3.10.12"
@@ -73,7 +76,7 @@ dependencies = [
 
 
 
-    # torch with gpu support
+# torch with gpu support
 
 [project.optional-dependencies]
 dev = [

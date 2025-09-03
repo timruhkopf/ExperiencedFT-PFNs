@@ -1,6 +1,6 @@
 import torch
 
-from src.PFNs4HPO.pfns4hpo.bar_distribution import BarDistribution
+from ifBO_icml2024.src.PFNs4HPO.pfns4hpo.bar_distribution import BarDistribution
 from src.model.components.ema_filter import ema_conv_causal
 from src.model.probability_conv.convolver import DistributionConvolver
 from src.model.weights.abstract_weights import AbstractWeights
@@ -232,7 +232,7 @@ class PastSurpriseWeights(AbstractWeights):
                 # this usually is a rare conv error
                 log.error(f"Error while computing past surprises: {e}")
                 warnings.warn(
-                    "Error while computing past surprises, returning uniform weights.",
+                    "Error while computing past surprises",
                     UserWarning
                 )
         else:
@@ -261,7 +261,7 @@ class PastSurpriseWeights(AbstractWeights):
                 interim_results['surprises_nll'].append(surprise.cpu())
             else:
                 warnings.warn(
-                    "No new lookahead logits were found, returning uniform weights.",
+                    "No new lookahead logits were found.",
                     UserWarning
                 )
         if any([len(t)>0 for t in interim_results['surprises_nll'] ]):

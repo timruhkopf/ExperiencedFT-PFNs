@@ -300,13 +300,18 @@ def main(cfg: DictConfig):
                             table: pd.DataFrame | pd.Series = _table,
                             space: CS.ConfigurationSpace = benchmark.space,
                     ) -> Any:
-                        # both table and space are required to handle tabular spaces
-                        # hps = list(set(space.keys()).intersection(set(table.columns)))
+                        try:
+                            table = table[list(set(table.columns).intersection(set(space.keys())))]
+                            obj.pipeline_space.set_custom_grid_space(table[list(
+                                space.hyperparameters.keys())],
+                                                                     space)
+                            if SET_BOUNDS_FROM_TABLE_FLAG:
+                                obj = set_bounds_from_table(obj, table, space)
+                        except KeyError as e:
 
-                        # obj.pipeline_space.set_custom_grid_space(table[hps], space)
-                        obj.pipeline_space.set_custom_grid_space(table, space)
-                        if SET_BOUNDS_FROM_TABLE_FLAG:
-                            obj = set_bounds_from_table(obj, table, space)
+                                logger.warning(
+                                    f"Skipping config due to missing key 'linear_decay'. Table snapshot:\n{table}"
+                                f"snapshot:\n{space.hyperparameters}")
                         return obj
                 # end of tabular check block
 
