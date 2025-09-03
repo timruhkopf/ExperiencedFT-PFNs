@@ -1,5 +1,6 @@
 import torch
 
+from src.PFNs4HPO.pfns4hpo.bar_distribution import BarDistribution
 from src.model.components.ema_filter import ema_conv_causal
 from src.model.probability_conv.convolver import DistributionConvolver
 from src.model.weights.abstract_weights import AbstractWeights
@@ -140,13 +141,23 @@ class PastSurpriseWeights(AbstractWeights):
         if hasattr(self.parent_model.strategy, 'get_error_model'):
             imp_aug_lookahead = interim_results['last-get_imputation_augmented_prior-lookahead'].to(self.device)
             error_logits = interim_results['last-get_error_model-lookahead'].to(self.device)
+
+            borders = self.parent_model.strategy.err_model.criterion.borders
+            new_error_logits = torch.where(borders >= -1.)[0].min()
+            new_error_logits_end = torch.where(borders <= 1.)[0].max()
+            error_logits = error_logits[:, :, new_error_logits:new_error_logits_end]
+            error_borders = borders[
+                new_error_logits:new_error_logits_end + 1]
+            new_error_criterion = BarDistribution(borders=error_borders)
+
+
             try:
                 projected_logits, projected_criterion = \
                     DistributionConvolver().to(self.device).convolve(
                         A_logits=imp_aug_lookahead[config_idx, :, :],
                         borders_A=self.model.criterion.borders,
                         B_logits=error_logits[config_idx, :, :],
-                        borders_B=self.parent_model.strategy.err_model.criterion.borders,
+                        borders_B=error_borders,
                         reverse=False,  # we convolve the error model with the prior
                         target_borders=self.model.criterion.borders,
                         padding=None  # no padding needed here
