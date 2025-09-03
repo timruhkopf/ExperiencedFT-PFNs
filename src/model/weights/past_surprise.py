@@ -134,7 +134,7 @@ class PastSurpriseWeights(AbstractWeights):
             x_train[:, 0, :],
         )
 
-        x_lookahead = interim_results['x_lookahead']
+        x_lookahead = interim_results['x_lookahead'].to(self.device)
         config_idx = (x_train[new_x] == x_lookahead[:, 0, :]).all(dim=-1).flatten()
 
         if hasattr(self.parent_model.strategy, 'get_error_model'):
@@ -198,7 +198,7 @@ class PastSurpriseWeights(AbstractWeights):
                 last_logits = torch.cat(
                     [target_lookahead[config_idx, :, :], projected_logits], dim=1
                 ).to(self.device)
-                interim_results['surprise_logits'].append(last_logits)
+                interim_results['surprise_logits'].append(last_logits.cpu())
                 interim_results['surprise_x'].append(x_train[new_x].cpu().squeeze())
 
                 logits = torch.stack(interim_results['surprise_logits'], dim=0).to(
@@ -213,7 +213,7 @@ class PastSurpriseWeights(AbstractWeights):
                     for b in range(self.num_related + 1)
                 ], dim=0).to(self.device).mean(dim=1)
 
-                interim_results['surprises_nll'].append(surprise)
+                interim_results['surprises_nll'].append(surprise.cpu())
 
                 # FIXME: we can adjust the surprise by how wrong the error model was and by how much
                 #  we know better how the error looks like for this point now!
@@ -232,7 +232,7 @@ class PastSurpriseWeights(AbstractWeights):
                 [target_lookahead[config_idx, :, :], imp_aug_target_lookahead[config_idx, :, :]], dim=1
             ).to(self.device)
             if len(last_logits) > 0:
-                interim_results['surprise_logits'].append(last_logits)
+                interim_results['surprise_logits'].append(last_logits.cpu())
                 interim_results['surprise_x'].append(x_train[new_x].cpu().squeeze())
 
                 # logits = torch.stack(interim_results['surprise_logits'], dim=0).to(
@@ -247,7 +247,7 @@ class PastSurpriseWeights(AbstractWeights):
                     for b in range(self.num_related + 1)
                 ], dim=0).to(self.device).mean(dim=1)
 
-                interim_results['surprises_nll'].append(surprise)
+                interim_results['surprises_nll'].append(surprise.cpu())
             else:
                 warnings.warn(
                     "No new lookahead logits were found, returning uniform weights.",
