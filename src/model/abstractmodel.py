@@ -284,6 +284,7 @@ class AbstractModel(IFBOInterface):
 
         return x_train, y_train, x_test, inc
 
+    @torch.no_grad()
     def smbo(self, x_train, y_train, x_test, inc, minimize=True):
         step = x_train.shape[0]
         x_train, y_train, x_test, inc, = \

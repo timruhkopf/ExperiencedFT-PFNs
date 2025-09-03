@@ -15,6 +15,7 @@ class ErrorModelStrategies(AbstractStrategy):
         super().__post_init__(**kwargs)
 
         self.err_model = torch.load(pfns4bo.bnn_model, weights_only=False)
+        self.err_model.eval()
         self.err_model.to(self.device)
 
     def get_error_model(self, x_train, y_error, x_test, padding=None):
