@@ -301,10 +301,9 @@ def main(cfg: DictConfig):
                             space: CS.ConfigurationSpace = benchmark.space,
                     ) -> Any:
                         try:
-                            table = table[list(set(table.columns).intersection(set(space.keys())))]
-                            obj.pipeline_space.set_custom_grid_space(table[list(
-                                space.hyperparameters.keys())],
-                                                                     space)
+                            valid_param = list(set(table.columns).intersection(set(space.keys())))
+                            table = table[valid_param]
+                            obj.pipeline_space.set_custom_grid_space(table[valid_param], space)
                             if SET_BOUNDS_FROM_TABLE_FLAG:
                                 obj = set_bounds_from_table(obj, table, space)
                         except KeyError as e:
