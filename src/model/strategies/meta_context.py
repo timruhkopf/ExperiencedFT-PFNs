@@ -315,7 +315,7 @@ class JointBatchedMetaContextStrategy(SplitMetaContextStrategy):
             # todo a separate fwd with different dimensionality on the excess tasks
 
         # get imputed prior values and pad if needed
-        imputed_y = self.parent_model.interim_results['imputed_y'].cpu()  # (T, num_rel)
+        imputed_y = self.parent_model.interim_results['imputed_y'].to(self.device)  # (T, num_rel)
         imputed_y = imputed_y[:,:B*D].view(imputed_y.shape[0], B, D)
 
         # imputed test ys
