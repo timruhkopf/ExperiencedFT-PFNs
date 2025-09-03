@@ -101,7 +101,7 @@ def main(cfg: DictConfig):
     )
 
     if cfg.n_splits >= 2 and len(benchmark) >= 2:
-        kf = KFold(n_splits=cfg.n_splits, shuffle=True, random_state=42)
+        kf = KFold(n_splits=cfg.n_splits, shuffle=True, random_state=cfg.split_seed)
         folds = kf.split(benchmark)
         folds = list(folds)
     else:
@@ -127,7 +127,13 @@ def main(cfg: DictConfig):
             train_ids = [train_ids[i] for i in cfg.train_idx]
 
         for target_task in test_ids:
-            for allocation_seed in cfg.allocation_seeds:
+
+            if 'allocation_seeds' not in cfg.keys():
+                allocation_seeds = [cfg.split_seed]
+            else:
+                allocation_seeds = cfg.allocation_seeds
+
+            for allocation_seed in allocation_seeds:
 
                 logger.info(f"Running task: target_task={target_task}, train_ids={train_ids},"
                             f"fold {fold}, allocation_seed={allocation_seed}")
