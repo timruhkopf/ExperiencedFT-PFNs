@@ -43,8 +43,7 @@ from neps.search_spaces.search_space import (
 
 import logging
 
-from src.model.mixture_ppd import PFNPPDMixture
-from src.model.pfnimputation import PFNPriorImputation
+from src.model.abstractmodel import AbstractModel
 
 
 class MyBaseModel(BaseModel):
@@ -83,6 +82,9 @@ class MyBaseModel(BaseModel):
 
 class MyPFN_MODEL(MyBaseModel, pfns4hpo.PFN_MODEL):
     def forward(self, x_train, y_train, x_test):
+        """Notice, that this forward is accessed from pfn.py get_pi based off
+        MyPFN_SURROGATE.get_pi in case we are neither  isinstance(self.nn, PFNPriorImputation) or isinstance(self.nn, PFNPPDMixture);
+        Which translates to the default ifbo / dpl /dyhpo, ..."""
         if x_train.shape[0] == 0:
             x_test[:, 0] = 0
         elif x_train[:, 0].min() == 0:
@@ -165,19 +167,33 @@ class MyPFN_SURROGATE(PFN_SURROGATE):
         self.input_size = parameter_count + 1
         self.continuous_params_size = self.input_size - len(self.categories)
 
-        self.min_fidelity = pipeline_space.fidelity.lower
-        self.max_fidelity = pipeline_space.fidelity.upper
+        if hasattr(pipeline_space, 'fidelity'):
+            self.min_fidelity = pipeline_space.fidelity.lower
+            self.max_fidelity = pipeline_space.fidelity.upper
+
+        else:
+            self.min_fidelity = pipeline_space.epoch.lower
+            self.max_fidelity = pipeline_space.epoch.upper
 
 
     def get_pi(self, x_test, inc, x_train=None, y_train=None):
-        if isinstance(self.nn, PFNPriorImputation) or isinstance(self.nn, PFNPPDMixture):
+        if isinstance(self.nn, AbstractModel):
             inc = inc.unsqueeze(1).to(self.device)
+
+            inc = (1 - inc) if self.minimize else inc
+            x_train = self.train_x if x_train is None else x_train
+            y_train = self.train_y if y_train is None else \
+                (1 - y_train) if self.minimize else y_train
+
+            assert torch.allclose(inc[0],y_train.max(), atol=0.1), \
+                f"inc[0] {inc[0]} and y_train.max() {y_train.max()} have opposite flips"
             return self.nn.get_pi(
                 x_test=x_test,
-                inc=((1 - inc) if self.minimize else inc),
-                x_train=self.train_x if x_train is None else x_train,
-                y_train=self.train_y if y_train is None else ((1 - y_train) if self.minimize else y_train),
-                minimize=self.minimize,
+                x_train=x_train,
+                y_train=y_train,
+                inc=inc,
+                minimize=self.minimize, # this flag is only here to tell us when to flip the
+                # related data
             )
 
         else:
@@ -359,9 +375,14 @@ class IFBO(MFEIBO):
         self.raw_tabular_space = None  # placeholder, can be populated using pre_load_hook
         self._budget_list: list[int | float] = []
         self.step_size: int | float = step_size
-        self.min_budget = self.pipeline_space.fidelity.lower
-        # TODO: generalize this to work with real data (not benchmarks)
-        self.max_budget = self.pipeline_space.fidelity.upper
+        if hasattr(pipeline_space, "fidelity"):
+            self.min_budget = self.pipeline_space.fidelity.lower
+            # TODO: generalize this to work with real data (not benchmarks)
+            self.max_budget = self.pipeline_space.fidelity.upper
+
+        else:
+            self.min_budget = self.pipeline_space.epoch.lower
+            self.max_budget = self.pipeline_space.epoch.upper
 
         self._initial_design_fraction = initial_design_fraction
         self._initial_design_size, self._initial_design_budget = self._set_initial_design(

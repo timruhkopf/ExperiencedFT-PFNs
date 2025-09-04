@@ -1,0 +1,636 @@
+import math
+from itertools import chain
+from typing import Dict
+
+import torch
+from ifbo.transformer import TransformerModel
+from ifbo import BarDistribution, FTPFN
+from dataset.batch_padded_pfn import MyBatch
+
+
+def _calc_reliability(
+        model: TransformerModel,
+        context_x: torch.Tensor,
+        context_y: torch.Tensor,
+        related_task_data: MyBatch,  # type: ignore
+        criterion: BarDistribution,
+        **kwargs
+) -> torch.Tensor:
+    """
+    Calculate the reliability of the related task with respect to the current task.
+
+    Basically we try to infer the likelihood of the task's observed points under the related task.
+
+    Args:
+        :param model: The model to use for the calculation.
+        :param context_x: The context points of the current task.
+        :param context_y: The context values of the current task.
+        :param related_task_data: The data of the related tasks.
+        :param criterion: The criterion to use for the calculation.
+
+    """
+    device = next(model.parameters()).device
+
+    # for task_data in related_task_data:
+    task_context_x = related_task_data.x.to(device)  # [num_tasks, num_points, num_features]
+    task_context_y = related_task_data.y.to(device)  # [num_tasks, num_points, 1]
+    padding_mask = related_task_data.padding_mask.to(device)  # [num_tasks, num_points]
+    num_related = task_context_x.shape[1]
+
+    logits = model(
+        (
+            torch.cat([task_context_x, context_x.repeat(1, num_related, 1)], dim=0),
+            task_context_y
+        ),
+        single_eval_pos=task_context_x.shape[0],
+        src_key_padding_mask=padding_mask
+    )
+    # y's associated with query for that task
+    target = context_y.repeat(1, num_related)
+    loss = criterion(logits, target)
+    loss = loss.view(-1, logits.shape[1])  # bar distribution issue
+    loss = loss.mean(dim=0)  # mean over the batch
+
+    return loss  # reliability scores
+
+
+def linear_alg(num_tasks, context_y, imputed_y, device, lambda_reg=0.1):
+    # context_y: (N,)
+    # imputed_y: (T, N)
+    imputed_y = imputed_y  # Ensure shape is (N, T) for downstream code
+    # Goal: solve y = α * x + β  for each task
+    y = context_y.view(-1).to(device)            # (N,)
+    x = imputed_y.to(device)                     # (N, T)
+    x_mean = x.mean(dim=0, keepdim=True)         # (1, T)
+    y_mean = y.mean()                            # scalar
+    x_centered = x - x_mean                      # (N, T)
+    y_centered = y.unsqueeze(1) - y_mean         # (N, 1)
+    # Compute covariance between each x[:,j] and y
+    cov_xy = (x_centered * y_centered).mean(dim=0)  # (T,)
+    var_x = (x_centered ** 2).mean(dim=0)           # (T,)
+    # Regularized alpha
+    alpha = (cov_xy + lambda_reg) / (var_x + lambda_reg)  # (T,)
+    # Compute beta for each task
+    beta = y_mean - alpha * x_mean.squeeze(0)            # (T,)
+    # Project y back into x space: x_proj = (y - beta) / alpha
+    y_proj = (y.unsqueeze(1) - beta.unsqueeze(0)) / alpha.unsqueeze(0)  # (N, T)
+    return y_proj
+
+def linear_alg_main(num_tasks, context_x, context_y, imputed_y, device):
+    x = torch.arange(context_x.shape[0], device=context_x.device).reshape(-1, 1)  # [num_points, 1]
+    degree = 0
+    x = torch.cat([x ** i for i in range(degree+1)], dim=1).to(device)  # Polynomial features
+    X_design = torch.cat([context_y.unsqueeze(1), x], dim=1).to(device)  # Add context_y as first
+
+    # Build block-diagonal design matrix for all tasks
+    X_design_block = torch.block_diag(*[X_design for _ in range(num_tasks)])  # [num_tasks*num_points, ...][2][5]
+    # Reorder imputed_y to match block-diagonal structure: all points for task 0, then task 1, etc.
+    imputed_y_ordered = imputed_y.transpose(0, 1).contiguous().view(-1)  # [num_tasks*num_points]
+
+    beta = torch.linalg.lstsq(X_design_block, imputed_y_ordered).solution
+    mask = beta[0::2] < 0
+    beta[0::2][mask] = 0
+
+    y_proj = X_design_block @ beta
+    
+    return y_proj   
+
+
+def norm_alg(num_tasks, context_y, imputed_y, device):
+    """
+    Normalize imputed_y for each task to [0, 1], then scale to context_y's range.
+    Returns y_proj of shape [num_points, num_tasks].
+    """
+    context_y = context_y.to(device).unsqueeze(1)  # [num_points, 1]
+    imputed_y = imputed_y.to(device)  # [num_tasks, num_points]
+
+    imputed_y_min = imputed_y.min(dim=0, keepdim=True).values  # [num_tasks, 1]
+    imputed_y_max = imputed_y.max(dim=0, keepdim=True).values  # [num_tasks, 1]
+    # Avoid division by zero
+    denom = (imputed_y_max - imputed_y_min).clamp(min=1e-3)
+    n_imputed_y = (imputed_y - imputed_y_min) / denom  # [num_tasks, num_points ]
+    context_y_min = context_y.min()
+    context_y_max = context_y.max()
+    y_proj = n_imputed_y * (context_y_max - context_y_min) + context_y_min  # [num_tasks, num_points]
+    return y_proj
+
+
+def calc_imputed_linalg_reliability(
+        model: TransformerModel,
+        context_x: torch.Tensor,
+        context_y: torch.Tensor,
+        related_task_data: Dict[str, MyBatch],  # type: ignore
+        criterion: BarDistribution,
+        projection: bool = True,
+        verbose: bool = False,
+        plot_file_path: str = None,  # type: ignore
+<<<<<<< HEAD:src/model/calc_reliability.py
+        degree_fn=lambda x, y :0,
+        multi_fidelity = True,
+        transformation_type=None,
+        return_average_loss= True
+=======
+        degree_fn=lambda x, y: 0,
+        logger=None,
+
+>>>>>>> origin/version/0.7.0-jbc-err-variants:src/model/components/calc_reliability.py
+) -> torch.Tensor:
+    """
+    Compute scale-invariant reliability scores for meta-tasks using block-diagonal regression.
+
+    Performs per-task imputation followed by independent linear regression in a block-diagonal feature space
+    to estimate task reliability while being invariant to linear scaling of learning curves.
+
+        :param model: Transformer meta-model used for cross-task imputation
+        :type model: TransformerModel
+        :param context_x: Target task's context features (fidelity + hyperparameters),
+                          shape [num_points, num_features]
+        :type context_x: torch.Tensor
+        :param context_y: Target task's observed outputs (e.g., validation accuracy),
+                          shape [num_points, 1]
+        :type context_y: torch.Tensor
+        :param related_task_data: Dictionary of batched meta-task data containing:
+            - x: Context features for each meta-task, shape [num_meta_tasks, num_points, num_features]
+            - y: Context outputs for each meta-task, shape [num_meta_tasks, num_points, 1]
+            - padding_mask: Boolean mask for variable-length contexts
+        :type related_task_data: Dict[str, MyBatch]
+        :param criterion: Distribution object providing:
+            - median(): For deterministic imputation
+            - __call__(): For NLL computation between logits and targets
+        :type criterion: BarDistribution
+        :param verbose: If True, save diagnostic plot to specified path.
+        :param plot_file_path: Output path for diagnostic plot when verbose=True.
+
+    :return: Reliability scores (mean NLL) per meta-task, shape [num_meta_tasks]
+    :rtype: torch.Tensor
+
+    :Notes:
+        - Robust to affine transformations: The regression step makes reliability scores invariant to linear scaling/shifting of learning curves
+        - Block-diagonal design: Uses kronecker product to create independent design matrices while maintaining computational efficiency
+        - Debug plotting: Set internal flag to visualize imputed vs projected values per task (uses Matplotlib)
+        - Time complexity: O((num_meta_tasks * num_points)^3) due to block-diagonal least squares
+    """
+    device = next(model.parameters()).device
+    context_x = context_x.unsqueeze(1).to(device)  # shape [num_points, 1, num_features]
+
+    # for task_data in related_task_data:
+    task_context_x = related_task_data.x.to(device)  # shape [num_tasks, num_points, num_features]
+    task_context_y = related_task_data.y.to(device)  # shape [num_tasks, num_points, 1]
+    padding_mask = related_task_data.padding_mask.to(device)  # shape [num_tasks, num_points]
+    num_related = task_context_x.shape[1]
+
+    if context_x.shape[-1] < task_context_x.shape[-1]:
+        diff = task_context_x.shape[-1] - context_x.shape[-1]
+        placeholder = task_context_x[:, :, -diff:].mean(dim=1).mean(dim=0)
+        context_x = torch.cat([
+            context_x,
+            placeholder.repeat(context_x.shape[0],1, 1)
+        ], dim=-1).to(device)
+
+
+    # impute target_task y's for conditioned on each related task --------------
+    #print("calc_imputed_linalg_reliability")
+    #print(task_context_y.shape)
+    #print(task_context_y[:,:4])
+    logits = model(
+        (
+            torch.cat([task_context_x, context_x.repeat(1, num_related, 1)], dim=0),
+            task_context_y
+        ),
+        single_eval_pos=task_context_x.shape[0],
+        src_key_padding_mask=padding_mask
+    )
+    imputed_y = criterion.median(logits)  # shape [num_points, num_tasks]
+
+<<<<<<< HEAD:src/model/calc_reliability.py
+    # Learn the projection from the related task to the target task ------------
+    if multi_fidelity:
+        target_fidelity = context_x[:, 0, 1]
+        x = target_fidelity.reshape(-1, 1)  # Ensure x is column vector
+        degree = degree_fn(context_x, context_y)
+        
+        x = torch.cat([x ** i for i in range(degree+1)], dim=1).to(device)  # Polynomial features
+        X_design = torch.cat([context_y.unsqueeze(1), x], dim=1).to(device)  # Add context_y as first
+        # column
+
+        # Build block-diagonal design matrix for all tasks
+        X_design_block = torch.block_diag(*[X_design for _ in range(num_related)])  # [num_tasks*num_points, ...][2][5]
+
+        # Reorder imputed_y to match block-diagonal structure: all points for task 0, then task 1, etc.
+        imputed_y_ordered = imputed_y.transpose(0, 1).contiguous().view(-1)  # [num_tasks*num_points]
+
+        beta = torch.linalg.lstsq(X_design_block, imputed_y_ordered).solution
+        y_proj = X_design_block @ beta
+        y_proj = y_proj.clamp(0, 1)
+
+        num_tasks = imputed_y.shape[1]
+        num_fidelity = target_fidelity.shape[0]
+=======
+    target_fidelity = context_x[:, 0, 1]
+
+    if projection:
+        # Learn the projection from the related task to the target task ------------
+        # Build polynomial features for target fidelity & then the design matrix
+        x = target_fidelity.reshape(-1, 1)  # Ensure x is column vector
+        degree = degree_fn(context_x, context_y)
+        x = torch.cat([x ** i for i in range(degree + 1)], dim=1).to(device)  # Polynomial features
+        X_design = torch.cat([context_y.unsqueeze(1), x], dim=1).to(device)  # Add context_y as first
+        # column
+
+        # Build block-diagonal design matrix for all tasks
+        X_design_block = torch.block_diag(
+            *[X_design for _ in range(num_related)])  # [num_tasks*num_points, ...][2][5]
+
+        # Reorder imputed_y to match block-diagonal structure: all points for task 0, then task 1, etc.
+        imputed_y_ordered = imputed_y.transpose(0, 1).contiguous().view(-1)  # [num_tasks*num_points]
+
+        beta = torch.linalg.lstsq(X_design_block, imputed_y_ordered).solution
+        y_proj = X_design_block @ beta
+        y_proj = y_proj.clamp(0, 1)
+
+        if logger is not None:
+            logger.log(
+                {
+                    'metric': 'projection/beta',
+                    'step': context_x.shape[0],
+                    **{f'beta_{i}': b.item() for i, b in enumerate(beta)}
+                }
+            )
+
+            logger.log(
+                {
+                    'metric': 'projection/error',
+                    'step': context_x.shape[0],
+                    'rmse': torch.sqrt(((imputed_y - y_proj.reshape(imputed_y.shape)) ** 2).mean(
+                        axis=0)).cpu().numpy().tolist()
+                }
+            )
+    else:
+        y_proj = imputed_y  # No projection, use imputed values directly
+
+    # For plotting and debugging
+    if verbose:
+
+        # plot the available data (currently collected on target task and the constant task data
+        # -------------------------------------------------------
+        import matplotlib.pyplot as plt
+        num_tasks = task_context_y.shape[1] + 1
+        fig, axes = plt.subplots(
+            nrows=1, ncols=num_tasks, figsize=(2 * num_tasks, 5), sharex=True,
+            sharey=True
+        )
+
+        # plot the context_x and context_y for the target task
+        ax = axes[0] if num_tasks > 1 else axes
+        ax.plot(context_x[:500, 0, 1].cpu().numpy(), context_y[:500].cpu().numpy(), 'o',
+                label='Target Task')
+        ax.set_title('Target Task')
+        ax.set_xlabel('Fidelity')
+        ax.set_ylabel('y')
+        print('unique fidelity values on target:', context_x[:, 0, 1].unique().cpu().numpy())
+
+        for i in range(0, num_tasks - 1):
+            ax = axes[i + 1] if num_tasks > 1 else axes
+            ax.plot(task_context_x[:500, i, 1].cpu().numpy(), task_context_y[:500,
+                                                              i].cpu().numpy(),
+                    'o')
+            ax.set_title(f'related task {i}')
+            ax.set_xlabel('Fidelity')
+            # ax.set_ylabel('y')
+
+        plt.tight_layout()
+        plt.show()
+
+        # plot how the target task x points are imputed and projected under the
+        # related tasks
+        plot_projections(
+            target_fidelity=target_fidelity,
+            context_x=context_x,
+            context_y=context_y,
+            imputed_y=imputed_y,
+            y_proj=y_proj,
+            plot_file_path=plot_file_path
+        )
+>>>>>>> origin/version/0.7.0-jbc-err-variants:src/model/components/calc_reliability.py
+
+                # For plotting and debugging
+        if verbose:
+            plot_projections(
+                target_fidelity=target_fidelity,
+                context_x=context_x,
+                context_y=context_y,
+                imputed_y=imputed_y,
+                y_proj=y_proj,
+                plot_file_path=plot_file_path
+            )
+
+        num_fidelity = target_fidelity.shape[0]
+        num_tasks = imputed_y.shape[1]
+
+<<<<<<< HEAD:src/model/calc_reliability.py
+        # compute the reliability scores (nll) based on the projected y ------------
+        # y's associated with query for that task
+        # target = context_y.repeat(1, num_related)
+        # Reshape y_proj to [num_points, num_tasks] for loss computation
+        y_proj_for_loss = y_proj.view(num_tasks, num_fidelity).T  # [num_points, num_tasks]
+        loss = criterion(logits, y_proj_for_loss)
+        loss = loss.view(-1, logits.shape[1])  # bar distribution issue
+        loss = loss.mean(dim=0)  # mean over the batch
+=======
+    # rmse = torch.sqrt(((imputed_y - y_proj.reshape(imputed_y.shape)) ** 2).mean(
+    #     axis=0))
+
+    return loss  # reliability scores
+>>>>>>> origin/version/0.7.0-jbc-err-variants:src/model/components/calc_reliability.py
+
+        return loss  # reliability scores
+
+    else:
+        num_tasks = imputed_y.shape[1]
+        num_fidelity = imputed_y.shape[0]
+
+        if transformation_type == "cosine":
+            num_tasks = imputed_y.shape[1]
+            num_fidelity = imputed_y.shape[0]
+            z_mean_imputed_y = imputed_y - imputed_y.mean(dim=0)
+            z_mean_context_y = context_y - context_y.mean(dim=0)
+            cosine_similarity = torch.nn.functional.cosine_similarity(z_mean_context_y, z_mean_imputed_y.T)
+            #print(f"Cosine similarity: {cosine_similarity}")
+            return 1 - cosine_similarity
+
+        else:
+            # compute the reliability scores (nll) based on the projected y ------------
+            # y's associated with query for that task
+            # target = context_y.repeat(1, num_related)
+            # Reshape y_proj to [num_points, num_tasks] for loss computation
+            num_tasks = imputed_y.shape[1]
+            if transformation_type == "linear":
+                y_proj = linear_alg(num_tasks, context_y, imputed_y, device).T
+            elif transformation_type == "norm":
+                y_proj = norm_alg(num_tasks, context_y, imputed_y, device).T
+            else:
+                y_proj = linear_alg_main(num_tasks, context_x, context_y, imputed_y, device).T
+            #y_proj = norm_alg(num_tasks, context_y, imputed_y, device).T
+            #y_proj = linear_alg_main(num_tasks, context_x, context_y, imputed_y, device).T
+            y_proj_for_loss = y_proj.view(num_tasks, num_fidelity).T  # [num_points, num_tasks]
+            loss = criterion(logits, y_proj_for_loss)
+            if return_average_loss: 
+                loss = loss.mean(dim=0)  # mean over the batch
+            return loss         
+
+def plot_gt_data(
+
+        related_task_x: torch.Tensor,
+        related_task_y: torch.Tensor,
+        context_x: torch.Tensor | None = None,
+        context_y: torch.Tensor | None = None,
+):
+    """Here we plot the performance against fidelity for all the tasks (irrespective of the hp
+    dim)"""
+    import matplotlib.pyplot as plt
+
+    # Convert tensors to numpy for plotting
+
+    related_task_x_np = related_task_x.cpu().numpy()
+    related_task_y_np = related_task_y.cpu().numpy()
+
+    num_tasks = related_task_y_np.shape[1]
+    offset = 0
+
+    # for each task (target and related) plot the fidelity vs y
+    if context_x is not None and context_y is not None:
+        context_x_np = context_x.cpu().numpy()
+        context_y_np = context_y.cpu().numpy()
+        num_tasks += 1  # +1 for target task
+
+    fig, axs = plt.subplots(1, num_tasks, figsize=(4 * num_tasks, 5), sharey=True, sharex=True)
+    fig.suptitle('Ground Truth Data', fontsize=16)
+    # Plot target task
+
+    if context_x is not None and context_y is not None:
+        axs[0].scatter(context_x_np[:, 0, 1], context_y_np, label='Target Task', color='blue')
+        axs[0].set_title('Target Task')
+        axs[0].set_xlabel('Fidelity')
+        axs[0].set_ylabel('y value')
+
+        axs[0].legend()
+        axs[0].grid(True, alpha=0.3)
+        offset = 1  # offset for related tasks
+
+    # Plot related tasks
+    for task_idx in range(related_task_y_np.shape[1]):
+        ax = axs[task_idx + offset]
+        ax.scatter(related_task_x_np[:, 0, 1], related_task_y_np[:, task_idx],
+                   label=f'Related Task {task_idx + 1}', color='red')
+        ax.set_title(f'Related Task {task_idx + 1}')
+        ax.set_xlabel('Fidelity')
+        ax.grid(True, alpha=0.3)
+
+    plt.tight_layout(rect=[0, 0, 1, 0.95])
+    plt.show()
+
+
+def plot_projections(
+        target_fidelity: torch.Tensor,
+        context_x: torch.Tensor,
+        context_y: torch.Tensor,
+        imputed_y: torch.Tensor,
+        y_proj: torch.Tensor,
+        plot_file_path: str
+):
+    import matplotlib.pyplot as plt
+
+    target_y = context_y
+    num_fidelity = target_fidelity.shape[0]
+    num_tasks = imputed_y.shape[1]
+
+    # Reshape y_proj for per-task plotting (now correct shape)
+    y_proj_reshaped = y_proj.cpu().numpy().reshape(num_tasks,
+                                                   num_fidelity).T  # shape [num_fidelity, num_tasks]
+    imputed_np = imputed_y.cpu().numpy()
+    fidelity = target_fidelity.cpu().numpy()
+    target_y_np = target_y.cpu().numpy()  # ground truth for target task
+
+    fig, axs = plt.subplots(1, num_tasks + 1, figsize=(4 * (num_tasks + 1), 5), sharey=True)
+    fig.suptitle('Per-Task Projection Analysis', fontsize=16)
+
+    # Plot ground truth (target task)
+    axs[0].scatter(fidelity, target_y_np, label='Ground Truth')
+    axs[0].set_title('Target Task (Ground Truth)')
+    axs[0].set_xlabel('Fidelity')
+    axs[0].set_ylabel('y value')
+    axs[0].legend()
+    axs[0].grid(True, alpha=0.3)
+
+    # Plot each related/meta task
+    for task_idx in range(num_tasks):
+        ax = axs[task_idx + 1]
+        y_before = imputed_np[:, task_idx]
+        y_after = y_proj_reshaped[:, task_idx]
+        x = fidelity
+
+        # Imputed (before)
+        ax.scatter(x, y_before, color='red', label='Imputed (before)', zorder=3)
+        # Projected (after)
+        ax.scatter(x, y_after, color='blue', marker='s', label='Projected (after)', zorder=3)
+        # Error bars
+        for xi, yb, ya in zip(x, y_before, y_after):
+            ax.plot([xi, xi], [yb, ya], color='gray', linestyle=':', zorder=2)
+        ax.set_title(f'Related Task {task_idx + 1}')
+        ax.set_xlabel('Fidelity')
+        ax.grid(True, alpha=0.3)
+        if task_idx == 0:
+            ax.legend()
+
+    plt.tight_layout(rect=[0, 0, 1, 0.95])
+    if plot_file_path:
+        plt.savefig(plot_file_path, bbox_inches='tight')
+    else:
+        plt.show()
+
+    plt.close(fig)
+
+
+import torch
+from sklearn.model_selection import KFold  # or GroupKFold for stratification
+from torch.nn.utils.rnn import pad_sequence
+
+
+def build_padded_batch(context_x, context_y, indices_grouped):
+    # Each group is a list of indices for one curve/HP config
+    x_seqs = [context_x[idxs] for idxs in indices_grouped]  # [curve_len, feat_dim]
+    y_seqs = [context_y[idxs] for idxs in indices_grouped]  # [curve_len, ...]
+    padded_x = pad_sequence(x_seqs, batch_first=True)  # [batch, max_len, feat_dim]
+    padded_y = pad_sequence(y_seqs, batch_first=True)  # [batch, max_len, ...]
+    lengths = torch.tensor([len(seq) for seq in x_seqs])
+    max_len = padded_x.shape[1]
+    is_data = (torch.arange(max_len).expand(len(lengths), max_len) < lengths.unsqueeze(1))
+    return padded_x, padded_y, is_data
+
+
+def kfold_hp_split(context_x, context_y, n_splits=5, random_state=42, start_feature_indx = 2):
+    """
+    Splits data so that all tokens from a given HP config are held out together.
+    Returns context (train) and query (test) sets for the specified fold.
+    """
+<<<<<<< HEAD:src/model/calc_reliability.py
+    if context_x.ndim == 3:
+        cx = context_x.squeeze(1).cpu().numpy() 
+    else:
+        cx = context_x.cpu().numpy()  # shape: [n_tokens, n_features]
+
+    n_tokens = cx.shape[0]
+    fidelity_col = 1
+    hp_cols = list(range(start_feature_indx, cx.shape[1])) 
+=======
+    # cx = context_x.squeeze(1).cpu().numpy()  # shape: [n_tokens, n_features]
+    # n_tokens = cx.shape[0]
+    # fidelity_col = 1
+    # hp_cols = list(range(2, cx.shape[1]))
+>>>>>>> origin/version/0.7.0-jbc-err-variants:src/model/components/calc_reliability.py
+
+    # Group indices by HP configuration
+    # curve_indices = defaultdict(list)
+    # for i in range(n_tokens):
+    #     hp_tuple = tuple(cx[i, hp_cols].tolist())
+    #     curve_indices[hp_tuple].append(i)
+    assert len(context_x.shape) == 2, "context_x must be a 2D tensor"
+    assert context_x.shape[1] >= 3, \
+        "context_x must have at least 3 columns (idx, fidelity, HP1, [..., HPn])"
+
+    unique_rows, inverse_indices = torch.unique(context_x[:, 2:], dim=0, return_inverse=True)
+
+    # Build dictionary: key = unique row as tuple, value = tensor of indices
+    curve_indices = {
+        tuple(unique_rows[i].tolist()): torch.where(inverse_indices == i)[0].tolist()
+        for i in range(len(unique_rows))
+    }
+
+    # List of unique HP configs and their associated token indices
+    hp_tuples = list(curve_indices.keys())
+    hp_indices = list(curve_indices.values())
+
+    # KFold split on HP configs
+<<<<<<< HEAD:src/model/calc_reliability.py
+    kf = KFold(n_splits=min(n_splits, len(hp_tuples)), shuffle=True, random_state=random_state)
+    splits = []
+    train_groups = []
+    test_groups = []
+    for train_hp_idx, test_hp_idx in kf.split(hp_tuples):
+        # Flatten token indices for train/test HPs
+        train_indices = [idx for i in train_hp_idx for idx in hp_indices[i]]
+        test_indices = [idx for i in test_hp_idx for idx in hp_indices[i]]
+        splits.append((np.array(train_indices), np.array(test_indices)))
+=======
+    if len(unique_rows) >=2:
+        kf = KFold(n_splits=min(n_splits, len(unique_rows) ),
+                   shuffle=True,
+                   random_state=random_state)
+>>>>>>> origin/version/0.7.0-jbc-err-variants:src/model/components/calc_reliability.py
+
+        # splits = []
+        train_groups = []
+        test_groups = []
+        for train_hp_idx, test_hp_idx in kf.split(hp_tuples):
+            # Flatten token indices for train/test HPs
+            # train_indices = [idx for i in train_hp_idx for idx in hp_indices[i]]
+            # test_indices = [idx for i in test_hp_idx for idx in hp_indices[i]]
+            # splits.append((np.array(train_indices), np.array(test_indices)))
+
+            # collect the train_groups and test_groups; i.e. collect the learning curve tokens
+            # associated with each HP config
+
+            train_groups.append(list(chain(*[hp_indices[i] for i in sorted(train_hp_idx)])))
+            test_groups.append(list(chain(*[hp_indices[i] for i in sorted(test_hp_idx)])))
+    else:
+
+        # in case we only have one HP config, we split the context into train and test
+        size = context_x.shape[0]
+        train_groups = [list(range(0, size))[:math.floor((2 / 3) * size)]]
+        test_groups = [list(range(0, size))[math.floor((2 / 3) * size):]]
+
+    # Pad and batch
+    padded_context_x, padded_context_y, context_mask = build_padded_batch(
+        context_x,
+        context_y,
+        train_groups
+    )
+    padded_query_x, padded_query_y, query_mask = build_padded_batch(
+        context_x,
+        context_y,
+        test_groups
+    )
+
+
+    return padded_context_x, padded_context_y, context_mask, \
+        padded_query_x, padded_query_y, query_mask
+
+
+<<<<<<< HEAD:src/model/calc_reliability.py
+def calc_target_cv_nll(context_x, context_y, model, criterion, splits=5, random_state=42, start_feature_indx=2):
+=======
+def calc_target_cv_nll(context_x, context_y, model, criterion, splits=5, random_state=42):
+>>>>>>> origin/version/0.7.0-jbc-err-variants:src/model/components/calc_reliability.py
+    device = context_x.device
+
+    padded_context_x, padded_context_y, context_mask, \
+        padded_query_x, padded_query_y, query_mask = kfold_hp_split(
+        context_x, context_y, n_splits=splits, random_state=random_state, start_feature_indx=start_feature_indx
+    )
+
+    # Concatenate context and query for model input
+    all_x = torch.cat([padded_context_x, padded_query_x], dim=1)
+    all_x = all_x.permute(1, 0, 2).to(device)  # [batch_size, seq_len, feature_dim]
+
+    padded_context_y = padded_context_y.permute(1, 0).to(device)
+    padded_query_y = padded_query_y.permute(1, 0).to(device)
+
+    kf_logits = model((all_x, padded_context_y),
+                      single_eval_pos=padded_context_x.shape[1],
+                      src_key_padding_mask=~context_mask.to(device))
+
+    # Compute loss on the (unpadded) query set
+    kf_loss = criterion(kf_logits, padded_query_y)
+    kf_loss = kf_loss[query_mask.T.to(device)].mean(dim=0)
+
+    return kf_loss

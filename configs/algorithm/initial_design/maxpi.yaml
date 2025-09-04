@@ -1,0 +1,4 @@
+# @package algorithm
+
+_target_: src.model.initial_design.maxpi_initial_design.MaxPIInitialDesign
+size: 10

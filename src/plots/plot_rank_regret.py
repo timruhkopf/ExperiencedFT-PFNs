@@ -1,0 +1,356 @@
+import os
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+import fire
+
+import matplotlib.pyplot as plt
+import seaborn as sns
+import multiprocessing
+import io
+from PIL import Image
+
+from plots.plot_acq_task_improvement import compute_anytime_performance
+
+
+def parse_neps_dir(df: pd.DataFrame, pattern, column) -> pd.DataFrame:
+    """
+    Parse NEPS directory structure from the 'filepath' column in the DataFrame.
+
+    Args:
+        df (pd.DataFrame): DataFrame containing a 'filepath' column.
+
+    Returns:
+        pd.DataFrame: DataFrame with an additional 'neps_dir' column.
+    """
+    parsed = df[column].apply(lambda x: os.path.basename(os.path.dirname(x))).str.extract(
+        pattern)
+    # convert to numeric where appropriate
+    parsed = parsed.apply(pd.to_numeric, errors='ignore')
+    df = df.join(parsed, rsuffix='_parsed')
+    return df
+
+
+def parse_reliab_df(df: pd.DataFrame) -> pd.DataFrame:
+    # Collect the target task reliability and entropy of the related reliability scores ------------
+    # hacking of indices for compatability
+    folds = {
+        'taskset': (
+            [[16, 8, 6, 17, 4], [2, 5, 18, 9, 7], [19, 3, 0, 21, 15]],
+            [[2, 19, 6, 7, 21], [1, 16, 0, 15, 23], [22, 9, 8, 12, 11]],
+            [[9, 4, 10, 5, 17], [1, 2, 7, 20, 19], [18, 11, 23, 13, 15]]),
+        'lcbench': (
+            [[32, 26, 30, 8, 13], [5, 17, 14, 31, 24], [1, 12, 6, 23, 4], [18, 21, 19, 9, 7]],
+            [[4, 2, 23, 25, 10], [31, 21, 30, 20, 18], [6, 13, 7, 34, 1], [16, 0, 15, 5, 11]],
+            [[25, 24, 10, 4, 6], [3, 27, 5, 23, 20], [34, 21, 29, 17, 2], [7, 33, 31, 18, 11]]
+        ),
+        'pd1': (
+            [[14, 1, 10, 13, 8], [6, 18, 4, 9, 7], [20, 3, 0, 21, 15]],
+            [[2, 20, 6, 7, 22], [1, 16, 0, 15, 24], [23, 9, 8, 12, 11]],
+            [[22, 4, 10, 5, 19], [1, 2, 7, 21, 20], [18, 11, 24, 13, 15]]
+        )
+    }
+
+    # Create a mapping from train_id to fold index
+    fold_mapping = {}
+
+    for dataset, splits in folds.items():
+        fold_mapping[dataset] = {}
+        for split_seed, split in enumerate(splits):  # splits is list of folds per split_seed
+            fold_mapping[dataset][split_seed] = {}
+            for fold_idx, fold_list in enumerate(split):
+                # (dataset, split_seed, train_id) → fold_idx
+                fold_mapping[dataset][split_seed][str(fold_list)] = fold_idx
+
+    index_tuples = []
+    fold_indices = []
+
+    for dataset, split_map in fold_mapping.items():
+        for split_seed, train_map in split_map.items():
+            for train_id, fold_idx in train_map.items():
+                index_tuples.append((dataset, split_seed, train_id))
+                fold_indices.append(fold_idx)
+
+    mapping_series = pd.Series(
+        fold_indices,
+        index=pd.MultiIndex.from_tuples(index_tuples, names=["dataset", "split_seed", "train_id"])
+    )
+
+    # Now map using this Series:
+    df['train_ids'] = df.set_index(
+        ['benchmark.meta.name', 'split_seed', 'train_ids']
+    ).index.map(mapping_series).to_list()
+
+    return df
+
+
+def main(input_file, output_file=None, figsize=(15, 6), plot_reliab=False,
+         pattern=(
+                 r'neps_root_directory_(?P<target_task>[^_]+)_(?P<fold>[^_]+)_(?P<split_seed>[^_]+)_(?P<seed>[^_]+)')):
+    """
+    Args:
+        input_file (str or list): Path(s) to the input CSV file(s).
+        output_file (str, optional): Path to save the plot. If None, display the plot.
+        figsize (tuple): Size of the figure.
+        pattern (str): Regex pattern to extract metadata from directory path.
+    """
+
+    # Load data
+    if isinstance(input_file, list):
+        df = pd.concat([pd.read_csv(f) for f in input_file],
+                       ignore_index=True)
+
+    else:
+        df = pd.read_csv(input_file)
+        input_file = [input_file]
+
+    input_paths = [Path(f) for f in input_file]
+
+    if {'epochs', 'epoch'} in set(df.columns):  # synthetic data has epochs column :/
+        # where it is not Nan, copy the value to the epoch column
+        df['epoch'] = df['epochs'].where(df['epochs'].notna(), df['epoch'])
+        del df['epochs']
+    elif 'epochs' in df.columns:
+        # if epochs is present but empty, drop it
+        df['epoch'] = df['epochs']
+        del df['epochs']
+    # Assume these two functions are defined somewhere else:
+    # parse_neps_dir: parses metadata from path columns based on pattern
+    # compute_anytime_performance: computes 'anytime_performance' column
+    df.rename(columns={'split_seed': 'split_seed1'}, inplace=True)
+    df = parse_neps_dir(df, pattern, column='filepath')
+    df = compute_anytime_performance(df, minimize=True)
+
+    # Calculate normalized regret ------------------------------------
+    # Define grouping columns consistently
+    group_cols = ['benchmark.name', 'target_task', 'fold', 'split_seed']
+
+    # Create a pivot table: index by group_cols + 'epoch', columns are algorithms, values are anytime_performance
+    pivot_df = df.pivot_table(
+        index=group_cols + ['step'],
+        columns='algoname' if 'algoname' in df.columns else 'algorithm.surrogate_model.meta.name',
+        values='anytime_performance')
+
+    algonames = pivot_df.columns  # Algorithm column names
+
+    # Reset index for easier groupby and merging
+    pivot_df_reset = pivot_df.reset_index()
+
+    # Compute best loss per group over all epochs & algorithms (lowest anytime_performance)
+    best_group_cols = ['benchmark.meta.name', 'target_task', 'split_seed']
+    best_loss_per_group = pivot_df_reset.groupby(best_group_cols).apply(
+        lambda group: group.loc[:, algonames].min().min()
+    ).rename('best_loss').reset_index()
+
+    # Merge best loss back to the pivot dataframe
+    pivot_df_reset = pivot_df_reset.merge(best_loss_per_group, on=best_group_cols)
+
+    # Subtract best_loss from each algorithm's anytime_performance for normalized regret
+    pivot_df_reset[algonames] = pivot_df_reset[algonames].subtract(
+        pivot_df_reset['best_loss'], axis=0
+    )
+
+    # Weight time series of reliability scores ----------------------
+    if (input_paths[0].parent / 'joint_results.csv').exists() and plot_reliab:
+        reliab_df = [pd.read_csv(f.parent / 'joint_results.csv') for f in input_paths]
+        if len(input_paths) > 1:
+            reliab_df = pd.concat(reliab_df, ignore_index=True)
+        else:
+            reliab_df = reliab_df[0]
+
+        reliab_df = reliab_df[reliab_df['metrics'] == 'prior_weights']
+        del reliab_df['metrics']  # drop metric column
+        # reliab_df.rename(columns={'softmax_weight_0': 'target_weight'}, inplace=True)
+
+        # reliab_df = parse_reliab_df(reliab_df)
+
+        # get the highest and second highest weights
+        # others = reliab_df.filter(like='prior_weight')
+        # # Row-wise max
+        # row_max_series = others.max(axis=1)
+        #
+        # # Row-wise second max
+        # # Sort each row descending and take the second value
+        # row_sorted = others.apply(lambda row: row.sort_values(ascending=False).values, axis=1)
+        # second_max_series = row_sorted.apply(lambda x: x[1])
+        #
+        # # Add these as new columns
+        # reliab_df['max_reliability'] = row_max_series
+        # reliab_df['second_max_reliability'] = second_max_series
+
+    else:
+        reliab_df = pd.DataFrame()
+
+    # Plotting --------------------------------
+    # Main code
+    benchmarks = pivot_df_reset['benchmark.meta.name'].unique()
+
+    # Create final figure to assemble images
+    figsize = (10 * len(benchmarks), 8)  # example sizing
+    nrows = 1 if reliab_df.empty else 2
+    fig, axes = plt.subplots(nrows=nrows, ncols=len(benchmarks), figsize=figsize, sharey=True,
+                             dpi=600)
+
+    # axes shape fix for single benchmark
+    if len(benchmarks) == 1:
+        if nrows == 2:
+            axes = np.reshape(axes, (2, 1))
+        else:
+            axes = np.reshape(axes, (1, 1))
+
+    if nrows == 2:
+        # first row: anytime plots
+        for bench, ax in zip(benchmarks, axes[0]):
+            ax.set_xlabel('Step')
+            plot_anytime(bench, pivot_df_reset, algonames, ax)
+
+        # Optional: set only the first y-label for normalized regret
+        axes[0][0].set_ylabel('Regret')
+
+        # second row: weight plots
+        for bench, ax in zip(benchmarks, axes[1]):
+            ax.set_xlabel('Step')
+            plot_weights(bench, reliab_df, ax)
+    else:
+        # only one row of anytime plots
+        if isinstance(axes, np.ndarray) and axes.ndim > 1:
+            axes = axes.flatten()
+        for bench, ax in zip(benchmarks, axes):
+            ax.set_xlabel('Step')
+            plot_anytime(bench, pivot_df_reset, algonames, ax)
+
+        # Optional: set only the first y-label for normalized regret
+        axes[0].set_ylabel('Regret')
+
+    plt.tight_layout()
+
+    # Save or display the plot
+    if output_file:
+        plt.savefig(output_file, bbox_inches='tight', dpi=600)
+        print(f"Plot saved to {output_file}")
+    else:
+        plt.show()
+
+
+def plot_anytime(bench, pivot_df_reset, algonames, ax):
+    # Filter data for this benchmark
+    bench_data = pivot_df_reset[pivot_df_reset['benchmark.meta.name'] == bench]
+
+    # Primary axis: normalized regret lines for each alg
+    ax.axhline(0, color='black', linestyle='--', linewidth=0.8)
+    ax.set_title(f'Benchmark: {bench}')
+    ax.set_xlabel('Step')
+    for alg in algonames:
+        sns.lineplot(data=bench_data, x='step', y=alg, label=alg, ax=ax, errorbar=('ci', 75))
+    ax.set_ylabel('Normalized Regret')
+
+
+def plot_weights(bench, reliab_df, ax):
+    rel_data = reliab_df[reliab_df['benchmark.meta.name'] == bench]
+
+    # sns.lineplot(data=rel_data, x='step', y='target_weight', color='red',
+    #              label='Target weight', ax=ax)
+    for col in [col for col in rel_data.columns if col.startswith('prior_weight')]:
+        sns.lineplot(data=rel_data, x='step', y=col, label=col, ax=ax)
+    # sns.lineplot(data=reliab_df, x='step', y='max_reliability',
+    #              label='highest "other" weight', ax=ax)
+    # sns.lineplot(data=reliab_df, x='step', y='second_max_reliability',
+    #              label='second highest "other" weight', ax=ax)
+
+    ax.set_ylabel('Weight')
+    ax.grid(False)
+
+
+if __name__ == '__main__':
+    # fire.Fire(main)
+
+    # synthetic only:
+#      --input_file /home/ruhkopf/PycharmProjects/ExperiencedFT-PFNs/luis_results/07-30/synthetic
+# --output_file
+# /home/ruhkopf/PycharmProjects/ExperiencedFT-PFNs/luis_results/07-30/synthetic_benchmarks75.pdf
+#     # --input_file
+# "['/home/ruhkopf/PycharmProjects/ExperiencedFT-PFNs/luis_results/07-30/lcbench/anytime.csv','/home/ruhkopf/PycharmProjects/ExperiencedFT-PFNs/luis_results/07-30/pd1/anytime.csv','/home/ruhkopf/PycharmProjects/ExperiencedFT-PFNs/luis_results/07-30/taskset/anytime.csv']"
+# --output_file
+# /home/ruhkopf/PycharmProjects/ExperiencedFT-PFNs/luis_results/07-30/real_benchmarks75.pdf
+
+
+
+
+    import pandas as pd
+    import matplotlib.pyplot as plt
+    import numpy as np
+    from scipy.stats import sem  # For standard error of the mean (confidence bands)
+
+
+    def simplified_main(input_file, output_file=None, figsize=(12, 8)):
+        """
+        Reads a single input CSV, computes anytime_performance, normalizes by dynamic range per task,
+        then plots all tasks together in one plot with confidence bands for each algorithm.
+
+        Args:
+            input_file (str): Path to input CSV file.
+            output_file (str, optional): If set, saves plot to this path; else shows plot.
+            figsize (tuple): Figure size.
+        """
+        # Load data
+        df = pd.read_csv(input_file)
+
+        # Compute anytime_performance (provided function assumed available)
+        df = compute_anytime_performance(df, minimize=True)
+
+        # Normalize column names if needed
+        if 'algorithm.name' not in df.columns and 'algoname' in df.columns:
+            df.rename(columns={'algoname': 'algorithm.name'}, inplace=True)
+        # if 'epoch' not in df.columns and 'step' in df.columns:
+        #     df.rename(columns={'step': 'epoch'}, inplace=True)
+        if 'benchmark.name' in df.columns:
+            df.rename(columns={'benchmark.name': 'task'}, inplace=True)
+
+        # Get min and max anytime_performance per task for normalization
+        task_min_max = df.groupby('task')['anytime_performance'].agg(min_perf='min',
+                                                                     max_perf='max').reset_index()
+        df = pd.merge(df, task_min_max, on='task', how='left')
+
+        epsilon = 1e-12
+        df['normalized_regret'] = (df['anytime_performance'] - df['min_perf']) / (
+                    df['max_perf'] - df['min_perf'] + epsilon)
+
+        # Aggregate by algorithm and epoch (across tasks) for plotting
+        agg = df.groupby(['algorithm.name', 'step']).agg(
+            mean_regret=('normalized_regret', 'mean'),
+            sem_regret=('normalized_regret', sem)  # Standard error for confidence bands
+        ).reset_index()
+
+        # Plot all tasks together with confidence bands per algorithm
+        plt.figure(figsize=figsize)
+        algorithms = agg['algorithm.name'].unique()
+
+        for algo in algorithms:
+            adf = agg[agg['algorithm.name'] == algo]
+            plt.plot(adf['step'], adf['mean_regret'], label=algo)
+            plt.fill_between(adf['step'],
+                             adf['mean_regret'] - adf['sem_regret'],
+                             adf['mean_regret'] + adf['sem_regret'],
+                             alpha=0.2)
+
+        plt.xlabel('step')
+        plt.ylabel('Normalized Regret (0-1 scale)')
+        plt.title('Normalized Anytime Performance Across Tasks (With Confidence Bands)')
+        plt.legend()
+        plt.grid(True)
+        plt.tight_layout()
+
+        if output_file:
+            plt.savefig(output_file, bbox_inches='tight', dpi=600)
+            print(f"Plot saved to {output_file}")
+        else:
+            plt.show()
+
+
+    simplified_main(input_file=
+                    '/home/ruhkopf/PycharmProjects/ExperiencedFT-PFNs/luis_results/reproduction'
+                    '/anytime.csv')
+                    # output_file=
+                    # '/home/ruhkopf/PycharmProjects/ExperiencedFT-PFNs/luis_results/reproduction/anytime.pdf')

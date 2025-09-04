@@ -1,0 +1,142 @@
+#!/bin/bash
+
+
+## lcbench-tabular
+lcbench=(
+lcbench-tabular-adult-balanced
+lcbench-tabular-airlines-balanced
+lcbench-tabular-albert-balanced
+lcbench-tabular-Amazon-balanced
+lcbench-tabular-APSFailure-balanced
+lcbench-tabular-Australian-balanced
+lcbench-tabular-bank-balanced
+lcbench-tabular-blood-balanced
+lcbench-tabular-car-balanced
+lcbench-tabular-christine-balanced
+lcbench-tabular-cnae-balanced
+lcbench-tabular-connect-balanced
+lcbench-tabular-covertype-balanced
+lcbench-tabular-credit-balanced
+lcbench-tabular-dionis-balanced
+lcbench-tabular-fabert-balanced
+lcbench-tabular-Fashion-balanced
+lcbench-tabular-helena-balanced
+lcbench-tabular-higgs-balanced
+lcbench-tabular-jannis-balanced
+lcbench-tabular-jasmine-balanced
+lcbench-tabular-jungle-balanced
+lcbench-tabular-kc1-balanced
+lcbench-tabular-KDDCup09-balanced
+lcbench-tabular-kr-balanced
+lcbench-tabular-mfeat-balanced
+lcbench-tabular-MiniBooNE-balanced
+lcbench-tabular-nomao-balanced
+lcbench-tabular-numerai-balanced
+lcbench-tabular-phoneme-balanced
+lcbench-tabular-segment-balanced
+lcbench-tabular-shuttle-balanced
+lcbench-tabular-sylvine-balanced
+lcbench-tabular-vehicle-balanced
+lcbench-tabular-volkert-balanced
+)
+
+## TaskSet-tabular
+
+taskset=(
+taskset-tabular-normalized-nlp-10-4p
+taskset-tabular-normalized-nlp-10-8p
+taskset-tabular-normalized-nlp-11-4p
+taskset-tabular-normalized-nlp-11-8p
+taskset-tabular-normalized-nlp-12-4p
+taskset-tabular-normalized-nlp-12-8p
+taskset-tabular-normalized-nlp-1-4p
+taskset-tabular-normalized-nlp-1-8p
+taskset-tabular-normalized-nlp-2-4p
+taskset-tabular-normalized-nlp-2-8p
+taskset-tabular-normalized-nlp-3-4p
+taskset-tabular-normalized-nlp-3-8p
+taskset-tabular-normalized-nlp-4-4p
+taskset-tabular-normalized-nlp-4-8p
+taskset-tabular-normalized-nlp-5-4p
+taskset-tabular-normalized-nlp-5-8p
+taskset-tabular-normalized-nlp-6-4p
+taskset-tabular-normalized-nlp-6-8p
+taskset-tabular-normalized-nlp-7-4p
+taskset-tabular-normalized-nlp-7-8p
+taskset-tabular-normalized-nlp-8-4p
+taskset-tabular-normalized-nlp-8-8p
+taskset-tabular-normalized-nlp-9-4p
+taskset-tabular-normalized-nlp-9-8p
+)
+## PD1-tabular
+
+pd1=(
+pd1-tabular-cifar100_wideresnet_2048
+pd1-tabular-cifar100_wideresnet_256
+pd1-tabular-cifar10_wideresnet_2048
+pd1-tabular-cifar10_wideresnet_256
+pd1-tabular-fashion_simplecnn_2048
+pd1-tabular-fashion_simplecnn_256
+pd1-tabular-imagenet_resnet_1024-10
+pd1-tabular-imagenet_resnet_1024-1
+pd1-tabular-imagenet_resnet_1024-2
+pd1-tabular-imagenet_resnet_1024-5
+pd1-tabular-imagenet_resnet_256-10
+pd1-tabular-imagenet_resnet_256-1
+pd1-tabular-imagenet_resnet_256-2
+pd1-tabular-imagenet_resnet_256-5
+pd1-tabular-imagenet_resnet_512-10
+pd1-tabular-imagenet_resnet_512-1
+pd1-tabular-imagenet_resnet_512-2
+pd1-tabular-imagenet_resnet_512-5
+pd1-tabular-lm1b_transformer_2048
+pd1-tabular-mnist_simplecnn_2048
+pd1-tabular-mnist_simplecnn_256
+pd1-tabular-svhn_wideresnet_1024
+pd1-tabular-svhn_wideresnet_256
+pd1-tabular-translate_xformertranslate_64-10
+pd1-tabular-translate_xformertranslate_64-1
+pd1-tabular-translate_xformertranslate_64-2
+pd1-tabular-translate_xformertranslate_64-5
+pd1-tabular-uniref50_transformer_128-1
+)
+
+# the joint list
+REPONAME=ExperiencedFT-PFNs
+
+#BENCHMARK_LIST=("${lcbench[@]}" "${taskset[@]}" "${pd1[@]}")
+BENCHMARK_LIST=${taskset[@]}
+algos=(ifbo asha dyhpo-neps-v2 hyperband)
+
+# TODO: consider batching the jobs or running all on cpu
+
+for algo in "${algos[@]}"; do
+  echo "Submitting array job for algorithm=$algo with ${#BENCHMARK_LIST[@]} benchmarks"
+
+  if [[ "$algo" == "ifbo" || "$algo" == "dyhpo-neps-v2" ]]; then
+      sbatch --export=ALGO="$algo",BENCHMARK_LIST="$BENCHMARK_LIST",BIGWORK="$BIGWORK",REPONAME="$REPONAME" \
+             --array=0-$((${#BENCHMARK_LIST[@]} - 1))  \
+             --partition=gpu \
+             --gres=gpu:1 \
+             $BIGWORK/$REPONAME/jobs/run_pfns_hpo.sbatch
+  else
+      sbatch --export=ALGO="$algo",BENCHMARK_LIST="$BENCHMARK_LIST",BIGWORK="$BIGWORK",REPONAME="$REPONAME" \
+             --array=0-$((${#BENCHMARK_LIST[@]} - 1)) \
+             --cpus-per-task=8 \
+             --partition=amo,lena,haku \
+             $BIGWORK/$REPONAME/jobs/run_pfns_hpo.sbatch
+  fi
+done
+
+
+
+#algo=ifbo
+#REPONAME=ExperiencedFT-PFNs
+#BENCHMARK_LIST=(
+#taskset-tabular-nlp-1-4p
+#)
+#sbatch \
+#  --partition=gpu.test \
+#  --gres=gpu:1 \
+#  --export=ALGO="$algo",BENCHMARK_LIST="$BENCHMARK_LIST",BIGWORK="$BIGWORK",REPONAME="$REPONAME" \
+#    jobs/run_pfns_hpo.sbatch

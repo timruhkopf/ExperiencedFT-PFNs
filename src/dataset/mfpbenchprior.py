@@ -1,9 +1,12 @@
 from typing import Optional, Union, List, Dict
 
+from pathlib import Path
 import numpy as np
 import torch
 from mfpbench import TabularBenchmark
+from tqdm import tqdm
 
+from src.dataset.synthetic_bm import SyntheticBenchmark
 from ifbo.utils import detokenize
 from ifbo import Batch
 from neps.search_spaces.search_space import pipeline_space_from_configspace
@@ -126,93 +129,134 @@ class MFBenchPrior(TabularBenchmark):
 
     def __init__(self,
                  name: str,
-                 data_path,
+                 data_path = None,
                  seq_len=1000,
                  mfb_kwargs: Dict = None,
-                 device="cpu"):
+                 device="cpu",
+                 **kwargs):
         self.name = name
-        self.data_path = data_path
+        self.data_path = Path(data_path) if data_path is not None else None
         self.seq_len = seq_len
         self.mfb_kwargs = mfb_kwargs
         self.seq_len = seq_len
         self.device = device
+        
+        # for synthetic benchmarks
+        # self.bnn_is_fixed = kwargs.get('bnn_is_fixed', True)
+        self.n_layers = kwargs.get('n_layers', None)
+        self.total_tasks = kwargs.get('total_tasks', 6)
+        self.reset_kwargs = kwargs.get('reset_kwargs', {})
+        self.seed = kwargs.get('seed', None)
+        self.related_ratio = kwargs.get('related_ratio', 0.5)
+        self.dim_hyperparameters = kwargs.get('dim_hyperparameters', 6)
 
     def collect_task_split(
             self,
             target_id: [int],
             train_ids: List[int],
+            seed=None,
+            bnn_seed=None,
     ):
-        if not hasattr(self, 'train_ids'):
-            # lazy load the train_ids (which takes time
-            self.target_id = None
-            self.train_ids = None
+        if self.name == "synthetic":
+            self.target_benchmark = SyntheticBenchmark(value_metric="value",
+                                                       cost_metric="fid_cost", seed=seed,
+                                                       bnn_seed=bnn_seed, dim_hyperparameters=self.dim_hyperparameters)
+            self.related_benchmarks = []
+            
+            for i in range(len(train_ids)):
+                # if self.bnn_is_fixed:
+                if i / len(train_ids) < self.related_ratio:
+                    if self.seed is not None:
+                        self.related_benchmarks.append(SyntheticBenchmark(value_metric="value", cost_metric="fid_cost", seed=seed + i + 1, dim_hyperparameters=self.dim_hyperparameters))
+                    else:
+                        self.related_benchmarks.append(SyntheticBenchmark(value_metric="value", cost_metric="fid_cost", dim_hyperparameters=self.dim_hyperparameters))
+                else: # get a new Prior instance!
+                    # related_task = self.target_benchmark.create_related_task(
+                    #     n_layers=self.n_layers, dim_hyperparameters=self.dim_hyperparameters,
+                    #     **self.reset_kwargs, same=False)
+                    related_task= SyntheticBenchmark(value_metric="value",
+                                                     cost_metric="fid_cost",
+                                                     dim_hyperparameters=self.dim_hyperparameters, same=False)
+                    self.related_benchmarks.append(related_task)
 
-        if self.name == "lcbench_tabular":
-            default_mfb_kwargs = {"name": self.name, "preload": True, "prior": None,
-                                  "remove_constants": True, "seed": True,
-                                  "value_metric": "val_balanced_accuracy",
-                                  "value_metric_test": "test_balanced_accuracy"}
-            target = {"task_id": LCBENCH_IDS[target_id]}
-
-            if train_ids != self.train_ids:
-                self.related = [{"task_id": LCBENCH_IDS[task]}
-                                for task in train_ids]
-
-
-
-        elif self.name == "pd1_tabular":
-
-            if target_id >= len(PD1_IDS):
-                raise ValueError(
-                    f"task_id {target_id} is out of bounds for PD1_IDS with size {len(PD1_IDS)}")
-            if any(tid >= len(PD1_IDS) for tid in train_ids):
-                raise ValueError(
-                    f"Some related_task_ids are out of bounds for PD1_IDS with size {len(PD1_IDS)}")
-            default_mfb_kwargs = {"name": self.name,
-                                  "preload": True, "prior": None, "seed": True}
-            target = PD1_IDS[target_id]
-            if train_ids != self.train_ids:
-                self.related = [PD1_IDS[task] for task in train_ids]
-        elif self.name == "taskset_tabular":
-            default_mfb_kwargs = {"name": self.name,
-                                  "preload": True, "prior": None, "seed": True}
-            target = TASKSET_IDS[target_id]
-            if train_ids != self.train_ids:
-                self.related = [TASKSET_IDS[task] for task in train_ids]
+            # if self.bnn_is_fixed:
+            #     assert all(self.target_benchmark.relation_prior.model is
+            #                benchmark.relation_prior.model for benchmark in
+            #                self.related_benchmarks)
+                
         else:
-            raise ValueError(
-                "name must be one of lcbench_tabular, pd1_tabular, or taskset")
+            
+            if not hasattr(self, 'train_ids'):
+                # lazy load the train_ids (which takes time
+                self.target_id = None
+                self.train_ids = None
 
-        if self.mfb_kwargs is not None:
-            default_mfb_kwargs.update(self.mfb_kwargs)
-        mfb_kwargs = default_mfb_kwargs
+            if self.name == "lcbench_tabular":
+                default_mfb_kwargs = {"name": self.name, "preload": True, "prior": None,
+                                    "remove_constants": True, "seed": True,
+                                    "value_metric": "val_balanced_accuracy",
+                                    "value_metric_test": "test_balanced_accuracy"}
+                target = {"task_id": LCBENCH_IDS[target_id]}
 
-        target_kwargs = mfb_kwargs.copy()
-        target_kwargs.update(target)
+                if train_ids != self.train_ids:
+                    self.related = [{"task_id": LCBENCH_IDS[task]}
+                                    for task in train_ids]
 
-        self.target_benchmark = mfpbench.get(
-            datadir=self.data_path, **target_kwargs)
 
-        self.related_benchmarks = []
-        for related_task in self.related:
-            related_kwargs = mfb_kwargs.copy()
-            related_kwargs.update(related_task)
-            self.related_benchmarks.append(
-                mfpbench.get(datadir=self.data_path, **related_kwargs))
 
-        if self.name == "taskset_tabular":
-            self.target_benchmark = self._process_taskset_mfpbench_with_step_0_prior(
-                benchmark=self.target_benchmark, drop_step_0=True
-            )
-            self.related_benchmarks = [
-                self._process_taskset_mfpbench_with_step_0_prior(
-                    benchmark=benchmark, drop_step_0=True
+            elif self.name == "pd1_tabular":
+
+                if target_id >= len(PD1_IDS):
+                    raise ValueError(
+                        f"task_id {target_id} is out of bounds for PD1_IDS with size {len(PD1_IDS)}")
+                if any(tid >= len(PD1_IDS) for tid in train_ids):
+                    raise ValueError(
+                        f"Some related_task_ids are out of bounds for PD1_IDS with size {len(PD1_IDS)}")
+                default_mfb_kwargs = {"name": self.name,
+                                    "preload": True, "prior": None, "seed": True}
+                target = PD1_IDS[target_id]
+                if train_ids != self.train_ids:
+                    self.related = [PD1_IDS[task] for task in train_ids]
+            elif self.name == "taskset_tabular":
+                default_mfb_kwargs = {"name": self.name,
+                                    "preload": True, "prior": None, "seed": True}
+                target = TASKSET_IDS[target_id]
+                if train_ids != self.train_ids:
+                    self.related = [TASKSET_IDS[task] for task in train_ids]
+            else:
+                raise ValueError(
+                    "name must be one of lcbench_tabular, pd1_tabular, or taskset")
+
+            if self.mfb_kwargs is not None:
+                default_mfb_kwargs.update(self.mfb_kwargs)
+            mfb_kwargs = default_mfb_kwargs
+
+            target_kwargs = mfb_kwargs.copy()
+            target_kwargs.update(target)
+
+            self.target_benchmark = mfpbench.get(
+                datadir=self.data_path, **target_kwargs)
+
+            self.related_benchmarks = []
+            for related_task in self.related:
+                related_kwargs = mfb_kwargs.copy()
+                related_kwargs.update(related_task)
+                self.related_benchmarks.append(
+                    mfpbench.get(datadir=self.data_path, **related_kwargs))
+
+            if self.name == "taskset_tabular":
+                self.target_benchmark = self._process_taskset_mfpbench_with_step_0_prior(
+                    benchmark=self.target_benchmark, drop_step_0=True
                 )
-                for benchmark in self.related_benchmarks
-            ]
+                self.related_benchmarks = [
+                    self._process_taskset_mfpbench_with_step_0_prior(
+                        benchmark=benchmark, drop_step_0=True
+                    )
+                    for benchmark in self.related_benchmarks
+                ]
 
-        self.target_id = target_id
-        self.train_ids = train_ids
+            self.target_id = target_id
+            self.train_ids = train_ids
         # self.name = self.name
         # self.fidelity_name = None
         # self.fidelity_range = None
@@ -230,13 +274,16 @@ class MFBenchPrior(TabularBenchmark):
         return self.target_benchmark.trajectory(config)
 
     def __len__(self):
-        return len(
-            {
-                'lcbench_tabular': LCBENCH_IDS,
-                'pd1_tabular': PD1_IDS,
-                'taskset_tabular': TASKSET_IDS,
-            }[self.name]
-        )
+        if self.name == "synthetic":
+            return self.total_tasks
+        else:
+            return len(
+                {
+                    'lcbench_tabular': LCBENCH_IDS,
+                    'pd1_tabular': PD1_IDS,
+                    'taskset_tabular': TASKSET_IDS,
+                }[self.name]
+            )
 
     def sample_dirichlet(self, ncurves: int, max_fidelities: int, alpha: float = None,
                          eps: float = 10 ** -9,
@@ -445,7 +492,11 @@ class MFBenchPrior(TabularBenchmark):
                 tmp = tmp + self._get_normalized_values(
                     config=config, configuration_space=benchmark.space
                 )
-                tmp = tmp + \
+                if self.name == "synthetic":
+                    tmp = tmp + \
+                        [benchmark.query(config=config, at=fidelity).error]
+                else:
+                    tmp = tmp + \
                       [benchmark.query(
                           config=_config_id, at=fidelity).error]
             task_data.append(tmp)
@@ -547,6 +598,7 @@ class MFBenchPrior(TabularBenchmark):
         # self._collect_all_config_data(benchmark, benchmark.end)
 
         ncurves = len(benchmark.configs)
+
         max_fidelities = benchmark.end
 
         cutoff_per_curve, epochs_per_curve, ordering, n_levels = self.sample_dirichlet(
@@ -568,7 +620,7 @@ class MFBenchPrior(TabularBenchmark):
         return x, y
 
     def sample_batch(self, alphas: Optional[Union[List[float], float]] = None,
-                     single_eval_pos=None, target_task=0, train_ids=None, **kwargs, ):
+                     single_eval_pos=None, **kwargs, ):
         """
         Generates a batch of data sampled from multiple tasks.
 
@@ -595,13 +647,38 @@ class MFBenchPrior(TabularBenchmark):
             - single_eval_pos: The list of evaluation positions used for each task.
         :rtype: Batch
         """
+        if self.name == "synthetic" and self.data_path is not None and (self.data_path /
+                'config.json').exists():
+            # load the bnn config and weights to have the same target benchmark task as the related tasks
+            from ifbo.priors.ftpfn_prior import MLP
+            import json
+            self.target_benchmark.relation_prior.model = MLP(2,3)
+            self.target_benchmark.relation_prior.model.to(self.device)
 
-        benchmarks = [self.target_benchmark, *self.related_benchmarks]
+            with open(self.data_path / 'config.json', 'r') as f:
+                config = json.load(f)
 
+            self.target_benchmark.relation_prior.model.reset_from_signature(config)
+            self.target_benchmark.relation_prior.model.load_state_dict(
+                torch.load(self.data_path / 'benchmark_model.pt',
+                           map_location=self.device,
+                           weights_only=True)
+            )
+            assert self.target_benchmark.relation_prior.model is self.related_benchmarks[0].relation_prior.model
+            # if self.related_ratio != 1.0:
+            #     assert not self.related_benchmarks[0].relation_prior.model is \
+            #                self.related_benchmarks[-1].relation_prior.model
+            return torch.load(self.data_path / 'batch.pt', map_location=self.device,
+                              weights_only=False)
+
+        benchmarks = self.related_benchmarks
+        print(len(benchmarks), "benchmarks")
+        print(alphas)
         if alphas is None:
             alphas = [10 ** np.random.uniform(-4, -1) for _ in range(len(benchmarks))]
         if isinstance(alphas, float):
             alphas = [alphas] * len(benchmarks)
+        print(len(alphas), "alphas")
         assert len(alphas) == len(benchmarks), \
             "alphas must be a list of the same length as n_task"
 
@@ -614,11 +691,11 @@ class MFBenchPrior(TabularBenchmark):
 
         X = []
         Y = []
-        for task, alpha, context_size in zip(
+        for task, alpha, context_size in tqdm(zip(
                 benchmarks,
                 alphas,
                 single_eval_pos,
-        ):
+        ), desc="Sampling related task's budget allocations:", total=len(benchmarks)):
             x, y = self.sample_from_task(
                 alpha=alpha, context_size=context_size,
                 benchmark=task,
@@ -628,6 +705,15 @@ class MFBenchPrior(TabularBenchmark):
 
         X = torch.stack(X, dim=1).to(self.device).float()
         Y = torch.stack(Y, dim=1).to(self.device).float()
+        if self.name == "synthetic" and self.data_path is not None:
+            self.data_path.mkdir(parents=True, exist_ok=True)
+            import json
+            with open(self.data_path / 'config.json', 'w') as f:
+                json.dump(self.target_benchmark.relation_prior.model.parameter_signature(), f)
+            torch.save(Batch(x=X, y=Y, target_y=Y.clone(), single_eval_pos=single_eval_pos),
+                       self.data_path / 'batch.pt')
+            torch.save(self.target_benchmark.relation_prior.model.state_dict(), self.data_path /
+                       'benchmark_model.pt')
 
         return Batch(x=X, y=Y, target_y=Y.clone(), single_eval_pos=single_eval_pos)
 

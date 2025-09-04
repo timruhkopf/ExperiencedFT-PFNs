@@ -26,9 +26,29 @@ cd ExperiencedFT-PFNs
 
 git clone git@github.com:timruhkopf/ifBO.git
 git checkout main
+<<<<<<< HEAD
 mv ifBO ifBO_main
 #pip install -U ifBO
 pip install -e ifBO_main
+=======
+pip install -U ifBO_main
+# collect the padding changes
+
+PYTHONPATH=[...]/ExperiencedFT-PFNs/ifBO_main/ifbo:$PYTHONPATH
+
+
+# LCBench benchmark data: 
+#ExperiencedFT-PFNs/src/ifBO_icml2024$ python -m mfpbench download --benchmark lcbench-tabular
+cd src/ifBO_icml24
+pip install -r requirements.txt
+
+
+`
+python -m mfpbench download --benchmark lcbench-tabular  --data-dir $root/ExperiencedFT-PFNs/data/
+python -m mfpbench download --benchmark pd1-tabular  --data-dir $root/ExperiencedFT-PFNs/data/
+python -m mfpbench download --benchmark taskset  --data-dir $root/ExperiencedFT-PFNs/data/
+`
+>>>>>>> origin/version/0.7.0-jbc-err-variants
 
 ./setup.sh
 

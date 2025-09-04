@@ -1,4 +1,0 @@
-# @package model.cls.mixture_fn
-
-_partial_: True
-_target_:  src.model.mixing.argmin

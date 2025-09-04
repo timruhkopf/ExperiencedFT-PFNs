@@ -6,7 +6,13 @@
 #SBATCH --output=%x_%A_%a.out
 #SBATCH --error=%x_%A_%a.err
 
+<<<<<<< HEAD
 #  sbatch --array=0-11 jobs/ifbo/run_ifbo.sh experiment_name=pfn-acq-1st-attempt  +fold=0 +target_idx=0
+=======
+
+
+# sbatch  --array=0-11 --gres=gpu:1 --partition=ai  jobs/ifbo/run_ifbo.sh experiment_name=fixed_reliability +fold=0 +target_idx=0 split_seed=0 device=cuda
+>>>>>>> origin/version/0.7.0-jbc-err-variants
 #for split in range(3):
 #    for algo in ['ifbo', 'ifbo-pfnargmin', 'ifbo-pfnsoftmax', 'ifbo-distill']:
 #        for bench in ['lcbench', 'taskset', 'pd1']:

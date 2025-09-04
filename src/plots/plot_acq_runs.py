@@ -4,24 +4,29 @@ import matplotlib.pyplot as plt
 
 from pathlib import Path
 
+import fire
 
-def compute_anytime_performance(df):
+
+def compute_anytime_performance(df, minimize=True):
     # Sort by filepath and epoch to ensure correct order
     df = df.sort_values(['filepath', 'epoch'])
     # Compute anytime performance (cumulative min loss) for each run
-    df['anytime_performance'] = df.groupby('filepath')['loss'].cummin()
+    if minimize:
+        df['anytime_performance'] = df.groupby('filepath')['loss'].cummin()
+    else:
+        df['anytime_performance'] = df.groupby('filepath')['loss'].cummax()
 
     # add arange ids to the dataframe
     df['step'] = df.groupby('filepath').cumcount()
     return df
 
 
-def aggregate_anytime(df):
+def aggregate_anytime(df, upper=0.95, lower=0.05):
     agg = (
-        df.groupby(['benchmark.meta.name', 'algorithm.surrogate_model.meta.name', 'step'])
+        df.groupby(['benchmark.meta.name', 'algoname', 'step'])
         .agg(
-            q05_anytime=('anytime_performance', lambda x: x.quantile(0.05)),
-            q95_anytime=('anytime_performance', lambda x: x.quantile(0.95)),
+            qlower_anytime=('anytime_performance', lambda x: x.quantile(0.05)),
+            qupper_anytime=('anytime_performance', lambda x: x.quantile(0.95)),
             median_anytime=('anytime_performance', 'median')
         )
         .reset_index()
@@ -29,12 +34,12 @@ def aggregate_anytime(df):
     return agg
 
 
-def plot_anytime_performance(agg_df):
+def plot_anytime_performance(agg_df, title=None, show=False):
     # Facet by benchmark, hue by algorithm
     g = sns.FacetGrid(
         agg_df,
         col='benchmark.meta.name',
-        hue='algorithm.surrogate_model.meta.name',
+        hue='algoname',
         sharey=False,
         height=4,
         aspect=1.5
@@ -45,8 +50,8 @@ def plot_anytime_performance(agg_df):
         plt.plot(data['step'], data['median_anytime'], label=label, color=color)
         plt.fill_between(
             data['step'],
-            data['q05_anytime'],
-            data['q95_anytime'],
+            data['qlower_anytime'],
+            data['qupper_anytime'],
             color=color,
             alpha=0.2
         )
@@ -55,24 +60,68 @@ def plot_anytime_performance(agg_df):
     g.add_legend()
     g.set_axis_labels("Fidelity (step)", "Anytime Performance (Mean Loss)")
     g.set_titles(col_template="{col_name}")
-    plt.show()
+    if title is not None:
+        plt.title(title)
+
+    if show:
+        plt.show()
+
+    return g
 
 
-if __name__ == '__main__':
-    file = Path(
-        '/home/ruhkopf/PycharmProjects/ExperiencedFT-PFNs/kisski_results/joint_results_bdd5b01.csv')
+
+
+def main(
+    file='/home/ruhkopf/PycharmProjects/ExperiencedFT-PFNs/luis_results/fixed_reliability'
+         '/fix_joint_results.csv',
+    minimize=True,
+    save=True,
+    title=None,
+    show=False,
+    upper=0.95,
+    lower=0.05
+):
+    file = Path(file)
     df = pd.read_csv(file)
 
-    df['benchmark.meta.name'].unique()
+    if 'epoch' not in df.columns:
+        df['epoch'] = df.index
 
-    df['algorithm.surrogate_model.meta.name'].unique()
+    print('Unique benchmarks:', df['benchmark.meta.name'].unique())
+    print('Unique surrogate models:', df['algoname'].unique())
+    print('Columns:', df.columns)
 
-    df.columns
-
-    df['algorithm.surrogate_model.meta.name'] = df[
-        'algorithm.surrogate_model.meta.name'].fillna(value='ifbox')
+    df['algoname'] = df['algoname'].fillna(value='ifbo')
 
     # df is your original DataFrame
-    df_anytime = compute_anytime_performance(df)
-    agg_df = aggregate_anytime(df_anytime)
-    plot_anytime_performance(agg_df)
+    df_anytime = compute_anytime_performance(df, minimize=minimize)
+    agg_df = aggregate_anytime(df_anytime, upper, lower)
+    g = plot_anytime_performance(agg_df, title=title, show=show)
+
+    if save:
+        output_file = file.parent / f"anytime_performance_{file.stem}.png"
+        g.savefig(output_file)
+        print(f"Plot saved to {output_file}")
+
+if __name__ == '__main__':
+    fire.Fire(main)
+#
+#
+# if __name__ == '__main__':
+#     file = Path(
+#         '/home/ruhkopf/PycharmProjects/ExperiencedFT-PFNs/luis_results/fixed_reliability/fix_joint_results_94dc71b.csv')
+#     df = pd.read_csv(file)
+#
+#     df['benchmark.meta.name'].unique()
+#
+#     df['algoname'].unique()
+#
+#     df.columns
+#
+#     df['algoname'] = df[
+#         'algoname'].fillna(value='ifbo')
+#
+#     # df is your original DataFrame
+#     df_anytime = compute_anytime_performance(df)
+#     agg_df = aggregate_anytime(df_anytime)
+#     plot_anytime_performance(agg_df)

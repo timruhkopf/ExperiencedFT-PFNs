@@ -9,6 +9,9 @@ from typing import Callable, List
 from multiprocessing import Pool, cpu_count
 
 from omegaconf import DictConfig, OmegaConf
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def config_parser(config_path, keys: List) -> dict:
@@ -41,7 +44,12 @@ def process_single_folder(
 ):
     file_path, config_parser, keys = args
 
-    df = pd.read_csv(file_path)
+    if file_path.suffix == '.jsonl':
+        # If the file is a JSON file, read it as a DataFrame
+        df = pd.read_json(file_path, lines=True)
+
+    elif file_path.suffix == '.csv':
+        df = pd.read_csv(file_path)
 
     if df.empty:
         return None
@@ -62,7 +70,7 @@ def process_folders(
         file_pattern,
         keys:List[str]=[],
         config_parser: Callable = config_parser,
-        outputfile: str = None
+        csv: str = None
 ):
     """
     Multiprocessing to collate the result data frames from multiple folders.
@@ -107,10 +115,14 @@ def process_folders(
         dfs = p.map(process_single_folder, args)
 
     all_dfs.extend([df for df in dfs if df is not None])
-    all_dfs = pd.concat(all_dfs, ignore_index=True)
+    if bool(all_dfs):
+        all_dfs = pd.concat(all_dfs, ignore_index=True)
 
-    if outputfile:
-        all_dfs.to_csv(outputfile, index=False)
+        if csv:
+            all_dfs.to_csv(csv, index=False)
+    else:
+        logger.info(f"No results found for {root_dir}")
+        all_dfs = pd.DataFrame()
 
     return all_dfs
 

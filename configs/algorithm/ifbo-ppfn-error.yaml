@@ -1,0 +1,39 @@
+defaults:
+  - ifbo
+  - initial_design@surrogate_model.cls.initial_design: maxpi
+  - strategy@surrogate_model.cls.strategy: error
+  - weights@surrogate_model.cls.weights: past-surprise
+
+name: ppfn
+mf: True
+sh_based: False
+
+
+surrogate_model:
+  meta:
+    name: 'error_ppfn'
+
+  cls:
+    _target_: src.model.abstractmodel.AbstractModel
+
+    imputer:
+      _target_: src.model.components.imputor.PriorImputer
+      imputation_mode: median
+
+    model:
+      _target_:  ifbo.surrogate.FTPFN
+      version: "0.0.1"
+      device: ${device}
+      target_path: ${repo_root}/data/.model
+
+#    callbacks:
+#        - _target_: callbacks.callback_1d_projection.Callback1dProjectionPI
+#          _partial_: True
+
+
+    flippable: False
+
+
+
+
+

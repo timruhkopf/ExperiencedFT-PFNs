@@ -1,7 +1,7 @@
 import torch
 import hashlib
 
-from src.dataset.taskprior import MetaTaskPriorSameProblem
+from dataset.deprec.taskprior import MetaTaskPriorSameProblem
 
 
 def incumbent_max(Y):

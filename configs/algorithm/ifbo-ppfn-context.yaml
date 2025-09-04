@@ -1,0 +1,41 @@
+defaults:
+
+  - ifbo
+    # override using e.g. algorithm/weights@algorithm.surrogate_model.cls.weights=past-surprise
+  - weights@surrogate_model.cls.weights: mean-weights
+  - strategy@surrogate_model.cls.strategy: joint-context
+  - initial_design@surrogate_model.cls.initial_design: maxpi
+
+name: ppfn
+mf: True
+sh_based: False
+
+
+surrogate_model:
+  meta:
+    name: 'ppfn-joint-context'
+
+  cls:
+    _target_: src.model.abstractmodel.AbstractModel
+
+    imputer:
+      _target_: src.model.components.imputor.PriorImputer
+      imputation_mode: median
+
+    model:
+      _target_:  ifbo.surrogate.FTPFN
+      version: "0.0.1"
+      device: ${device}
+      target_path: ${repo_root}/data/.model
+
+#    callbacks:
+#        - _target_: callbacks.callback_1d_projection.Callback1dProjectionPFNContext
+#          _partial_: True
+
+
+    flippable: False
+
+
+
+
+
