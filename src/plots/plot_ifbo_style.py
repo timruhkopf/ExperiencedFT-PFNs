@@ -48,46 +48,59 @@ def main(
     )
     # fixme: uggly code ahead: make a product call and check if df.empty to avoid postprocessing
     #  and nested loops
-    plot_data = {
-        f'{bench}_{fold}_{task}_{allocation_seed}': {
-            algo: {
-                int(seed): df[
-                    (df["benchmark.meta.name"] == bench) &
-                    (df["target_task"] == task) &
-                    (df["fold"] == fold) &
-                    (df["algoname"] == algo) &
-                    (df["seed"] == seed) &
-                    (df['split_seed'] == split_seed) &
-                    (df["allocation_seed"] == allocation_seed)
-                    ]  # .sort_values("step").reset_index(drop=True)
-                for seed in (
-                    seeds if seeds is not None else
-                    df[(df["benchmark.meta.name"] == bench) & (df["algoname"] == algo)][
-                        "seed"].unique()
-                )
+    # plot_data = {
+    #     f'{bench}_{fold}_{task}_{allocation_seed}': {
+    #         algo: {
+    #             int(seed): df[
+    #                 (df["benchmark.meta.name"] == bench) &
+    #                 (df["target_task"] == task) &
+    #                 (df["fold"] == fold) &
+    #                 (df["algoname"] == algo) &
+    #                 (df["seed"] == seed) &
+    #                 (df['split_seed'] == split_seed) &
+    #                 (df["allocation_seed"] == allocation_seed)
+    #                 ]  # .sort_values("step").reset_index(drop=True)
+    #             for seed in (
+    #                 seeds if seeds is not None else
+    #                 df[(df["benchmark.meta.name"] == bench) & (df["algoname"] == algo)][
+    #                     "seed"].unique()
+    #             )
+    #
+    #         }
+    #         for algo in (algorithms if algorithms is not None else df["algoname"].unique())
+    #     }
+    #     for bench in (benchmarks if benchmarks is not None else df["benchmark.meta.name"].unique())
+    #     for fold in df['fold'].unique()
+    #     for task in df['target_task'].unique()
+    #     for allocation_seed in df['allocation_seed'].unique()
+    #     for split_seed in df['split_seed'].unique()
+    # }
 
-            }
-            for algo in (algorithms if algorithms is not None else df["algoname"].unique())
-        }
-        for bench in (benchmarks if benchmarks is not None else df["benchmark.meta.name"].unique())
-        for fold in df['fold'].unique()
-        for task in df['target_task'].unique()
-        for allocation_seed in df['allocation_seed'].unique()
-        for split_seed in df['split_seed'].unique()
-    }
-    # Removing empty entries
-    plot_data = {
-        key1: {
-            key2: {
-                seed: df for seed, df in seed_dict.items() if not df.empty
-            }
-            for key2, seed_dict in algo_dict.items() if
-            any(not df.empty for df in seed_dict.values())
-        }
-        for key1, algo_dict in plot_data.items() if any(
-            any(not df.empty for df in seed_dict.values()) for seed_dict in algo_dict.values()
-        )
-    }
+    groups = df.groupby([
+        "benchmark.meta.name", "fold", "target_task", "allocation_seed", "split_seed", "algoname",
+        "seed"
+    ], sort=False)
+
+    plot_data = {}
+
+    for group_keys, group_df in groups:
+        bench, fold, task, allocation_seed, split_seed, algo, seed = group_keys
+        key = f"{bench}_{fold}_{task}_{allocation_seed}"
+        plot_data.setdefault(key, {}).setdefault(algo, {})[int(seed)] = group_df
+    #
+    # # Removing empty entries
+    # plot_data = {
+    #     key1: {
+    #         key2: {
+    #             seed: df for seed, df in seed_dict.items() if not df.empty
+    #         }
+    #         for key2, seed_dict in algo_dict.items() if
+    #         any(not df.empty for df in seed_dict.values())
+    #     }
+    #     for key1, algo_dict in plot_data.items() if any(
+    #         any(not df.empty for df in seed_dict.values()) for seed_dict in algo_dict.values()
+    #     )
+    # }
 
     # Normalizing incumbents
     name_normalization = ""
