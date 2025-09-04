@@ -33,13 +33,13 @@ class PPFNs4BO(nn.Module):
         max_length = 0
         for task_uid, evaluations in related_task_data.items():
             X = np.array([self.search_space.to_numerical(e.configuration) for e in evaluations])
-            Y = 1 - self.normalize(np.array([e.objectives["loss"] for e in evaluations]).reshape(-1)) # return to maximization (performance)
+            Y = -self.normalize(np.array([e.objectives["loss"] for e in evaluations]).reshape(-1)) # return to maximization (performance)
             if task_uid in validation_task_data:
                 evaluations_val = validation_task_data[task_uid]
                 X_val = np.array([self.search_space.to_numerical(e.configuration) for e in evaluations_val])
                 if self.input_power_transform :
                     X_val = self.power_transforms(X_val, **self.kwargs).squeeze()
-                Y_val = 1 - self.normalize(np.array([e.objectives["loss"] for e in evaluations_val]).reshape(-1)) # return to maximization (performance)
+                Y_val = - self.normalize(np.array([e.objectives["loss"] for e in evaluations_val]).reshape(-1)) # return to maximization (performance)
                 if self.apply_power_transform:
                     Y_val = self.power_transforms(Y_val, **self.kwargs).squeeze()
                 X = np.concatenate([X, X_val], axis=0)
@@ -82,7 +82,7 @@ class PPFNs4BO(nn.Module):
         # X_pen is a numpy array of shape (n_samples_left, n_features)
         assert len(X_obs) == len(y_obs), "make sure both X_obs and y_obs have the same length."
         if minimize:
-            y_obs = to_tensor(1 - y_obs, device=self.device).to(torch.float32).view(-1) # data are normalized between 0 and 1
+            y_obs = to_tensor(-y_obs, device=self.device).to(torch.float32).view(-1) # data are normalized between 0 and 1
         else:
             y_obs = to_tensor(y_obs, device=self.device).to(torch.float32).view(-1)
         X_obs = to_tensor(X_obs, device=self.device).to(torch.float32)

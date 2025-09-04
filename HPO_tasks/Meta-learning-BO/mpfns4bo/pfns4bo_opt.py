@@ -25,7 +25,7 @@ class PFNs4BO:
         # y_obs is a numpy array of shape (n_samples,), between 0 and 1
         # X_pen is a numpy array of shape (n_samples_left, n_features)
         if minimize:
-            y_obs = to_tensor(1-y_observed, device=self.device).to(torch.float32).view(-1) # data are normalized between 0 and 1
+            y_obs = to_tensor(-y_observed, device=self.device).to(torch.float32).view(-1) # data are normalized between 0 and 1
         else:
             y_obs = to_tensor(y_observed, device=self.device).to(torch.float32).view(-1)
         X_obs = to_tensor(X_observed, device=self.device).to(torch.float32)

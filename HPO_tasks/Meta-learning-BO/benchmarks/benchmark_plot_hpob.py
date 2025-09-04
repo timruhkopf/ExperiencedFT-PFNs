@@ -46,6 +46,7 @@ class BenchmarkPlotter:
             self.task_list_per_space = json.load(f) 
 
         self.search_spaces = list(self.task_list_per_space.keys())
+        #self.search_spaces = ["5965", "7609", "5889", "6794", "5859", "4796", "7607", "5636", "5970"]
 
     def plot(self):
 
@@ -244,7 +245,7 @@ if __name__=="__main__":
     #experiments = ["Random" , "GP", "FSBO", "FSBO2", "RGPE", "MALIBO", "PFNs4BO", "mPFNs4BO", "PFNs4BO-PI", "PFNs4BO-EI"]
     experiments = [ "GP", "FSBO2", "RGPE", "MALIBO", "PFNs4BO-EI", "pPFNs4BO-naive-ei", "pPFNs4BO-simple-ei", "pPFNs4BO-pca4-ei", "pPFNs4BO-pca18-ei",  "pPFNs4BO-pca-ei"] # "PFNs4BO-EI", "PFNs4BO-PI", "PFNs4BO"
     #experiments = [ "pPFNs4BO-naive-ei", "pPFNs4BO-simple-ei", "pPFNs4BO-pca-ei", "pPFNs4BO-pca4-ei""PFNs4BO-PI",]
-    experiments = ["GP", "FSBO", "FSBO2", "RGPE", "MALIBO", "PFN", "DRE",  "PFNs4BO-PI-IW",  "PFNs4BO-EI-IW",  "PFNs4BO-EI-IW-ni"]
+    experiments = ["GP", "FSBO", "FSBO2", "RGPE", "MALIBO", "PFN", "DRE", "PFNs4BO-EI-IW"]
 
     benchmark_plotter  = BenchmarkPlotter(experiments=experiments, 
                                             name = name,
