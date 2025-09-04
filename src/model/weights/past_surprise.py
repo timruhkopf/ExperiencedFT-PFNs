@@ -136,7 +136,10 @@ class PastSurpriseWeights(AbstractWeights):
         )
 
         x_lookahead = interim_results['x_lookahead'].to(self.device)
-        config_idx = (x_train[new_x] == x_lookahead[:, 0, :]).all(dim=-1).flatten()
+
+        mask = (x_train[new_x, 0,  2:] == x_lookahead[:, 0, 2:]).all(dim=-1).flatten()
+        max_fidelity = x_lookahead[:, 0, 1][mask].max()
+        idx = mask & (x_lookahead[:, 0, 1] == max_fidelity)
 
         if hasattr(self.parent_model.strategy, 'get_error_model'):
             imp_aug_lookahead = interim_results['last-get_imputation_augmented_prior-lookahead'].to(self.device)
@@ -154,9 +157,9 @@ class PastSurpriseWeights(AbstractWeights):
             try:
                 projected_logits, projected_criterion = \
                     DistributionConvolver().to(self.device).convolve(
-                        A_logits=imp_aug_lookahead[config_idx, :, :],
+                        A_logits=imp_aug_lookahead[idx, :, :],
                         borders_A=self.model.criterion.borders,
-                        B_logits=error_logits[config_idx, :, :],
+                        B_logits=error_logits[idx, :, :],
                         borders_B=error_borders,
                         reverse=False,  # we convolve the error model with the prior
                         target_borders=self.model.criterion.borders,
@@ -207,7 +210,7 @@ class PastSurpriseWeights(AbstractWeights):
                 # plt.show()
 
                 last_logits = torch.cat(
-                    [target_lookahead[config_idx, :, :], projected_logits], dim=1
+                    [target_lookahead[idx, :, :], projected_logits], dim=1
                 ).to(self.device)
                 interim_results['surprise_logits'].append(last_logits.cpu())
                 interim_results['surprise_x'].append(x_train[new_x].cpu().squeeze())
@@ -240,7 +243,7 @@ class PastSurpriseWeights(AbstractWeights):
                 'last-get_prior_augmented_target_model-lookahead'].to(self.device)
 
             last_logits = torch.cat(
-                [target_lookahead[config_idx, :, :], imp_aug_target_lookahead[config_idx, :, :]], dim=1
+                [target_lookahead[idx, :, :], imp_aug_target_lookahead[idx, :, :]], dim=1
             ).to(self.device)
             if len(last_logits) > 0:
                 interim_results['surprise_logits'].append(last_logits.cpu())

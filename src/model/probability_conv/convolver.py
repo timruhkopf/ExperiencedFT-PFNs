@@ -1,3 +1,5 @@
+import math
+
 import torch
 import torch.nn.functional as F
 
@@ -7,8 +9,9 @@ from model.probability_conv.map_binnings import make_kernel_grid, project_probs_
 
 
 class DistributionConvolver:
-    def __init__(self):
+    def __init__(self, chunk_batch_size=5):
         self.device = "cpu"
+        self.chunk_batch_size = chunk_batch_size
 
     def _make_dirac(self, y_obs, borders, batch_shape):
         """
@@ -121,20 +124,55 @@ class DistributionConvolver:
             #     "B borders must be symmetric around zero for reverse convolution"
             P_B = torch.flip(P_B, dims=(-1,))
 
+        # P_A = P_A[:5]
+        # P_B = P_B[:5]
+
         # flatten time/batch for convolution
         T_A, B_A, D_A = P_A.shape
         T_B, B_B, D_B = P_B.shape
         assert T_A == T_B and B_A == B_B, "Mismatch in batch/time dims"
 
-        C_batch, centers_conv, info = batch_convolve_distributions(
-            A=P_A.reshape(-1, D_A),
-            B=P_B.reshape(-1, D_B),
-            edges_A=borders_A.cpu().numpy(),
-            edges_B=borders_B.cpu().numpy(),
-            device=self.device
-        )
+        T= T_A
+        B = B_A
+        # Assuming T = number of time steps, B = batch size, D_A, D_B = feature dims
+        p_a = P_A.view(-1, D_A)
+        p_B = P_B.view(-1, D_B)
+
+        if self.chunk_batch_size == -1:
+            chunk_batch_size = p_a.shape[0]
+        else:
+            chunk_batch_size = self.chunk_batch_size
+
+        chunks = []
+        num_chunks = math.ceil(B / chunk_batch_size)
+        for i in range(num_chunks):
+            chunk_start = i*chunk_batch_size*T
+            chunk_end = chunk_start + chunk_batch_size*T
+            P_A_chunk = p_a[chunk_start:chunk_end]
+            P_B_chunk = p_B[chunk_start:chunk_end]
+
+            C_chunk, centers_conv, info = batch_convolve_distributions(
+                A=P_A_chunk,
+                B=P_B_chunk,
+                edges_A=borders_A.cpu().numpy(),
+                edges_B=borders_B.cpu().numpy(),
+                device=self.device
+            )
+            chunks.append(C_chunk)
+        C_batch = torch.cat(chunks, dim=0)
+
+        # C_batch, centers_conv, info = batch_convolve_distributions(
+        #     A=P_A.reshape(-1, D_A),
+        #     B=P_B.reshape(-1, D_B),
+        #     edges_A=borders_A.cpu().numpy(),
+        #     edges_B=borders_B.cpu().numpy(),
+        #     device=self.device
+        # )
+        C_batch = C_batch.view(T, B, -1)
+
+                                                        # "matchull convolution")
         T, B = T_A, B_A  # batch shape
-        convolved_logits = torch.log(C_batch.clamp(min=1e-12)).reshape(T, B, -1)
+        convolved_logits = torch.log(C_batch.clamp(min=1e-12))
         centers_conv = torch.tensor(centers_conv, dtype=torch.float32).to(self.device)
         delta = (centers_conv[1:] - centers_conv[:-1]) / 2
         borders_conv = torch.cat([

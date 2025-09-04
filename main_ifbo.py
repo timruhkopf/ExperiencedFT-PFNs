@@ -413,7 +413,7 @@ def main(cfg: DictConfig):
                     post_run_summary=True,  # important for efficient plotting
                 )
                 file_logger.flush()
-
+                torch.cuda.empty_cache()
                 logger.info(f"Finished run for fold={fold}, target_task={target_task}, "
                             f"train_ids={train_ids}, seed={cfg.seed}_{allocation_seed}")
 
