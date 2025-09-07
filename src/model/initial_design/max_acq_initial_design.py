@@ -6,7 +6,7 @@ import torch
 from src.model.initial_design.abstract_intial_design import AbstractInitialDesign
 
 
-class MaxPIInitialDesign(AbstractInitialDesign):
+class MaxAcqInitialDesign(AbstractInitialDesign):
     def __init__(self, incumbent_calculation='imputation-only', **kwargs):
         self.incumbent_calculation = incumbent_calculation
         super().__init__(**kwargs)
@@ -17,10 +17,10 @@ class MaxPIInitialDesign(AbstractInitialDesign):
             x_test,
             y_train,
             inc,
-            acquisition_fn='pi'
+            acquisition_fn='ei'
     ) -> torch.Tensor:
         """
-        Here, we calculate the Maximum Probability of Improvement (MaxPI) acquisition function
+        Here, we calculate the Maximum acquisition function
         based on the imputed values of the related tasks and the target task data.
 
         This is an optimistic acquisition function that encourages exploration
@@ -64,7 +64,7 @@ class MaxPIInitialDesign(AbstractInitialDesign):
         acq_related = torch.stack([
             acq_fn(
                 imp_aug_prior_logits[:, b, :].squeeze(1),
-                best_f=prior_incumbents[b, :].unsqueeze(1),
+                best_f=prior_incumbents[b, :],
                 maximize=True
             )
             for b in range(self.num_related)
@@ -94,7 +94,7 @@ class MaxPIInitialDesign(AbstractInitialDesign):
         return self.suggestions.max(axis=0).values
 
 
-class RepeatedMaxPIInitialDesign(MaxPIInitialDesign):
+class RepeatedMaxAcqInitialDesign(MaxAcqInitialDesign):
     def __init__(self, repetitions=5, **kwargs):
         self.repetitions = repetitions
         super().__init__(**kwargs)
@@ -108,7 +108,7 @@ class RepeatedMaxPIInitialDesign(MaxPIInitialDesign):
             x_test,
             y_train,
             inc,
-            acquisition_fn='pi'
+            acquisition_fn='ei'
     ) -> torch.Tensor:
         """
         Here, we choose a configuration based on each prior and repeat it irrespective of the

@@ -12,17 +12,20 @@ log = logging.getLogger(__name__)
 
 
 def override_call_decorator(func):
-    def wrapper(x_train, x_test, *args, **kwargs):
+    def wrapper(x_train, x_test, multi_fidelity=False, *args, **kwargs):
         n_x_test = x_test.shape[0]
 
         # we must consider, that we ask for the next fidelity of seen configurations
         train = x_train.clone()
-        min_fidelity = train[:, :, 1].min()
-        train[:, :, 1] += min_fidelity
+        if multi_fidelity:
+            # we need to set the fidelity to the minimum seen fidelity
+            min_fidelity = train[:, :, 1].min()
+            train[:, :, 1] += min_fidelity
 
         # we need to also consider, that in x_test we ask unseen configurations
         test = x_test.clone()
-        test[:, :, 1] = min_fidelity
+        if multi_fidelity:
+            test[:, :, 1] = min_fidelity
 
         # METHOD OVERRIDE!
         result_logits = func(
@@ -35,6 +38,7 @@ def override_call_decorator(func):
 
         # gain access to the parent model
         self = getattr(func, '__self__', None)
+
         self.parent_model.interim_results.update({
             f'last-{func.__name__}-lookahead': lookahead_logits.cpu(),
             f'x_lookahead': torch.cat([train[:, 0:1, :], test[:, 0:1, :]], dim=0).cpu()
@@ -117,6 +121,7 @@ class PastSurpriseWeights(AbstractWeights):
 
         return torch.where((B == new_idx).all(dim=-1).flatten())[0].item()
 
+
     def __call__(self, x_train, x_test, y_train, inc, recompute=False, *args,
                  **kwargs) -> torch.Tensor:
         """
@@ -128,7 +133,6 @@ class PastSurpriseWeights(AbstractWeights):
 
         interim_results = self.parent_model.interim_results
         target_lookahead = interim_results['last-get_target_model-lookahead'].to(self.device)
-
 
         new_x = self.find_extra_row_index(
             self.parent_model.interim_results['last-x_train'][:, 0, :].to(self.device),

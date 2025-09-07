@@ -4,8 +4,8 @@ import pfns4bo
 import torch
 
 from ifBO_icml2024.src.PFNs4HPO.pfns4hpo.bar_distribution import BarDistribution
-from model.probability_conv.convolver import DistributionConvolver
-from model.strategies.abstract_strategy import AbstractStrategy
+from src.model.probability_conv.convolver import DistributionConvolver
+from src.model.strategies.abstract_strategy import AbstractStrategy
 
 
 class ErrorModelStrategies(AbstractStrategy):

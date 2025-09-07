@@ -6,20 +6,24 @@ from .pfns4bo_utils import general_power_transform
 from torch import nn
 import sys
 sys.path.append("../../")
-from src.model.pfnimputation import PFNPriorImputation
-from src.model.mixing import CVMixtureStrategy
-from src.model.mixing import myCVMixtureStrategy
-from src.model.calc_reliability import calc_imputed_linalg_reliability
-# from src.model.decay import constant_exponential as decay_fn
-# from src.model.mixing import argmin as mixture_fn
 from types import SimpleNamespace
 import logging
 logger = logging.getLogger(__name__)
-from functools import partial
+from functools import partial, update_wrapper
 
+from src.model.abstractmodel import AbstractModel
 
-class MPFNs4BO(nn.Module):
-    def __init__(self, model, search_space, related_task_data, validation_task_data = [], device='cpu:0', fit_encoder = None, apply_power_transform =False, apply_power_transform_pi =False, input_power_transform=False, tranformation_type=None, mixing_strategy="default", only_obs_incumbents=True, **kwargs):
+from src.model.initial_design.max_acq_initial_design import MaxAcqInitialDesign, RepeatedMaxAcqInitialDesign
+from src.model.strategies.error_model import ErrorModelStrategies
+from src.model.strategies.meta_context import JointBatchedMetaContextStrategy, JointMetaContextStrategy, SplitMetaContextStrategy
+from src.model.weights.simple import MeanWeights
+from src.model.weights.past_surprise import PastSurpriseWeights
+from src.model.components.imputor import PriorImputer
+
+import copy 
+
+class MetaPFNs4BO(nn.Module):
+    def __init__(self, model, search_space, related_task_data, validation_task_data = [], device='cpu:0', fit_encoder = None, configuration = {}, **kwargs):
         super().__init__()
         self.model = model
         self.criterion = model.criterion
@@ -27,32 +31,101 @@ class MPFNs4BO(nn.Module):
         self.kwargs = kwargs
         self.fit_encoder = fit_encoder
         self.search_space = search_space
-        self.apply_power_transform = apply_power_transform
-        self.input_power_transform = input_power_transform
-        self.input_power_transform_eps = 0.0
-        self.transformation_type = tranformation_type
-        self.only_obs_incumbents = only_obs_incumbents
-        self.apply_power_transform_pi = apply_power_transform_pi
+        self.configuration = configuration
+        self.apply_power_transform = configuration.get("apply_power_transform", True)
+        self.input_power_transform = configuration.get("input_power_transform", False)
+        self.input_power_transform_eps = configuration.get("input_power_transform_eps", 0.0)
+        self.acquisition_function_type = configuration.get("acquisition_function_type", "ei")
+        self.flippable =  configuration.get("flippable", False)
 
+        self.related_task_data = self.prepare_meta_data(related_task_data, validation_task_data)
+        self.related_task_data_copy = copy.deepcopy(self.related_task_data)
+
+
+        initial_design = configuration.get("initial_design", {"type": "maxacq", "params": {"size":10}})
+        if initial_design["type"] == "maxacq":
+            params = initial_design.get("params", {})
+            self.initial_design = MaxAcqInitialDesign(**params)
+        elif initial_design["type"] == "repeated_maxacq":
+            params = initial_design.get("params", {})
+            self.initial_design = RepeatedMaxAcqInitialDesign(**params)
+        else:
+            raise ValueError(f"Unknown initial design type: {initial_design['type']}")
+
+        strategy = configuration.get("strategy", {"type": "joint-context", "imputer": {"type": "prior-imputer", "params": {"imputation_mode": "median"}}})
+        strategy_imputer = strategy.get("imputer", {})
+        if strategy_imputer["type"] == "prior-imputer":
+            params = strategy_imputer.get("params", {})
+            self.strategy_imputer = PriorImputer(**params)
+        else:
+            self.strategy_imputer = None
+
+        if strategy["type"] == "error-model":
+            params = strategy.get("params", {})
+            self.strategy = ErrorModelStrategies(**params)
+        elif strategy["type"] == "joint-context":
+            params = strategy.get("params", {})
+            self.strategy = JointMetaContextStrategy(imputer=self.strategy_imputer, **params)
+        elif strategy["type"] == "joint-batched-context":
+            params = strategy.get("params", {})
+            self.strategy = JointBatchedMetaContextStrategy(imputer=self.strategy_imputer, **params)
+        elif strategy["type"] == "split-context":
+            params = strategy.get("params", {})
+            self.strategy = SplitMetaContextStrategy(imputer=self.strategy_imputer, **params)
+        else:
+            raise ValueError(f"Unknown strategy type: {strategy['type']}")
+
+        weights = configuration.get("weights", {"type": "mean-weights"})
+        if weights["type"] == "mean-weights":
+            params = weights.get("params", {})
+            self.weights = MeanWeights(**params)
+        elif weights["type"] == "past-surprise":
+            params = weights.get("params", {})
+            self.weights = PastSurpriseWeights(**params)
+        else:
+            raise ValueError(f"Unknown weights type: {weights['type']}")
+
+        imputer = configuration.get("imputer", {"type": "prior-imputer", "params": {"imputation_mode": "median"}})
+        if imputer["type"] == "prior-imputer":
+            params = imputer.get("params", {})
+            self.imputer = PriorImputer(**params)
+        else:
+            raise ValueError(f"Unknown imputer type: {imputer['type']}")
+
+        self.ppfn = AbstractModel(
+            initial_design = self.initial_design,
+            strategy = self.strategy,
+            flippable = self.flippable,
+            logger = None,
+            model = self,
+            device = self.device,
+            related_task_data = self.related_task_data,
+            weights=self.weights,  # weight strategy
+            imputer=self.imputer,
+            callbacks=(),
+            contender_bonus=None,
+            acquisition_function_type=self.acquisition_function_type,
+        )
+
+    def prepare_meta_data(self, related_task_data, validation_task_data = []):
         """Meta-learning on meta-data, corresponds to the meta-learning part in Algorithm 1."""
         converted_meta_data = dict()
         max_length = 0
         for task_uid, evaluations in related_task_data.items():
             X = np.array([self.search_space.to_numerical(e.configuration) for e in evaluations])
-            Y = 1 - self.normalize(np.array([e.objectives["loss"] for e in evaluations]).reshape(-1)) # return to maximization (performance)
+            Y = -self.normalize(np.array([e.objectives["loss"] for e in evaluations]).reshape(-1)) # return to maximization (performance)
             if task_uid in validation_task_data:
                 evaluations_val = validation_task_data[task_uid]
                 X_val = np.array([self.search_space.to_numerical(e.configuration) for e in evaluations_val])
                 if self.input_power_transform :
                     X_val = self.power_transforms(X_val, **self.kwargs).squeeze()
-                Y_val = 1 - self.normalize(np.array([e.objectives["loss"] for e in evaluations_val]).reshape(-1)) # return to maximization (performance)
+                Y_val = - self.normalize(np.array([e.objectives["loss"] for e in evaluations_val]).reshape(-1)) # return to maximization (performance)
                 if self.apply_power_transform:
                     Y_val = self.power_transforms(Y_val, **self.kwargs).squeeze()
                 X = np.concatenate([X, X_val], axis=0)
                 Y = np.concatenate([Y, Y_val], axis=0)
             max_length = max(max_length, len(Y))
             converted_meta_data[task_uid] = {"X": X, "y": Y}
-
 
         x_task_context =[]
         y_task_context = []
@@ -61,30 +134,12 @@ class MPFNs4BO(nn.Module):
             x_task_context.append(np.concatenate([item["X"], np.zeros((max_length - item["X"].shape[0] , item["X"].shape[1]))]))
             y_task_context.append(np.concatenate( [item["y"] , np.zeros((max_length - item["y"].shape[0]))]))  
             padding_mask.append(np.concatenate([np.zeros(item["y"].shape[0]),  np.ones(max_length- item["y"].shape[0])]  ))
-        x_task_context = to_tensor(np.stack(x_task_context, axis=1)).to(torch.float32).to(device)
-        y_task_context =  to_tensor(np.stack(y_task_context, axis=1)).to(torch.float32).to(device)
-        padding_mask =  to_tensor(np.stack(padding_mask, axis=1)).to(torch.bool).to(device).T 
+        x_task_context = to_tensor(np.stack(x_task_context, axis=1)).to(torch.float32).to(self.device)
+        y_task_context =  to_tensor(np.stack(y_task_context, axis=1)).to(torch.float32).to(self.device)
+        padding_mask =  to_tensor(np.stack(padding_mask, axis=1)).to(torch.bool).to(self.device).T 
 
-        self.related_task_data = SimpleNamespace(x=x_task_context, y=y_task_context, padding_mask=padding_mask)
+        return  SimpleNamespace(x=x_task_context, y=y_task_context, padding_mask=padding_mask)
 
-        if mixing_strategy == "default":
-            mixing_class = CVMixtureStrategy
-        elif mixing_strategy == "my" or mixing_strategy == "ts":
-            mixing_class = partial(myCVMixtureStrategy, mixing_type="ts") 
-        else:
-            raise ValueError(f"Unknown mixing strategy: {mixing_strategy}")
-
-        self.pfnimputation = PFNPriorImputation(
-            model = self,
-            criterion = self.criterion,
-            logger = None,
-            mixture_strategy = partial(mixing_class, transformation_type=self.transformation_type),
-            related_task_data = self.related_task_data,
-            min_context_size =1,
-            imputation_mode ='mean',
-            device=device,
-            only_obs_incumbents=self.only_obs_incumbents
-        )
     def normalize(self, y):
         return (y-np.min(y))/(np.max(y)-np.min(y)+ 1e-8)
 
@@ -95,7 +150,7 @@ class MPFNs4BO(nn.Module):
         # X_pen is a numpy array of shape (n_samples_left, n_features)
         assert len(X_obs) == len(y_obs), "make sure both X_obs and y_obs have the same length."
         if minimize:
-            y_obs = to_tensor(1 - y_obs, device=self.device).to(torch.float32).view(-1) # data are normalized between 0 and 1
+            y_obs = to_tensor(-y_obs, device=self.device).to(torch.float32).view(-1) # data are normalized between 0 and 1
         else:
             y_obs = to_tensor(y_obs, device=self.device).to(torch.float32).view(-1)
         X_obs = to_tensor(X_obs, device=self.device).to(torch.float32)
@@ -113,14 +168,22 @@ class MPFNs4BO(nn.Module):
             w = self.fit_encoder(self.model, X_obs, y_obs)
             X_obs = w(X_obs)
             X_pen = w(X_pen)
+            self.related_task_data.x = w(self.related_task_data_copy.x)
 
-        acq_values = self.pfnimputation.get_pi(
+
+        if self.acquisition_function_type == "ei":
+            acquisition_function = self.ppfn.get_ei
+        elif self.acquisition_function_type == "pi":
+            acquisition_function = self.ppfn.get_pi
+        else:
+            raise ValueError(f"Unknown acquisition_function_type: {self.acquisition_function_type}")
+
+        acq_values = acquisition_function(
             X_pen,
             y_obs.max(),
             x_train=X_obs,
             y_train=y_obs,
-            minimize= False,
-            apply_power_transform = self.apply_power_transform_pi
+            minimize=False,
         ).squeeze()
         acq_mask = acq_values.max() == acq_values
         possible_next = torch.arange(len(X_pen))[acq_mask]

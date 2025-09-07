@@ -5,7 +5,7 @@ import torch
 
 from ifbo.transformer import TransformerModel
 from src.model.components.contender_bonus import BudgetBasedPIBonus
-from utils.dotdict import DotDict
+from src.utils.dotdict import DotDict
 
 log = logging.getLogger(__name__)
 
@@ -118,7 +118,8 @@ class AbstractModel(IFBOInterface):
             weights=None,  # weight strategy
             imputer=None,
             callbacks=(),
-            contender_bonus: Union[None, BudgetBasedPIBonus] = None
+            contender_bonus: Union[None, BudgetBasedPIBonus] = None,
+            acquisition_function_type="ei",
             # **kwargs
     ):
         """
@@ -140,8 +141,13 @@ class AbstractModel(IFBOInterface):
         self.weights = weights  # weight strategy,
         self.flippable_related = flippable
         self.logger = logger
+        self.acquisition_function_type = acquisition_function_type
 
-        self.model: TransformerModel = model if isinstance(model, TransformerModel) else model.model
+        if "PFNs4BO" in type(model).__name__:
+            self.model = model
+        else:
+            self.model: TransformerModel = model if isinstance(model, TransformerModel) else model.model
+            
         self.model.eval()
         self.criterion = self.model.criterion
 
@@ -244,7 +250,7 @@ class AbstractModel(IFBOInterface):
 
         self.initialized = True
 
-    def _preprocess(self, x_train, y_train, x_test, inc, minimize=True):
+    def _preprocess(self, x_train, y_train, x_test, inc, minimize=False):
 
         if not self.initialized:
             self.__post_init__(self.related_task_data, minimize)
@@ -285,7 +291,7 @@ class AbstractModel(IFBOInterface):
         return x_train, y_train, x_test, inc
 
     @torch.no_grad()
-    def smbo(self, x_train, y_train, x_test, inc, minimize=True):
+    def smbo(self, x_train, y_train, x_test, inc, minimize=False):
         step = x_train.shape[0]
         x_train, y_train, x_test, inc, = \
             self._preprocess(x_train, y_train, x_test, inc, minimize=minimize)
@@ -304,18 +310,18 @@ class AbstractModel(IFBOInterface):
             self.interim_results.update(dict(imputed_y=imputed_y.cpu(), step=step))
 
         if step < self.initial_design.size:
-            pi_values = self.initial_design(
+            acq_values = self.initial_design(
                 x_train=x_train,
                 x_test=x_test,
                 y_train=y_train,
                 inc=inc,
-                acquisition_fn='pi'
+                acquisition_fn=self.acquisition_function_type
             )
 
             for callback in self.callbacks:
-                callback.on_acq_end_warmstart(x_train, y_train, x_test, inc, pi_values)
+                callback.on_acq_end_warmstart(x_train, y_train, x_test, inc, acq_values)
 
-            acq = pi_values
+            acq = acq_values
             predictions = None
 
 

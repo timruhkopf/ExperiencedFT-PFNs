@@ -11,7 +11,7 @@ from types import SimpleNamespace
 import logging
 logger = logging.getLogger(__name__)
 from functools import partial
-
+import copy 
 
 class PPFNs4BO(nn.Module):
     def __init__(self, model, search_space, related_task_data, validation_task_data = [], device='cpu:0', fit_encoder = None, apply_power_transform =False, apply_power_transform_pi =False, input_power_transform=False,  model_avg='bma', **kwargs):
@@ -60,6 +60,7 @@ class PPFNs4BO(nn.Module):
         padding_mask =  to_tensor(np.stack(padding_mask, axis=1)).to(torch.bool).to(device).T 
 
         self.related_task_data = SimpleNamespace(x=x_task_context, y=y_task_context, padding_mask=padding_mask)
+        self.related_task_data_copy = copy.deepcopy(self.related_task_data)
 
         self.ppfn = PPFN(
             model = self,
@@ -100,6 +101,7 @@ class PPFNs4BO(nn.Module):
             w = self.fit_encoder(self.model, X_obs, y_obs)
             X_obs = w(X_obs)
             X_pen = w(X_pen)
+            self.related_task_data.x = w(self.related_task_data_copy.x)
 
         acq_values = self.ppfn.get_pi(
             X_pen,

@@ -1,4 +1,4 @@
-from model.strategies.abstract_strategy import AbstractStrategy
+from src.model.strategies.abstract_strategy import AbstractStrategy
 
 
 class AbstractInitialDesign(AbstractStrategy):

@@ -4,8 +4,8 @@ import torch
 import torch.nn.functional as F
 
 from ifbo import BarDistribution
-from model.probability_conv.conv import batch_convolve_distributions
-from model.probability_conv.map_binnings import make_kernel_grid, project_probs_to_new_grid
+from src.model.probability_conv.conv import batch_convolve_distributions
+from src.model.probability_conv.map_binnings import make_kernel_grid, project_probs_to_new_grid
 
 
 class DistributionConvolver:

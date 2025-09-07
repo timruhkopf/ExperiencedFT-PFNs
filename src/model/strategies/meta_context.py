@@ -2,8 +2,8 @@ from functools import partial
 
 import torch
 
-from model.probability_conv.convolver import DistributionConvolver
-from model.strategies.abstract_strategy import AbstractStrategy
+from src.model.probability_conv.convolver import DistributionConvolver
+from src.model.strategies.abstract_strategy import AbstractStrategy
 
 
 class SplitMetaContextStrategy(AbstractStrategy):
@@ -112,7 +112,7 @@ class SplitMetaContextStrategy(AbstractStrategy):
 class JointMetaContextStrategy(SplitMetaContextStrategy):
     __name__ = "JointMetaContextStrategy"
 
-    def __call__(self, x_train, x_test, y_train, inc):
+    def __call__(self, x_train, x_test, y_train, inc, max_features=10):
         """
         Main idea behind this method is that we can use all of the related task y values (imputed
         for the x_test values of course) and concatenate them to the hp dimension.
@@ -134,7 +134,7 @@ class JointMetaContextStrategy(SplitMetaContextStrategy):
 
         # sample without the available priors based on their past surprise:
 
-        avail_space = 10 - hp
+        avail_space = max_features - hp
         assert avail_space > 0, \
             (f'PFN input restriction violated: n_hp:{x_train.shape[-1]}. There are'
              '{self.num_related} related tasks, but they don\'t fit into the hp dim')
@@ -142,11 +142,12 @@ class JointMetaContextStrategy(SplitMetaContextStrategy):
             weights = self.parent_model.weights(x_train, x_test, y_train, inc, recompute=True)
             prior_weights = weights[1:]
 
-            self.logger.log(
-                {'metrics': 'weights', 'step': step,
-                 **{f'weight_{i}': w.item()
-                    for i, w in enumerate(weights)}},
-            )
+            if self.logger is not None:
+                self.logger.log(
+                    {'metrics': 'weights', 'step': step,
+                    **{f'weight_{i}': w.item()
+                        for i, w in enumerate(weights)}},
+                )
 
             # now sample:
             prior_idx = torch.multinomial(
@@ -157,15 +158,15 @@ class JointMetaContextStrategy(SplitMetaContextStrategy):
             prior_idx = torch.arange(self.num_related, device=self.device)
 
         imputed_y = self.parent_model.interim_results['imputed_y'].to(self.device)
-
+        
         imputed_y_test = self.imputer(
             x_train=self.related_context.x[:, prior_idx, :],
             x_test=x_test.repeat(1, self.num_related, 1),
             y_train=self.related_context.y[:, prior_idx])
 
-        assert x_train.shape[-1] + imputed_y_test.shape[-1] <= 10, \
+        assert x_train.shape[-1] + imputed_y_test.shape[-1] <= max_features, \
             (f'PFN input restriction violated: {x_train.shape[-1]}:x_train + '
-             f'{imputed_y_test.shape[-1]}:imputed_y_test > 10.\n'
+             f'{imputed_y_test.shape[-1]}:imputed_y_test > {max_features}.\n'
              'Recommendation: reduce the number of priors!')
 
         # here all the priors are directly concatenated to the HP dimensions!
@@ -197,7 +198,7 @@ class JointNoHPMetaContextStrategy(SplitMetaContextStrategy):
         self.prior_only = prior_only
 
 
-    def __call__(self, x_train, x_test, y_train, inc):
+    def __call__(self, x_train, x_test, y_train, inc, max_features=10):
         """
         Here, we only will use the imputed prior y values as input to the model.
         We can augment the model prediction with that of a meta-unaware target model,
@@ -208,7 +209,7 @@ class JointNoHPMetaContextStrategy(SplitMetaContextStrategy):
 
         # sample without the available priors based on their past surprise:
 
-        avail_space = 10
+        avail_space = max_features 
         assert avail_space > 0, \
             (f'PFN input restriction violated: n_hp:{x_train.shape[-1]}. There are'
              '{self.num_related} related tasks, but they don\'t fit into the hp dim')
@@ -363,10 +364,11 @@ class JointBatchedMetaContextStrategy(SplitMetaContextStrategy):
             x_train, x_test, y_train, inc, recompute=True
         )
 
-        self.logger.log(
-            {'metrics': 'weights', 'step': step,
-             **{f'weight_{i}': w.item() for i, w in enumerate(weights)}}
-        )
+        if self.logger is not None:
+            self.logger.log(
+                {'metrics': 'weights', 'step': step,
+                 **{f'weight_{i}': w.item() for i, w in enumerate(weights)}}
+            )
 
 
         self.parent_model.interim_results.update({

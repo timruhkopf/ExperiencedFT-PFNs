@@ -79,122 +79,96 @@ if __name__ == "__main__":
                 # Testing on validation data without training on it is not possible
                 optimizer.meta_fit(meta_data, meta_dir=meta_dir, **train_config)
 
+        elif args.method == "metaPFNs4BO":
+            import pfns4bo
+            from mpfns4bo.tune_input_warping import fit_input_warping
+            from mpfns4bo.meta_pfns4bo import MetaPFNs4BO
+            configuration={"strategy": {"type": "joint-context", "imputer": {"type": "prior-imputer", "params": {"imputation_mode": "median"}}},
+            "initial_design": {"type": "maxacq", "params": {"size":0}},
+            "weights": {"type": "past-surprise", "params": {}},
+            "acquisition_function_type": "ei",
+            "flippable": False
+            }
+            optimizer = MetaPFNs4BO(torch.load( pfns4bo.hebo_plus_model), benchmark.search_space, meta_data, device=args.device, fit_encoder=fit_input_warping, configuration=configuration)
+        
+        elif args.method == "metaPFNs4BO-joint-batched-context":
+            import pfns4bo
+            from mpfns4bo.tune_input_warping import fit_input_warping
+            from mpfns4bo.meta_pfns4bo import MetaPFNs4BO
+            configuration={"strategy": {"type": "joint-batched-context", "params":{"D": 1,
+            "convolve": False}, "imputer": {"type": "prior-imputer", "params": {"imputation_mode": "median"}}},
+            "initial_design": {"type": "maxacq", "params": {"size":5}},
+            "weights": {"type": "past-surprise", "params": {}},
+            "acquisition_function_type": "ei",
+            "flippable": False
+            }
+            optimizer = MetaPFNs4BO(torch.load( pfns4bo.hebo_plus_model), benchmark.search_space, meta_data, device=args.device, fit_encoder=fit_input_warping, configuration=configuration)
+        
+        elif args.method == "metaPFNs4BO-joint-batched-context-mean-weights":
+            import pfns4bo
+            from mpfns4bo.tune_input_warping import fit_input_warping
+            from mpfns4bo.meta_pfns4bo import MetaPFNs4BO
+            configuration={"strategy": {"type": "joint-batched-context", "params":{"D": 1,
+            "convolve": False}, "imputer": {"type": "prior-imputer", "params": {"imputation_mode": "median"}}},
+            "initial_design": {"type": "maxacq", "params": {"size":0}},
+            "weights": {"type": "mean-weights", "params": {}},
+            "acquisition_function_type": "ei",
+            "flippable": False
+            }
+            optimizer = MetaPFNs4BO(torch.load( pfns4bo.hebo_plus_model), benchmark.search_space, meta_data, device=args.device, fit_encoder=fit_input_warping, configuration=configuration)
+        
+        elif args.method == "metaPFNs4BO-mean-weights":
+            import pfns4bo
+            from mpfns4bo.tune_input_warping import fit_input_warping
+            from mpfns4bo.meta_pfns4bo import MetaPFNs4BO
+            configuration={"strategy": {"type": "joint-context", "imputer": {"type": "prior-imputer", "params": {"imputation_mode": "median"}}},
+            "initial_design": {"type": "maxacq", "params": {"size":0}},
+            "weights": {"type": "mean-weights", "params": {}},
+            "acquisition_function_type": "ei",
+            "flippable": False
+            }
+            optimizer = MetaPFNs4BO(torch.load( pfns4bo.hebo_plus_model), benchmark.search_space, meta_data, device=args.device, fit_encoder=fit_input_warping, configuration=configuration)
+
         elif args.method == "pPFNs4BO-pca-ei":
             import pfns4bo
             from mpfns4bo.ppfns4bo import PPFNs4BO
-            optimizer = PPFNs4BO(torch.load( pfns4bo.hebo_plus_model), benchmark.search_space, meta_data, device=args.device, model_avg='pca-ei', apply_power_transform_pi=True)
+            from mpfns4bo.tune_input_warping import fit_input_warping
+            optimizer = PPFNs4BO(torch.load( pfns4bo.hebo_plus_model), benchmark.search_space, meta_data, device=args.device, fit_encoder=fit_input_warping, model_avg='pca-ei', apply_power_transform_pi=True)
 
         elif args.method == "pPFNs4BO-pca":
             import pfns4bo
             from mpfns4bo.ppfns4bo import PPFNs4BO
-            optimizer = PPFNs4BO(torch.load( pfns4bo.hebo_plus_model), benchmark.search_space, meta_data, device=args.device, model_avg='pca', apply_power_transform_pi=True)
+            from mpfns4bo.tune_input_warping import fit_input_warping
+            optimizer = PPFNs4BO(torch.load( pfns4bo.hebo_plus_model), benchmark.search_space, meta_data, device=args.device, fit_encoder=fit_input_warping, model_avg='pca', apply_power_transform_pi=True)
 
         elif args.method == "pPFNs4BO-naive":
             import pfns4bo
             from mpfns4bo.ppfns4bo import PPFNs4BO
-            optimizer = PPFNs4BO(torch.load( pfns4bo.hebo_plus_model), benchmark.search_space, meta_data, device=args.device, model_avg='naive', apply_power_transform_pi=True)
+            from mpfns4bo.tune_input_warping import fit_input_warping
+            optimizer = PPFNs4BO(torch.load( pfns4bo.hebo_plus_model), benchmark.search_space, meta_data, device=args.device, fit_encoder=fit_input_warping, model_avg='naive', apply_power_transform_pi=True)
         elif args.method == "pPFNs4BO-simple":
             import pfns4bo
             from mpfns4bo.ppfns4bo import PPFNs4BO
-            optimizer = PPFNs4BO(torch.load( pfns4bo.hebo_plus_model), benchmark.search_space, meta_data, device=args.device, model_avg='simple', apply_power_transform_pi=True)
-
-        elif args.method == "pPFNs4BO-bma":
-            import pfns4bo
-            from mpfns4bo.ppfns4bo import PPFNs4BO
-            optimizer = PPFNs4BO(torch.load( pfns4bo.hebo_plus_model), benchmark.search_space, meta_data, device=args.device)
-
-
-        elif args.method == "pPFNs4BO-dp":
-            import pfns4bo
-            from mpfns4bo.mpfns4bo import MPFNs4BO
-            optimizer = MPFNs4BO(torch.load( pfns4bo.hebo_plus_model), benchmark.search_space, meta_data, device=args.device, apply_power_transform_pi=True, mixing_strategy="my")
-
-        elif args.method == "pPFNs4BO-ts":
-            import pfns4bo
-            from mpfns4bo.mpfns4bo import MPFNs4BO
-            optimizer = MPFNs4BO(torch.load( pfns4bo.hebo_plus_model), benchmark.search_space, meta_data, device=args.device, apply_power_transform_pi=True, mixing_strategy="ts")
-
-        elif args.method == "pPFNs4BO-pp":
-            import pfns4bo
-            from mpfns4bo.mpfns4bo import MPFNs4BO
-            optimizer = MPFNs4BO(torch.load( pfns4bo.hebo_plus_model), benchmark.search_space, meta_data, device=args.device, apply_power_transform_pi=True)
+            from mpfns4bo.tune_input_warping import fit_input_warping
+            optimizer = PPFNs4BO(torch.load( pfns4bo.hebo_plus_model), benchmark.search_space, meta_data, device=args.device, fit_encoder=fit_input_warping, model_avg='simple', apply_power_transform_pi=True)
 
         elif args.method == "PFNs4BO-PI":
             import pfns4bo
             from mpfns4bo.pfns4bo_opt import PFNs4BO
-            optimizer = PFNs4BO(torch.load( pfns4bo.hebo_plus_model), device=args.device, acq_function_type='pi', apply_power_transform=True)
-
-        elif args.method == "pPFNs4BO-decay":
-            import pfns4bo
-            from mpfns4bo.mpfns4bo import MPFNs4BO
-            optimizer = MPFNs4BO(torch.load( pfns4bo.hebo_plus_model), benchmark.search_space, meta_data, device=args.device, apply_power_transform=False, mixing_strategy="my")
-
-        elif args.method == "pPFNs4BO":
-            import pfns4bo
-            from mpfns4bo.mpfns4bo import MPFNs4BO
-            optimizer = MPFNs4BO(torch.load( pfns4bo.hebo_plus_model), benchmark.search_space, meta_data, device=args.device, apply_power_transform=False)
-
+            from mpfns4bo.tune_input_warping import fit_input_warping
+            optimizer = PFNs4BO(torch.load( pfns4bo.hebo_plus_model), device=args.device, fit_encoder=fit_input_warping, acq_function_type='pi', apply_power_transform=True)
 
         elif args.method == "PFNs4BO-EI":
             import pfns4bo
             from mpfns4bo.pfns4bo_opt import PFNs4BO
-            optimizer = PFNs4BO(torch.load( pfns4bo.hebo_plus_model), device=args.device, acq_function_type='ei', apply_power_transform=True)
-
-        elif args.method == "PFNs4BO-EI-IW":
-            import pfns4bo
-            from mpfns4bo.pfns4bo_opt import PFNs4BO
-            from pfns4bo.scripts.tune_input_warping import fit_input_warping
-            optimizer = PFNs4BO(torch.load( pfns4bo.hebo_plus_model), fit_encoder=fit_input_warping, device=args.device, acq_function_type='ei', apply_power_transform=True, input_power_transform=True)
-
-        elif args.method == "PFNs4BO-PI-IW":
-            import pfns4bo
-            from mpfns4bo.pfns4bo_opt import PFNs4BO
-            from pfns4bo.scripts.tune_input_warping import fit_input_warping
-            optimizer = PFNs4BO(torch.load( pfns4bo.hebo_plus_model), fit_encoder=fit_input_warping, device=args.device, acq_function_type='pi', apply_power_transform=True, input_power_transform=True)
-        
-        elif args.method == "PFNs4BO-PI-o":
-            import pfns4bo
-            from mpfns4bo.pfns4bo_opt import PFNs4BO
-            optimizer = PFNs4BO(torch.load( pfns4bo.hebo_plus_model), device=args.device, acq_function_type='pi')
-
-        elif args.method == "pPFNs4BO-cosine":
-            import pfns4bo
-            from mpfns4bo.mpfns4bo import MPFNs4BO
-            optimizer = MPFNs4BO(torch.load( pfns4bo.hebo_plus_model), benchmark.search_space, meta_data, device=args.device, apply_power_transform=True, tranformation_type='cosine')
-
-        elif args.method == "pPFNs4BO-norm":
-            import pfns4bo
-            from mpfns4bo.mpfns4bo import MPFNs4BO
-            optimizer = MPFNs4BO(torch.load( pfns4bo.hebo_plus_model), benchmark.search_space, meta_data, device=args.device, apply_power_transform=True, tranformation_type='norm')
-
-        elif args.method == "pPFNs4BO-linear":
-            import pfns4bo
-            from mpfns4bo.mpfns4bo import MPFNs4BO
-            optimizer = MPFNs4BO(torch.load( pfns4bo.hebo_plus_model), benchmark.search_space, meta_data, device=args.device, apply_power_transform=True, tranformation_type='linear')
-
-        elif args.method == "mPFNs4BO":
-            import pfns4bo
-            from mpfns4bo.mpfns4bo import MPFNs4BO
-            optimizer = MPFNs4BO(torch.load( pfns4bo.hebo_plus_model), benchmark.search_space, meta_data, device=args.device)
-
-        elif args.method == "mPFNs4BO-incumbents":
-            import pfns4bo
-            from mpfns4bo.mpfns4bo import MPFNs4BO
-            optimizer = MPFNs4BO(torch.load( pfns4bo.hebo_plus_model), benchmark.search_space, meta_data, device=args.device, only_obs_incumbents=False)
-
-        elif args.method == "mPFNs4BO-IW":
-            import pfns4bo
-            from mpfns4bo.mpfns4bo import MPFNs4BO
-            from pfns4bo.scripts.tune_input_warping import fit_input_warping
-            optimizer = MPFNs4BO(torch.load( pfns4bo.hebo_plus_model), benchmark.search_space, meta_data, device=args.device, fit_encoder=fit_input_warping, apply_power_transform=True, input_power_transform=True)
+            from mpfns4bo.tune_input_warping import fit_input_warping
+            optimizer = PFNs4BO(torch.load( pfns4bo.hebo_plus_model), device=args.device, fit_encoder=fit_input_warping, acq_function_type='ei', apply_power_transform=True)
 
         elif args.method == "PFNs4BO-PI-IW_meta_train":
             import pfns4bo
             from mpfns4bo.pfns4bo_opt import PFNs4BO
             from pfns4bo.scripts.tune_input_warping import fit_input_warping
             optimizer = PFNs4BO(torch.load( pfns4bo.hebo_plus_model), fit_encoder=fit_input_warping, device=args.device, acq_function_type='pi', apply_power_transform=True, input_power_transform=True)
-
-
 
         else:
             raise ValueError(f"Unknown method: {args.method}")
