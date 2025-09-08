@@ -141,6 +141,13 @@ class PastSurpriseWeights(AbstractWeights):
         max_fidelity = x_lookahead[:, 0, 1][mask].max()
         idx = mask & (x_lookahead[:, 0, 1] == max_fidelity)
 
+        if idx.sum() == 0:
+            warnings.warn(
+                "No matching lookahead found for the new x_train point.",
+                UserWarning
+            )
+
+
         if hasattr(self.parent_model.strategy, 'get_error_model'):
             imp_aug_lookahead = interim_results['last-get_imputation_augmented_prior-lookahead'].to(self.device)
             error_logits = interim_results['last-get_error_model-lookahead'].to(self.device)

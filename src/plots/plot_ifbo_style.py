@@ -10,6 +10,8 @@ from matplotlib import pyplot as plt
 import matplotlib as mpl
 mpl.rcParams['text.usetex'] = False
 
+import seaborn as sns
+
 from ifBO_icml2024.src.pfns_hpo.pfns_hpo.regret_plot import calculate_continuations
 from ifBO_icml2024.src.pfns_hpo.pfns_hpo.utils.plotting_utils import calc_bounds_per_benchmark, \
     normalize_and_calculate_regrets, reorder_for_aggregated_benchmark_plots, group_run_dataframes, \
@@ -76,73 +78,158 @@ def main(
     #     for split_seed in df['split_seed'].unique()
     # }
 
-    groups = df.groupby([
-        "benchmark.meta.name", "fold", "target_task", "allocation_seed", "split_seed", "algoname",
-        "seed"
-    ], sort=False)
-
-    plot_data = {}
-
-    for group_keys, group_df in groups:
-        bench, fold, task, allocation_seed, split_seed, algo, seed = group_keys
-        key = f"{bench}_{fold}_{task}_{allocation_seed}"
-        plot_data.setdefault(key, {}).setdefault(algo, {})[int(seed)] = group_df
     #
-    # # Removing empty entries
-    # plot_data = {
-    #     key1: {
-    #         key2: {
-    #             seed: df for seed, df in seed_dict.items() if not df.empty
-    #         }
-    #         for key2, seed_dict in algo_dict.items() if
-    #         any(not df.empty for df in seed_dict.values())
-    #     }
-    #     for key1, algo_dict in plot_data.items() if any(
-    #         any(not df.empty for df in seed_dict.values()) for seed_dict in algo_dict.values()
-    #     )
-    # }
+    # (f"neps_root_directory_{target_task}_{fold}_{cfg.split_seed}_{cfg.seed}_{allocation_seed}")
+    x_var = "cumsum_fidelity"
+    y_var = "inc_loss"
 
-    # Normalizing incumbents
-    name_normalization = ""
-    if normalize in ["baseline", "benchmark", "optimum"]:
-        if normalize == "baseline":
-            bounds = calc_bounds_per_benchmark(plot_data)
-            name_normalization = "normBaseline"
-        elif normalize == "benchmark":
-            benchmark_name = benchmarks[0].split("-")[0]
-            with open(basedir / ".." / f"benchmarks_bounds/{benchmark_name}.json", "r") as f:
-                bounds = json.load(f)
-            name_normalization = "normBenchmark"
-        plot_data = normalize_and_calculate_regrets(plot_data, bounds)
-    elif normalize == "none":
-        name_normalization = "noNorm"
+    facet_var = ['benchmark.meta.name']
+    hue_var = ['algoname']
+    norm_vars = ['benchmark.meta.name', 'target_task', 'split_seed']
+    aggregate_var = ['target_task', 'split_seed', 'fold', 'allocation_seed']
+
+    def min_max_normalize_group(df, norm_vars, target_var):
+        min_vals = df.groupby(norm_vars)[target_var].transform('min')
+        max_vals = df.groupby(norm_vars)[target_var].transform('max')
+        df[target_var + '_minmaxnorm'] = (df[target_var] - min_vals) / (max_vals - min_vals)
+        return df
+
+    # Apply min-max normalization
+
+    data = min_max_normalize_group(df, norm_vars, y_var)
+
+    agg_vars = [x_var, 'benchmark.meta.name', 'algoname']
+    agg_func = {
+        y_var + '_minmaxnorm': [
+            ('mean', 'mean'),
+            ('sem', 'sem'),
+            ('median', 'median'),
+            ('lower', lambda x: np.percentile(x, 25)),
+            ('upper', lambda x: np.percentile(x, 75))
+        ]
+    }
+    agg_df = data.groupby(agg_vars).agg(agg_func)
+    agg_df.columns = ['_'.join(col).strip() for col in agg_df.columns.values]
+    agg_df = agg_df.reset_index()
+
+    # Plot
+    sns.set(style="whitegrid")
+    fig, axes = plt.subplots(
+        nrows=1, ncols=len(data['benchmark.meta.name'].unique()),
+        figsize=(16, 6),
+        sharey=True
+    )
+
+    if len(data['benchmark.meta.name'].unique()) == 1:
+        axes = [axes]
+    median=True
+    if median:
+        middle = y_var + '_minmaxnorm_median'
+        lower = y_var + '_minmaxnorm_lower'
+        upper = y_var + '_minmaxnorm_upper'
     else:
-        raise ValueError(f"Invalid normalization: {normalize}")
+        middle = y_var + '_minmaxnorm_mean'
+        lower = y_var + '_minmaxnorm_sem'
+        upper =  y_var + '_minmaxnorm_sem'
 
-    # Plotting aggregated plots
-    if plot_aggregate:
-        print("Plotting aggregated plot...")
-        # reorder data
-        get_aggregated_plot_style(
-            plot_data.copy(),
-            output_path,
-            filename="aggregated" if filename is None else f"aggregated_{filename}_{name_normalization}",
-            log_x=log_x,
-            log_y=log_y,
-            x_range=x_range,
-            color_map=color_map,
-            marker_map=marker_map,
-            # marker_args=DEFAULT_MARKER_KWARGS,
-            label_map=label_map,
-            wallclock=wallclock,
-            overhead=overhead,
-        )
+
+
+    for ax, (bench_name, group) in zip(axes, agg_df.groupby('benchmark.meta.name')):
+        for algoname, sub_group in group.groupby('algoname'):
+
+            ax.plot(
+                sub_group[x_var],
+                sub_group[middle],
+                label=algoname
+            )
+            ax.fill_between(
+                sub_group[x_var],
+
+                sub_group[middle] - sub_group[lower] if not median else sub_group[lower],
+                sub_group[middle] + sub_group[upper] if not median else sub_group[upper],
+
+                alpha=0.3
+            )
+        ax.set_title(f'Benchmark: {bench_name}')
+        ax.set_xlabel(x_var)
+        ax.set_ylabel(f'Mean Min-Max Normalized {y_var}')
+        ax.legend(title='Algorithm')
+
+    plt.tight_layout()
+    # plt.show()
+
+    target = output_path / f"aggregated_minmax_normalized.png"
+    plt.savefig(target, bbox_inches='tight')
+    print(f"\nPlot saved as {target}\n")
+
+    # groups = df.groupby([
+    #     "benchmark.meta.name", "fold", "target_task", "allocation_seed", "split_seed", "algoname",
+    #     "seed"
+    # ], sort=False)
+    #
+    # plot_data = {}
+    #
+    # for group_keys, group_df in groups:
+    #     bench, fold, task, allocation_seed, split_seed, algo, seed = group_keys
+    #     key = f"{bench}_{fold}_{task}_{allocation_seed}"
+    #     plot_data.setdefault(key, {}).setdefault(algo, {})[int(seed)] = group_df
+    # #
+    # # # Removing empty entries
+    # # plot_data = {
+    # #     key1: {
+    # #         key2: {
+    # #             seed: df for seed, df in seed_dict.items() if not df.empty
+    # #         }
+    # #         for key2, seed_dict in algo_dict.items() if
+    # #         any(not df.empty for df in seed_dict.values())
+    # #     }
+    # #     for key1, algo_dict in plot_data.items() if any(
+    # #         any(not df.empty for df in seed_dict.values()) for seed_dict in algo_dict.values()
+    # #     )
+    # # }
+    #
+    # # Normalizing incumbents
+    # name_normalization = ""
+    # if normalize in ["baseline", "benchmark", "optimum"]:
+    #     if normalize == "baseline":
+    #         bounds = calc_bounds_per_benchmark(plot_data)
+    #         name_normalization = "normBaseline"
+    #     elif normalize == "benchmark":
+    #         benchmark_name = benchmarks[0].split("-")[0]
+    #         with open(basedir / ".." / f"benchmarks_bounds/{benchmark_name}.json", "r") as f:
+    #             bounds = json.load(f)
+    #         name_normalization = "normBenchmark"
+    #     plot_data = normalize_and_calculate_regrets(plot_data, bounds)
+    # elif normalize == "none":
+    #     name_normalization = "noNorm"
+    # else:
+    #     raise ValueError(f"Invalid normalization: {normalize}")
+    #
+    # # Plotting aggregated plots
+    # if plot_aggregate:
+    #     print("Plotting aggregated plot...")
+    #     # reorder data
+    #     get_aggregated_plot_style(
+    #         plot_data.copy(),
+    #         output_path,
+    #         filename="aggregated" if filename is None else f"aggregated_{filename}_{name_normalization}",
+    #         log_x=log_x,
+    #         log_y=log_y,
+    #         x_range=x_range,
+    #         color_map=color_map,
+    #         marker_map=marker_map,
+    #         # marker_args=DEFAULT_MARKER_KWARGS,
+    #         label_map=label_map,
+    #         wallclock=wallclock,
+    #         overhead=overhead,
+    #     )
+
 
 def group_run_dataframes_ppfn(
-    df_list: List[pd.DataFrame],
-    column_of_interest: str="inc_loss",
-    aggregate_by: str="cumsum_fidelity",
-    **kwargs
+        df_list: List[pd.DataFrame],
+        column_of_interest: str = "inc_loss",
+        aggregate_by: str = "cumsum_fidelity",
+        **kwargs
 ):
     """Given a list of dataframes, collates them based on the index."""
     assert len(df_list), "Empty list! Needs at least one element as a pd.DataFrame!"
@@ -204,6 +291,7 @@ def group_run_dataframes_ppfn(
     upper_quantile_df = pd.Series(upper_quantile_values, index=union_index).sort_index()
     return median_df, (lower_quantile_df, upper_quantile_df)
 
+
 def get_aggregated_plot_style(
         plot_data: dict,
         output_path: Path,
@@ -219,7 +307,7 @@ def get_aggregated_plot_style(
         wallclock: bool = False,
         overhead: bool = False,
         analysis: bool = False,
-        median: bool = True,
+        median: bool = False,
 
 ) -> None:
     """Plots a single plot aggregating performance of each algorithm across benchmarks."""
@@ -243,7 +331,6 @@ def get_aggregated_plot_style(
                 analysis=analysis,
                 x_range=x_range,
             )
-
 
         # averaging score across seeds
         algo_perf[algo]["mean"], algo_perf[algo]["sem"] = (
@@ -282,7 +369,7 @@ def get_aggregated_plot_style(
         ax.plot(
             algo_data["mean"].index.values,
             algo_data["mean"].values,
-            color=colors[i],  #l_colors[algo] if algo in l_colors else f"C{i}",
+            color=colors[i],  # l_colors[algo] if algo in l_colors else f"C{i}",
             # linestyle=l_line_styles[algo],
             marker=l_markers[algo] if algo in l_markers else "o",
             # markersize=6,
@@ -297,7 +384,7 @@ def get_aggregated_plot_style(
                 algo_data["mean"].index.values,
                 algo_data["sem"][0].values,
                 algo_data["sem"][1].values,
-                facecolor=colors[i],  #l_colors[algo] if algo in l_colors else f"C{i}",
+                facecolor=colors[i],  # l_colors[algo] if algo in l_colors else f"C{i}",
                 alpha=0.1,
                 step="post"
             )
@@ -306,7 +393,7 @@ def get_aggregated_plot_style(
                 algo_data["mean"].index.values,
                 algo_data["mean"].values - algo_data["sem"].values,
                 algo_data["mean"].values + algo_data["sem"].values,
-                facecolor=colors[i],  #l_colors[algo] if algo in l_colors else f"C{i}",
+                facecolor=colors[i],  # l_colors[algo] if algo in l_colors else f"C{i}",
                 alpha=0.1,
                 step="post"
             )
@@ -324,9 +411,9 @@ def get_aggregated_plot_style(
         fig.supxlabel("Only overhead time (in s)")
     else:
         fig.supxlabel("Total epochs spent")
-    ax.set_ylabel("Normalized regret")  #\
-        # if not analysis else ax.set_ylabel(
-        # ANALYSIS_Y_LABEL[column_of_interest])
+    ax.set_ylabel("Normalized regret")  # \
+    # if not analysis else ax.set_ylabel(
+    # ANALYSIS_Y_LABEL[column_of_interest])
 
     # Move the legend to the right side of the plot
     ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')

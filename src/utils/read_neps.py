@@ -21,16 +21,31 @@ def find_files_recursive(root_dir, pattern):
         for filename in fnmatch.filter(filenames, pattern):
             matches.append(os.path.join(dirpath, filename))
     return matches
+#
+#
+# def find_hydra_config_dir(filepath: str) -> Path:
+#     # fixme: when copying from luis, the ".hydra" folder becomes "hydra",
+#     #  causing this function to fail
+#     path = Path(filepath).parent
+#     while path != path.root:
+#         hydra_dir = path / ".hydra"
+#         if (hydra_dir / "config.yaml").exists() and (hydra_dir / "hydra.yaml").exists():
+#             return hydra_dir
+#         path = path.parent
+#     raise FileNotFoundError(f"No .hydra/config.yaml found for {filepath}")
 
+import re
 
 def find_hydra_config_dir(filepath: str) -> Path:
     path = Path(filepath).parent
+    pattern = re.compile(r"\.?hydra", re.IGNORECASE)
     while path != path.root:
-        hydra_dir = path / ".hydra"
-        if (hydra_dir / "config.yaml").exists() and (hydra_dir / "hydra.yaml").exists():
-            return hydra_dir
+        candidates = [d for d in path.iterdir() if d.is_dir() and pattern.match(d.name)]
+        for hydra_dir in candidates:
+            if (hydra_dir / "config.yaml").exists() and (hydra_dir / "hydra.yaml").exists():
+                return hydra_dir
         path = path.parent
-    raise FileNotFoundError(f"No .hydra/config.yaml found for {filepath}")
+    raise FileNotFoundError(f"No hydra/config.yaml found for {filepath}")
 
 
 def config_parser(config_path: Path, keys: List[str]) -> dict:
@@ -208,9 +223,13 @@ def parse_and_save(
 
     grouped = group_files_by_hydra(files)
 
-    with Pool(workers) as pool:
-        # Map process_group over groups in parallel
-        all_dfs = pool.map(partial(process_group, keys=keys, file_pattern=file_pattern), grouped.items())
+    if workers>1:
+        with Pool(workers) as pool:
+            # Map process_group over groups in parallel
+            all_dfs = pool.map(partial(process_group, keys=keys, file_pattern=file_pattern), grouped.items())
+    else:
+        # non parallelized version for debugging
+        all_dfs = [process_group(item, keys, file_pattern) for item in grouped.items()]
 
     df = pd.concat(all_dfs, ignore_index=True) if all_dfs else pd.DataFrame()
 
