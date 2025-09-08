@@ -83,168 +83,164 @@ def main(
 
     #
     # (f"neps_root_directory_{target_task}_{fold}_{cfg.split_seed}_{cfg.seed}_{allocation_seed}")
-    # x_var = "cumsum_fidelity"
-    # y_var = "inc_loss"
-    #
-    # facet_var = ['benchmark.meta.name']
-    # hue_var = ['algoname']
-    # norm_vars = ['benchmark.meta.name', 'target_task', 'split_seed']
-    # aggregate_var = ['target_task', 'split_seed', 'fold', 'allocation_seed']
-    #
-    # def min_max_normalize_group(df, norm_vars, target_var):
-    #     min_vals = df.groupby(norm_vars)[target_var].transform('min')
-    #     max_vals = df.groupby(norm_vars)[target_var].transform('max')
-    #     df[target_var + '_minmaxnorm'] = (df[target_var] - min_vals) / (max_vals - min_vals)
-    #     return df
-    #
-    # # Apply min-max normalization
-    #
-    # data = min_max_normalize_group(df, norm_vars, y_var)
-    #
-    # agg_vars = [x_var, 'benchmark.meta.name', 'algoname']
-    # agg_func = {
-    #     y_var + '_minmaxnorm': [
-    #         ('mean', 'mean'),
-    #         ('sem', 'sem'),
-    #         ('median', 'median'),
-    #         ('lower', lambda x: np.percentile(x, 25)),
-    #         ('upper', lambda x: np.percentile(x, 75))
-    #     ]
-    # }
-    # agg_df = data.groupby(agg_vars).agg(agg_func)
-    # agg_df.columns = ['_'.join(col).strip() for col in agg_df.columns.values]
-    # agg_df = agg_df.reset_index()
-    #
-    #
-    #
-    #
-    # sns.set(style="whitegrid")
-    # fig, axes = plt.subplots(
-    #     nrows=1, ncols=len(data['benchmark.meta.name'].unique()),
-    #     figsize=(16, 6),
-    #     sharey=True
-    # )
-    #
-    # if len(data['benchmark.meta.name'].unique()) == 1:
-    #     axes = [axes]
-    #
-    # if median:
-    #     middle = y_var + '_minmaxnorm_median'
-    #     lower = y_var + '_minmaxnorm_lower'
-    #     upper = y_var + '_minmaxnorm_upper'
-    # else:
-    #     middle = y_var + '_minmaxnorm_mean'
-    #     lower = y_var + '_minmaxnorm_sem'
-    #     upper = y_var + '_minmaxnorm_sem'
-    #
-    #     # deduplicate entries
-    # agg_df = agg_df.drop_duplicates(subset=facet_var + hue_var + [middle])
-    #
-    # palette = ['#377eb8', '#ff7f00', '#4daf4a', '#f781bf', '#a65628', '#984ea3', '#999999',
-    #            '#e41a1c', '#dede00', '#66c2a5']
-    # line_styles = ['-', '--', '-.', ':']
-    #
-    # algorithms = list(agg_df['algoname'].unique())
-    # color_map = {alg: palette[i % len(palette)] for i, alg in enumerate(algorithms)}
-    # markers = ['o', 's', '^', 'D', 'x', '*', 'P', 'H', 'v', '<', '>']
-    # marker_map = {alg: markers[i % len(markers)] for i, alg in enumerate(algorithms)}
-    #
-    # for ax, (bench_name, group) in zip(axes, agg_df.groupby('benchmark.meta.name')):
-    #     for algoname, sub_group in group.groupby('algoname'):
-    #
-    #         color = color_map[algoname]
-    #         marker = marker_map[algoname]
-    #         ax.plot(
-    #             sub_group[x_var],
-    #             sub_group[middle],
-    #             label=algoname,
-    #             color=color,
-    #             marker=marker,
-    #             markersize=5,
-    #         )
-    #         ax.fill_between(
-    #             sub_group[x_var],
-    #             sub_group[middle] - sub_group[lower] if not median else sub_group[lower],
-    #             sub_group[middle] + sub_group[upper] if not median else sub_group[upper],
-    #             color=color,
-    #             alpha=0.3
-    #         )
-    #     ax.set_title(f'Benchmark: {bench_name}')
-    #     ax.set_xlabel('Fidelity')
-    #     ax.set_ylabel(f'Normalized Incumbent Loss')
-    #     ax.legend(title='Algorithm')
-    #     ax.set_xlim(0, 1000)
-    #     if log_y:
-    #         ax.set_yscale("log")
-    #
-    # plt.tight_layout()
-    # plt.show()
-    #
-    # target = output_path / f"aggregated_minmax_normalized.png"
-    # plt.savefig(target, bbox_inches='tight')
-    # print(f"\nPlot saved as {target}\n")
+    x_var = "cumsum_fidelity"
+    y_var = "inc_loss"
 
-    groups = df.groupby([
-        "benchmark.meta.name", "fold", "target_task", "allocation_seed", "split_seed", "algoname",
-        "seed"
-    ], sort=False)
+    facet_var = ['benchmark.meta.name']
+    hue_var = ['algoname']
+    norm_vars = ['benchmark.meta.name', 'target_task', 'split_seed']
+    aggregate_var = ['target_task', 'split_seed', 'fold', 'allocation_seed']
 
-    plot_data = {}
+    def min_max_normalize_group(df, norm_vars, target_var):
+        min_vals = df.groupby(norm_vars)[target_var].transform('min')
+        max_vals = df.groupby(norm_vars)[target_var].transform('max')
+        df[target_var + '_minmaxnorm'] = (df[target_var] - min_vals) / (max_vals - min_vals)
+        return df
 
-    for group_keys, group_df in groups:
-        bench, fold, task, allocation_seed, split_seed, algo, seed = group_keys
-        key = f"{bench}_{fold}_{task}_{allocation_seed}"
-        plot_data.setdefault(key, {}).setdefault(algo, {})[int(seed)] = group_df
-    #
-    # # Removing empty entries
-    # plot_data = {
-    #     key1: {
-    #         key2: {
-    #             seed: df for seed, df in seed_dict.items() if not df.empty
-    #         }
-    #         for key2, seed_dict in algo_dict.items() if
-    #         any(not df.empty for df in seed_dict.values())
-    #     }
-    #     for key1, algo_dict in plot_data.items() if any(
-    #         any(not df.empty for df in seed_dict.values()) for seed_dict in algo_dict.values()
-    #     )
-    # }
+    # Apply min-max normalization
+    data = min_max_normalize_group(df, norm_vars, y_var)
 
-    # Normalizing incumbents
-    name_normalization = ""
-    if normalize in ["baseline", "benchmark", "optimum"]:
-        if normalize == "baseline":
-            bounds = calc_bounds_per_benchmark(plot_data)
-            name_normalization = "normBaseline"
-        elif normalize == "benchmark":
-            benchmark_name = benchmarks[0].split("-")[0]
-            with open(basedir / ".." / f"benchmarks_bounds/{benchmark_name}.json", "r") as f:
-                bounds = json.load(f)
-            name_normalization = "normBenchmark"
-        plot_data = normalize_and_calculate_regrets(plot_data, bounds)
-    elif normalize == "none":
-        name_normalization = "noNorm"
+    agg_vars = [x_var, 'benchmark.meta.name', 'algoname']
+    agg_func = {
+        y_var + '_minmaxnorm': [
+            ('mean', 'mean'),
+            ('sem', 'sem'),
+            ('median', 'median'),
+            ('lower', lambda x: np.percentile(x, 25)),
+            ('upper', lambda x: np.percentile(x, 75))
+        ]
+    }
+    agg_df = data.groupby(agg_vars).agg(agg_func)
+    agg_df.columns = ['_'.join(col).strip() for col in agg_df.columns.values]
+    agg_df = agg_df.reset_index()
+
+
+
+
+
+
+
+    sns.set(style="whitegrid")
+    fig, axes = plt.subplots(
+        nrows=1, ncols=len(data['benchmark.meta.name'].unique()),
+        figsize=(16, 6),
+        sharey=True
+    )
+
+    if len(data['benchmark.meta.name'].unique()) == 1:
+        axes = [axes]
+
+    if median:
+        middle = y_var + '_minmaxnorm_median'
+        lower = y_var + '_minmaxnorm_lower'
+        upper = y_var + '_minmaxnorm_upper'
     else:
-        raise ValueError(f"Invalid normalization: {normalize}")
+        middle = y_var + '_minmaxnorm_mean'
+        lower = y_var + '_minmaxnorm_sem'
+        upper = y_var + '_minmaxnorm_sem'
 
-    # Plotting aggregated plots
-    if plot_aggregate:
-        print("Plotting aggregated plot...")
-        # reorder data
-        get_aggregated_plot_style(
-            plot_data.copy(),
-            output_path,
-            filename="aggregated" if filename is None else f"aggregated_{filename}_{name_normalization}",
-            log_x=log_x,
-            log_y=log_y,
-            x_range=x_range,
-            color_map=color_map,
-            marker_map=marker_map,
-            # marker_args=DEFAULT_MARKER_KWARGS,
-            label_map=label_map,
-            wallclock=wallclock,
-            overhead=overhead,
-        )
+        # deduplicate entries
+    agg_df = agg_df.drop_duplicates(subset=facet_var + hue_var + [middle])
+    agg_df = agg_df[agg_df[middle].diff().ne(0)]
+
+    palette = ['#377eb8', '#ff7f00', '#4daf4a', '#f781bf', '#a65628', '#984ea3', '#999999',
+               '#e41a1c', '#dede00', '#66c2a5']
+    # line_styles = ['-', '--', '-.', ':']
+
+    algorithms = list(agg_df['algoname'].unique())
+    color_map = {alg: palette[i % len(palette)] for i, alg in enumerate(algorithms)}
+    markers = ['o', 's', '^', 'D', 'x', '*', 'P', 'H', 'v', '<', '>']
+    marker_map = {alg: markers[i % len(markers)] for i, alg in enumerate(algorithms)}
+
+    for ax, (bench_name, group) in zip(axes, agg_df.groupby('benchmark.meta.name')):
+        for algoname, sub_group in group.groupby('algoname'):
+
+            color = color_map[algoname]
+            marker = marker_map[algoname]
+            ax.plot(
+                sub_group[x_var],
+                sub_group[middle],
+                label=algoname,
+                color=color,
+                marker=marker,
+                markersize=5,
+            )
+            ax.fill_between(
+                sub_group[x_var],
+                sub_group[middle] - sub_group[lower] if not median else sub_group[lower],
+                sub_group[middle] + sub_group[upper] if not median else sub_group[upper],
+                color=color,
+                alpha=0.3
+            )
+        ax.set_title(f'Benchmark: {bench_name}')
+        ax.set_xlabel('Fidelity')
+        ax.set_ylabel(f'Normalized Incumbent Loss')
+        ax.legend(title='Algorithm')
+        ax.set_xlim(0, 1000)
+        ax.set_ylim(0.0001, 1)
+        if log_y:
+            ax.set_yscale("log")
+
+    plt.tight_layout()
+    # plt.show()
+
+    target = output_path / f"aggregated_minmax_normalized.png"
+    plt.savefig(target, bbox_inches='tight')
+    print(f"\nPlot saved as {target}\n")
+
+    # def convert_to_ifbo_format(df):
+    #     groups = df.groupby([
+    #         "benchmark.meta.name", "fold", "target_task", "allocation_seed", "split_seed",
+    #         "algoname",
+    #         "seed"
+    #     ], sort=False)
+    #
+    #     plot_data = {}
+    #     for group_keys, group_df in groups:
+    #         bench, fold, task, allocation_seed, split_seed, algo, seed = group_keys
+    #         key = f"{bench}_{fold}_{task}_{allocation_seed}"
+    #         plot_data.setdefault(key, {}).setdefault(algo, {})[int(seed)] = group_df
+    #
+    #     return plot_data
+    #
+    # plot_data = convert_to_ifbo_format(df)
+    #
+    #
+    # # Normalizing incumbents
+    # name_normalization = ""
+    # if normalize in ["baseline", "benchmark", "optimum"]:
+    #     if normalize == "baseline":
+    #         bounds = calc_bounds_per_benchmark(plot_data)
+    #         name_normalization = "normBaseline"
+    #     elif normalize == "benchmark":
+    #         benchmark_name = benchmarks[0].split("-")[0]
+    #         with open(basedir / ".." / f"benchmarks_bounds/{benchmark_name}.json", "r") as f:
+    #             bounds = json.load(f)
+    #         name_normalization = "normBenchmark"
+    #     plot_data = normalize_and_calculate_regrets(plot_data, bounds)
+    # elif normalize == "none":
+    #     name_normalization = "noNorm"
+    # else:
+    #     raise ValueError(f"Invalid normalization: {normalize}")
+    #
+    # # Plotting aggregated plots
+    # if plot_aggregate:
+    #     print("Plotting aggregated plot...")
+    #     # reorder data
+    #     get_aggregated_plot_style(
+    #         plot_data.copy(),
+    #         output_path,
+    #         filename="aggregated" if filename is None else f"aggregated_{filename}_{name_normalization}",
+    #         log_x=log_x,
+    #         log_y=log_y,
+    #         x_range=x_range,
+    #         color_map=color_map,
+    #         marker_map=marker_map,
+    #         # marker_args=DEFAULT_MARKER_KWARGS,
+    #         label_map=label_map,
+    #         wallclock=wallclock,
+    #         overhead=overhead,
+    #     )
 
 
 def group_run_dataframes_ppfn(
