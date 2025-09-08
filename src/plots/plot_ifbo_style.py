@@ -114,6 +114,8 @@ def main(
     agg_df.columns = ['_'.join(col).strip() for col in agg_df.columns.values]
     agg_df = agg_df.reset_index()
 
+
+
     # Plot
     sns.set(style="whitegrid")
     fig, axes = plt.subplots(
@@ -133,6 +135,9 @@ def main(
         middle = y_var + '_minmaxnorm_mean'
         lower = y_var + '_minmaxnorm_sem'
         upper = y_var + '_minmaxnorm_sem'
+
+        # deduplicate entries
+    agg_df = agg_df.drop_duplicates(subset=facet_var + hue_var + [middle])
 
     palette = ['#377eb8', '#ff7f00', '#4daf4a', '#f781bf', '#a65628', '#984ea3', '#999999',
                '#e41a1c', '#dede00', '#66c2a5']
