@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 from matplotlib import pyplot as plt
 import matplotlib as mpl
+
 mpl.rcParams['text.usetex'] = False
 
 import seaborn as sns
@@ -122,7 +123,7 @@ def main(
 
     if len(data['benchmark.meta.name'].unique()) == 1:
         axes = [axes]
-    median=True
+    median = True
     if median:
         middle = y_var + '_minmaxnorm_median'
         lower = y_var + '_minmaxnorm_lower'
@@ -130,33 +131,49 @@ def main(
     else:
         middle = y_var + '_minmaxnorm_mean'
         lower = y_var + '_minmaxnorm_sem'
-        upper =  y_var + '_minmaxnorm_sem'
+        upper = y_var + '_minmaxnorm_sem'
+
+    palette = ['#377eb8', '#ff7f00', '#4daf4a', '#f781bf', '#a65628', '#984ea3', '#999999',
+               '#e41a1c', '#dede00', '#66c2a5']
+    line_styles = ['-', '--', '-.', ':']
 
 
+    import pdb
+    algorithms = list(agg_df['algoname'].unique())
+    color_map = {alg: palette[i % len(palette)] for i, alg in enumerate(algorithms)}
+    markers = ['o', 's', '^', 'D', 'x', '*', 'P', 'H', 'v', '<', '>']
+    marker_map = {alg: markers[i % len(markers)] for i, alg in enumerate(algorithms)}
 
     for ax, (bench_name, group) in zip(axes, agg_df.groupby('benchmark.meta.name')):
         for algoname, sub_group in group.groupby('algoname'):
 
+            if any(sub_group[x_var] > 1000):
+                pdb.set_trace()
+
+            color = color_map[algoname]
+            marker = marker_map[algoname]
             ax.plot(
                 sub_group[x_var],
                 sub_group[middle],
-                label=algoname
+                label=algoname,
+                color=color,
+                marker=marker,
             )
             ax.fill_between(
                 sub_group[x_var],
 
                 sub_group[middle] - sub_group[lower] if not median else sub_group[lower],
                 sub_group[middle] + sub_group[upper] if not median else sub_group[upper],
-
+                color=color,
                 alpha=0.3
             )
         ax.set_title(f'Benchmark: {bench_name}')
-        ax.set_xlabel(x_var)
-        ax.set_ylabel(f'Mean Min-Max Normalized {y_var}')
+        ax.set_xlabel('Fidelity')
+        ax.set_ylabel(f'Normalized Incumbent Loss')
         ax.legend(title='Algorithm')
 
     plt.tight_layout()
-    # plt.show()
+    plt.show()
 
     target = output_path / f"aggregated_minmax_normalized.png"
     plt.savefig(target, bbox_inches='tight')
