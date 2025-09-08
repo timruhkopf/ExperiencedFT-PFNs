@@ -37,6 +37,7 @@ def main(
         color_map={},
         marker_map={},
         label_map={},
+        median=False,
         output_path=None
 ):
     if output_path is None:
@@ -123,7 +124,7 @@ def main(
 
     if len(data['benchmark.meta.name'].unique()) == 1:
         axes = [axes]
-    median = True
+
     if median:
         middle = y_var + '_minmaxnorm_median'
         lower = y_var + '_minmaxnorm_lower'
@@ -137,8 +138,6 @@ def main(
                '#e41a1c', '#dede00', '#66c2a5']
     line_styles = ['-', '--', '-.', ':']
 
-
-    import pdb
     algorithms = list(agg_df['algoname'].unique())
     color_map = {alg: palette[i % len(palette)] for i, alg in enumerate(algorithms)}
     markers = ['o', 's', '^', 'D', 'x', '*', 'P', 'H', 'v', '<', '>']
@@ -146,9 +145,6 @@ def main(
 
     for ax, (bench_name, group) in zip(axes, agg_df.groupby('benchmark.meta.name')):
         for algoname, sub_group in group.groupby('algoname'):
-
-            if any(sub_group[x_var] > 1000):
-                pdb.set_trace()
 
             color = color_map[algoname]
             marker = marker_map[algoname]
@@ -158,10 +154,10 @@ def main(
                 label=algoname,
                 color=color,
                 marker=marker,
+                markersize=5,
             )
             ax.fill_between(
                 sub_group[x_var],
-
                 sub_group[middle] - sub_group[lower] if not median else sub_group[lower],
                 sub_group[middle] + sub_group[upper] if not median else sub_group[upper],
                 color=color,
@@ -171,6 +167,7 @@ def main(
         ax.set_xlabel('Fidelity')
         ax.set_ylabel(f'Normalized Incumbent Loss')
         ax.legend(title='Algorithm')
+        ax.set_xlim(0, 1000)
 
     plt.tight_layout()
     plt.show()
