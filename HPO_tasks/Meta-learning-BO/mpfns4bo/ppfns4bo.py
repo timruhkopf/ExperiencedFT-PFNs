@@ -14,7 +14,7 @@ from functools import partial
 import copy 
 
 class PPFNs4BO(nn.Module):
-    def __init__(self, model, search_space, related_task_data, validation_task_data = [], device='cpu:0', fit_encoder = None, apply_power_transform =False, apply_power_transform_pi =False, input_power_transform=False,  model_avg='bma', **kwargs):
+    def __init__(self, model, search_space, related_task_data, validation_task_data = [], device='cpu:0', fit_encoder = None, apply_power_transform =False, apply_power_transform_ds =False, input_power_transform=False,  model_avg='bma', **kwargs):
         super().__init__()
         self.model = model
         self.criterion = model.criterion
@@ -25,7 +25,7 @@ class PPFNs4BO(nn.Module):
         self.apply_power_transform = apply_power_transform
         self.input_power_transform = input_power_transform
         self.input_power_transform_eps = 0.0
-        self.apply_power_transform_pi = apply_power_transform_pi
+        self.apply_power_transform_ds = apply_power_transform_ds
         self.model_avg = model_avg
 
         """Meta-learning on meta-data, corresponds to the meta-learning part in Algorithm 1."""
@@ -34,6 +34,10 @@ class PPFNs4BO(nn.Module):
         for task_uid, evaluations in related_task_data.items():
             X = np.array([self.search_space.to_numerical(e.configuration) for e in evaluations])
             Y = -self.normalize(np.array([e.objectives["loss"] for e in evaluations]).reshape(-1)) # return to maximization (performance)
+            if self.input_power_transform :
+                X = self.power_transforms(X, **self.kwargs).squeeze()
+            if self.apply_power_transform:
+                Y = self.power_transforms(Y, **self.kwargs).squeeze()
             if task_uid in validation_task_data:
                 evaluations_val = validation_task_data[task_uid]
                 X_val = np.array([self.search_space.to_numerical(e.configuration) for e in evaluations_val])
@@ -70,7 +74,7 @@ class PPFNs4BO(nn.Module):
             min_context_size =50,
             imputation_mode ='mean',
             device=device,
-            apply_power_transform = self.apply_power_transform_pi,
+            apply_power_transform = self.apply_power_transform_ds,
             model_avg = model_avg,
         )
     def normalize(self, y):

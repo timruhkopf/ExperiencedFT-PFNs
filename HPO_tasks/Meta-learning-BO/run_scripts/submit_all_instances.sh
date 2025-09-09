@@ -1,6 +1,6 @@
 #!/bin/bash
 search_space_ids=("4796" "5527" "5636" "5859" "5860" "5891" "5906" "5965" "5970" "5971" "6766" "6767" "6794" "7607" "7609" "5889") 
-policies=("metaPFNs4BO-joint-batched-context-mean-weights" ) #"PFNs4BO-PI" "PFNs4BO-EI") #("PFNs4BO" "mPFNs4BO") #  "MALIBO")
+policies=("metaPFNs4BO-joint-batched-context-mean-weights" "metaPFNs4BO-joint-batched-context" "pPFNs4BO-pca-ei" "pPFNs4BO-pca4-ei" ) #"PFNs4BO-PI" "PFNs4BO-EI") #("PFNs4BO" "mPFNs4BO") #  "MALIBO")
 
 search_space_ids_length=${#search_space_ids[@]}
 policies_length=${#policies[@]}

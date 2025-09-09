@@ -114,6 +114,10 @@ class MetaPFNs4BO(nn.Module):
         for task_uid, evaluations in related_task_data.items():
             X = np.array([self.search_space.to_numerical(e.configuration) for e in evaluations])
             Y = -self.normalize(np.array([e.objectives["loss"] for e in evaluations]).reshape(-1)) # return to maximization (performance)
+            if self.input_power_transform :
+                X = self.power_transforms(X, **self.kwargs).squeeze()
+            if self.apply_power_transform:
+                Y = self.power_transforms(Y, **self.kwargs).squeeze()
             if task_uid in validation_task_data:
                 evaluations_val = validation_task_data[task_uid]
                 X_val = np.array([self.search_space.to_numerical(e.configuration) for e in evaluations_val])

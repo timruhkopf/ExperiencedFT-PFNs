@@ -14,13 +14,13 @@ def f(X, shift=0):
     """
     Torch-compatible objective function for the target_task
     """
-    f_X =  0.5 + (0.2 * torch.sin(10*X/2 + math.pi/2 + shift) + (0.01) * (X-5) ) + 0.2 * torch.sin(10*X+ shift)
+    f_X =  0.5 + (0.1 * torch.sin(20*X + math.pi/2 + shift) + (0.05) * (X-5) ) + 0.1 * torch.sin(15*X+ shift)
     f_X = f_X.clamp(0, 1)  # Ensure the output is between 0 and 1
     return f_X
 
 def get_batch(size=10, num_tasks=5):
 
-    ix = random.sample(np.arange(-1, 1, 1).tolist(), size*2)
+    ix = random.sample(np.arange(0, 1, 1).tolist(), size*2)
     task = np.random.randint(10,10+num_tasks)
     X_spt, X_qry = torch.Tensor(ix[:size]).reshape(-1,1), torch.Tensor(ix[size:]).reshape(-1,1)
     Y_spt, Y_qry = f(X_spt, shift=task_shift(task)), f(X_qry, shift=task_shift(task))
@@ -29,8 +29,8 @@ def get_batch(size=10, num_tasks=5):
 
 def get_batch_test(spt_size=4, task = 8, step=0.01):
 
-    X_qry = torch.Tensor(np.arange(-1, 1, step)).reshape(-1,1)
-    ix = random.sample(np.arange(-1, 1, step).tolist(), spt_size)
+    X_qry = torch.Tensor(np.arange(0, 1, step)).reshape(-1,1)
+    ix = random.sample(np.arange(0, 1, step).tolist(), spt_size)
 
     X_spt = torch.Tensor(ix).reshape(-1,1)
     y_spt = f(X_spt, shift=task_shift(task))
@@ -41,9 +41,9 @@ def get_batch_test(spt_size=4, task = 8, step=0.01):
 def get_batch_val(spt_size=5, task = 16):
 
     #X_qry = torch.Tensor(np.arange(-10, 10, 0.1)).reshape(-1,1)
-    ix1 = random.sample(np.arange(-1, 1, 1).tolist(), spt_size)
-    ix2 = random.sample(np.arange(-1, 1, 1).tolist(), spt_size)
-    
+    ix1 = random.sample(np.arange(0, 1, 1).tolist(), spt_size)
+    ix2 = random.sample(np.arange(0, 1, 1).tolist(), spt_size)
+
     X_spt = torch.Tensor(ix1).reshape(-1,1)
     X_qry = torch.Tensor(ix2).reshape(-1,1)
 

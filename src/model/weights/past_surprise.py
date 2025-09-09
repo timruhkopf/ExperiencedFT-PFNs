@@ -122,7 +122,7 @@ class PastSurpriseWeights(AbstractWeights):
         return torch.where((B == new_idx).all(dim=-1).flatten())[0].item()
 
 
-    def __call__(self, x_train, x_test, y_train, inc, recompute=False, *args,
+    def __call__(self, x_train, x_test, y_train, inc, recompute=False, multi_fidelity=False, *args,
                  **kwargs) -> torch.Tensor:
         """
         Here we look at the history of the respective model's predictions
@@ -133,17 +133,19 @@ class PastSurpriseWeights(AbstractWeights):
 
         interim_results = self.parent_model.interim_results
         target_lookahead = interim_results['last-get_target_model-lookahead'].to(self.device)
-
+        
         new_x = self.find_extra_row_index(
-            self.parent_model.interim_results['last-x_train'][:, 0, :].to(self.device),
+            self.parent_model.interim_results['prev-x_train'][:, 0, :].to(self.device),
             x_train[:, 0, :],
         )
 
         x_lookahead = interim_results['x_lookahead'].to(self.device)
-
-        mask = (x_train[new_x, 0,  2:] == x_lookahead[:, 0, 2:]).all(dim=-1).flatten()
-        max_fidelity = x_lookahead[:, 0, 1][mask].max()
-        idx = mask & (x_lookahead[:, 0, 1] == max_fidelity)
+        if multi_fidelity:
+            mask = (x_train[new_x, 0,  2:] == x_lookahead[:, 0, 2:]).all(dim=-1).flatten()
+            max_fidelity = x_lookahead[:, 0, 1][mask].max()
+            idx = mask & (x_lookahead[:, 0, 1] == max_fidelity)
+        else:
+            idx = (x_train[new_x, 0, :] == x_lookahead[:, 0, :]).all(dim=-1).flatten()
 
         if hasattr(self.parent_model.strategy, 'get_error_model'):
             imp_aug_lookahead = interim_results['last-get_imputation_augmented_prior-lookahead'].to(self.device)
@@ -169,49 +171,6 @@ class PastSurpriseWeights(AbstractWeights):
                         target_borders=self.model.criterion.borders,
                         padding=None  # no padding needed here
                     )
-
-                # import torch
-                # import matplotlib.pyplot as plt
-                # import seaborn as sns
-                #
-                # batch_size = imp_aug_lookahead.shape[1]  # 2 (batch dimension)
-                # logit_dim = imp_aug_lookahead.shape[2]  # 1000 (logits dimension)
-                #
-                # fig, axes = plt.subplots(1, batch_size, figsize=(12, 5), squeeze=False)
-                #
-                # # Apply softmax function along last dimension (dim=2)
-                # imp_aug_soft = torch.softmax(imp_aug_lookahead, dim=2)
-                # error_soft = torch.softmax(error_logits, dim=2)
-                # proj_soft = torch.softmax(projected_logits, dim=2)
-                #
-                # err_med = self.parent_model.strategy.err_model.criterion.median(error_logits)
-                # aug_med = self.model.criterion.median(imp_aug_lookahead)
-                # proj_med =self.model.criterion.median(projected_logits)
-                #
-                # for b in range(batch_size):
-                #     ax = axes[0, b]
-                #     # Select the batch distributions (1 x batch x logits)
-                #     imp_aug_probs = imp_aug_soft[0, b, :].cpu().numpy()
-                #     error_probs = error_soft[0, b, :].cpu().numpy()
-                #     proj_probs = proj_soft[0, b, :].cpu().numpy()
-                #
-                #     # Optional: Use borders as bin edges for histogram
-                #     borders = self.model.criterion.borders.cpu().numpy()  # shape: (1001,)
-                #
-                #     # Plot distribution curves as KDE or histograms
-                #     sns.lineplot(x=borders[:-1], y=imp_aug_probs, label='imp_aug', ax=ax, color='blue')
-                #     sns.lineplot(x=self.parent_model.strategy.err_model.criterion.borders[:-1],
-                #                  y=error_probs, label='error', ax=ax, color='red')
-                #     sns.lineplot(x=borders[:-1], y=proj_probs, label='projected', ax=ax, color='green')
-                #
-                #     ax.set_title(f'Batch {b}')
-                #     ax.set_xlabel('Logits bins')
-                #     ax.set_ylabel('Probability')
-                #     ax.legend()
-                #     # ax.set_xlim(0, 1)
-                #
-                # plt.tight_layout()
-                # plt.show()
 
                 last_logits = torch.cat(
                     [target_lookahead[idx, :, :], projected_logits], dim=1
@@ -261,7 +220,7 @@ class PastSurpriseWeights(AbstractWeights):
                 # samples = self.model.criterion.median(logits)
 
                 surprise = torch.stack([
-                    self.model.criterion(last_logits[:, b, :].squeeze(1), y_train[new_x, :,])
+                    self.model.criterion(last_logits[:, b, :].unsqueeze(1), y_train[new_x, :,]).squeeze(1)
                     for b in range(self.num_related + 1)
                 ], dim=0).to(self.device).mean(dim=1)
 

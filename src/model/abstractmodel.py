@@ -293,8 +293,12 @@ class AbstractModel(IFBOInterface):
     @torch.no_grad()
     def smbo(self, x_train, y_train, x_test, inc, minimize=False):
         step = x_train.shape[0]
+        
+
         x_train, y_train, x_test, inc, = \
             self._preprocess(x_train, y_train, x_test, inc, minimize=minimize)
+
+        self.interim_results['prev-x_train'] = x_train[:-1].cpu()
 
         for callback in self.callbacks:
             callback.on_acq_start(x_train, y_train, x_test, inc)
@@ -371,5 +375,6 @@ class AbstractModel(IFBOInterface):
 
         # we just need the last one for the next round
         self.interim_results['last-x_train'] = x_train.cpu()
+        
 
         return {"acq_values": acq, "predictions": predictions}

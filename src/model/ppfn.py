@@ -153,6 +153,7 @@ class PPFN(AbstractModel):
             if "-" in self.model_avg:
                 name, acq_function_name = self.model_avg.split("-")
                 max_meta_feature_size = 18 if name == "pca" else  int(name.removeprefix("pca"))
+                print(f"Using max_meta_feature_size = {max_meta_feature_size}")
             else:
                 acq_function_name = "pi"
             return self.my_pca_idea(
@@ -163,7 +164,8 @@ class PPFN(AbstractModel):
                 x_test,
                 y_train,
                 inc,
-                acq_function_name=acq_function_name
+                acq_function_name=acq_function_name,
+                max_meta_feature_size=max_meta_feature_size
                 )
 
         elif "simple" in self.model_avg:
