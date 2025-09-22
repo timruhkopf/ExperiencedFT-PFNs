@@ -89,7 +89,7 @@ def main(
     facet_var = ['benchmark.meta.name']
     hue_var = ['algoname']
     norm_vars = ['benchmark.meta.name', 'target_task', 'split_seed']
-    aggregate_var = ['target_task', 'split_seed', 'fold', 'allocation_seed']
+    aggregate_var = ['target_task', 'split_seed', 'fold', 'allocation_seed', 'seed']
 
     def min_max_normalize_group(df, norm_vars, target_var):
         min_vals = df.groupby(norm_vars)[target_var].transform('min')
@@ -114,12 +114,6 @@ def main(
     agg_df.columns = ['_'.join(col).strip() for col in agg_df.columns.values]
     agg_df = agg_df.reset_index()
 
-
-
-
-
-
-
     sns.set(style="whitegrid")
     fig, axes = plt.subplots(
         nrows=1, ncols=len(data['benchmark.meta.name'].unique()),
@@ -140,7 +134,9 @@ def main(
         upper = y_var + '_minmaxnorm_sem'
 
         # deduplicate entries
+
     agg_df = agg_df.drop_duplicates(subset=facet_var + hue_var + [middle])
+
     agg_df = agg_df[agg_df[middle].diff().ne(0)]
 
     palette = ['#377eb8', '#ff7f00', '#4daf4a', '#f781bf', '#a65628', '#984ea3', '#999999',
@@ -157,14 +153,26 @@ def main(
 
             color = color_map[algoname]
             marker = marker_map[algoname]
+            # plot the mean line
             ax.plot(
                 sub_group[x_var],
                 sub_group[middle],
                 label=algoname,
                 color=color,
+
+            )
+
+            # add markers every 20 points for differentiation
+            ax.plot(
+                sub_group[x_var].iloc[::20],
+                sub_group[middle].iloc[::20],
+                label=algoname,
+                color=color,
                 marker=marker,
                 markersize=5,
             )
+
+            # plot the shaded area for the confidence interval
             ax.fill_between(
                 sub_group[x_var],
                 sub_group[middle] - sub_group[lower] if not median else sub_group[lower],
@@ -177,7 +185,7 @@ def main(
         ax.set_ylabel(f'Normalized Incumbent Loss')
         ax.legend(title='Algorithm')
         ax.set_xlim(0, 1000)
-        ax.set_ylim(0.0001, 1)
+        ax.set_ylim(min(0.0001, agg_df[lower].min()), 1)
         if log_y:
             ax.set_yscale("log")
 
