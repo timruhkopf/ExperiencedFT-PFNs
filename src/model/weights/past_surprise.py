@@ -287,7 +287,7 @@ class PastSurpriseWeights(AbstractWeights):
 
         return weights
 
-    def plot(self, ax=None, show=True):
+    def plot_weights(self, ax=None, show=True):
         """
         Plot the past surprises.
         """
@@ -310,3 +310,72 @@ class PastSurpriseWeights(AbstractWeights):
         if show:
             plt.show()
         return ax
+
+    def plot_surprise_trajectory(self):
+        import pandas as pd
+        import plotly.graph_objs as go
+        from plotly.subplots import make_subplots
+
+        interim_results = self.parent_model.interim_results
+
+        surprises = torch.stack(interim_results['surprises_nll'], dim=0).to(
+            self.device)
+
+        x = torch.stack(interim_results['surprise_x'], dim=0)
+        df = pd.DataFrame({
+            'step': list(range(surprises.shape[0])),
+            **{f'surprise_nll_{i}': surprises[:, i].cpu().numpy()
+               for i in range(surprises.shape[1])},
+
+            'fidelity': x[:, 1].cpu().numpy(),
+            'hyperparam_1': x[:, 2].cpu().numpy() if x.shape[1] < 2 else x[:, 0].cpu().numpy(),
+        })
+
+        # df = df[df['step']< 200]
+
+        # Get all surprise_nll columns
+        surprise_nll_cols = [col for col in df.columns if col.startswith('surprise_nll_')]
+        n_plots = len(surprise_nll_cols)
+
+        # Define rows and cols for subplot grid (adjust as needed)
+        rows = 1
+        cols = n_plots
+
+        # Create subplot figure with 3D scenes
+        fig = make_subplots(
+            rows=rows, cols=cols,
+            specs=[[{'type': 'scene'} for _ in range(cols)]],
+            subplot_titles=[col.replace('_', ' ').title() for col in surprise_nll_cols]
+        )
+
+        for i, nll_col in enumerate(surprise_nll_cols[:5]):
+            scatter = go.Scatter3d(
+                x=df["hyperparam_1"],
+                y=df["fidelity"],
+                z=df[nll_col],
+                mode='markers',
+                marker=dict(
+                    size=4,
+                    color=df["step"],
+                    colorscale='Viridis',
+                    opacity=0.85,
+                    colorbar=dict(title="Step") if i == cols - 1 else None,
+                    # Show colorbar only on last plot
+                )
+            )
+            fig.add_trace(scatter, row=1, col=i + 1)
+
+            # Update scene axis titles for each subplot
+            fig.update_scenes({
+                'xaxis_title': 'Hyperparameter 1' if x.shape[1] < 2 else 'HP Index',
+                'yaxis_title': 'Fidelity',
+                'zaxis_title': nll_col.replace('_', ' ').title(),
+            }, row=1, col=i + 1)
+
+        fig.update_layout(
+            height=700, width=700 * cols,
+            title_text="Faceted Surprise NLL 3D Scatter Plots by Step"
+        )
+        fig.show()
+        # fig.write_html("3d_scatter_surprise_nll.html")
+        # print("Plot saved to 3d_scatter_surprise_nl
