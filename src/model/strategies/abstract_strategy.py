@@ -19,6 +19,13 @@ class AbstractStrategy:
         raise NotImplementedError('This method should be implemented in a subclass.')
 
     def get_target_model(self, x_test, x_train, y_train):
+        """
+
+        :param x_test:
+        :param x_train:
+        :param y_train:
+        :return:
+        """
         return self.model(
             (
                 torch.cat([x_train, x_test], dim=0),
@@ -29,6 +36,12 @@ class AbstractStrategy:
         )
 
     def get_prior_model(self, x_test):
+        """
+        Evaluate the logits for test points under the prior unconditional on currently
+        evaluated data.
+        :param x_test: T', 1, D
+        :return: logits T', B, D
+        """
         return self.model(
             (
                 torch.cat([
@@ -41,6 +54,16 @@ class AbstractStrategy:
         )
 
     def get_imputation_augmented_prior(self, x_train, x_test, imputed_y):
+        """
+        We take the prior (related task data x,y ) and then collect for the target data (x_train)
+        imputations y and augment the training set by them as if they were evaluated;
+        This helps keep the prior up-to-date and relevant wrt. knowing about where we already
+        have evaluated.
+        :param x_train: T, 1, D
+        :param x_test: T', 1, D
+        :param imputed_y: T, 1
+        :return: logits T', B, D; i.e. the logits for x_test based on each of the B priors
+        """
         return self.model(
             (
                 torch.cat([
