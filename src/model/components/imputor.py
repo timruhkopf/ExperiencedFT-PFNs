@@ -1,5 +1,6 @@
 import torch
 
+
 class PriorImputer:
     def __init__(self, imputation_mode):
         self.imputation_mode = imputation_mode
@@ -14,7 +15,7 @@ class PriorImputer:
         self.device = device
 
 
-    def __call__(self, x_train, y_train, x_test: torch.Tensor, ) -> torch.Tensor:
+    def __call__(self, x_train, y_train, x_test: torch.Tensor, **kwargs) -> torch.Tensor:
         """
         Impute the y values for the training data from the target task under the prior context.
         """
@@ -33,12 +34,24 @@ class PriorImputer:
         elif self.imputation_mode == 'mean':
             imputed_y = self.criterion.mean(imputed_logits)
         elif self.imputation_mode == 'sample':
-            raise NotImplementedError("Here probably is a shaper error!")
-            imputed_y = []
-            for b in range(imputed_logits.shape[1]):
-                imputed_y.append(sample_logits(imputed_logits.squeeze(0), n_samples=1,
-                                      borders=self.criterion.borders))
-            imputed_y = imputed_y.squeeze(-1)
+            # raise NotImplementedError("Here probably is a shaper error!")
+            # imputed_y = []
+            # for b in range(imputed_logits.shape[1]):
+            #     imputed_y.append(sample_logits(imputed_logits[:, b, :].squeeze(0), n_samples=1,
+            #                           borders=self.criterion.borders))
+
+            imputed_y = torch.stack([
+                sample_logits(
+                    imputed_logits[:, b, :].squeeze(0),
+                    n_samples=kwargs.get("n_samples", 1),
+                    borders=self.criterion.borders
+                )
+                for b in range(imputed_logits.shape[1])
+            ], dim=1)
+
+            # Fixme: careful, n_samples!= 1 will cause a shape of (T, n_related_tasks, n_samples)
+            # if n_samples=1, shape is (T, n_related_tasks)
+
 
             # probs = imputed_logits.softmax(-1)
             # bins = self.criterion.borders
@@ -82,4 +95,4 @@ def sample_logits(logits: torch.Tensor, n_samples: int, borders) -> torch.Tensor
     # Gather the corresponding bin values
     sample_y = bucket_middle[sampled_indices]
 
-    return sample_y.T  # Add batch dimension
+    return sample_y  # Add batch dimension
