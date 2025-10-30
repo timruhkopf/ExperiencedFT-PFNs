@@ -18,7 +18,7 @@ class ErrorModelStrategies(AbstractStrategy):
         self.err_model.eval()
         self.err_model.to(self.device)
 
-    def get_error_model(self, x_train, y_error, x_test, padding=None):
+    def get_error_model(self, x_train, y_error, x_test, padding=None, fidelity_only=False):
         """
         Get the error model predictions for the given training and test data.
         Args:
@@ -34,9 +34,27 @@ class ErrorModelStrategies(AbstractStrategy):
         assert x_test.shape[1] == self.num_related, msg
         assert y_error.shape[1] == self.num_related, msg
 
+        if fidelity_only:
+            end = 2
+        else:
+            end = None
+
+        # # TODO consider using quantiles to threshold the fidelities' tails here:
+        # #  this may avoid fitting to outliers
+        # fidelities = x_train[:,:,1]
+        # y = fidelities
+        #
+        # # get y_error's quantiles conditional on the value of y
+        #
+        # m = torch.zeros(y_error.shape, dtype=torch.bool, device=y.device)
+        # for f in torch.unique(y):
+        #     mask = (y == f)
+        #     lower, upper = torch.quantile(y_error[mask], q=torch.tensor([0.1, 0.9]),dim=-1)
+        #     m |= (mask & (y_error.flatten() >= lower) & (y_error.flatten() <= upper))
+
         return self.err_model(
             (
-                torch.cat([x_train[:,:, 1:], x_test[:,:, 1:]], dim=0),
+                torch.cat([x_train[:,:, 1:end], x_test[:,:, 1:end]], dim=0),
                 y_error
             ),
             single_eval_pos=x_train.shape[0],
@@ -76,7 +94,7 @@ class ErrorModelStrategies(AbstractStrategy):
 
         error_model = partial(
             self.get_error_model,
-            x_train=x_train.repeat(1, self.num_related, 1), y_error=y_error,
+            x_train=x_train.repeat(1, self.num_related, 1), y_error=y_error, fidelity_only=True
         )
         error_logits = error_model(x_test=x_test.repeat(1, self.num_related, 1)) # unnormalized
 
@@ -101,9 +119,9 @@ class ErrorModelStrategies(AbstractStrategy):
         )
 
         self.parent_model.interim_results.update({
-            # 'target_model': target_model,
-            # 'imputation_augmented_prior': imputation_augmented_prior,
-            # 'raw_error_model': error_model,
+            'target_model': target_model,
+            'imputation_augmented_prior': imputation_augmented_prior,
+            'raw_error_model': error_model,
             'raw_error_criterion': self.err_model.criterion,
             'prior_model': self.get_prior_model,
             'y_error': y_error.cpu(),

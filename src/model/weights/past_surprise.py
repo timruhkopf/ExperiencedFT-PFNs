@@ -52,13 +52,16 @@ class PastSurpriseWeights(AbstractWeights):
             self,
             alpha=0.05,
             bias_correction=True,
-            truncate=100
+            truncate=100,
+            temperature=.5,
     ):
         self.ema_kwargs = {
             'alpha': alpha,
             'bias_correction': bias_correction,
             'truncate': truncate
         }
+
+        self.temperature = temperature
 
     def __post_init__(self, related_context, device, logger, model, parent_model):
         super().__post_init__(
@@ -282,8 +285,15 @@ class PastSurpriseWeights(AbstractWeights):
 
         surprises = ema_conv_causal(surprises, **self.ema_kwargs)
 
+        # x = torch.stack(interim_results['surprise_x'], dim=0)
+        # mask = (x[:, 1] >= 0.6) & (x[:, 1] <= 0.14)
+        # if sum(mask) == 10:
+        #     surprises
+
+        surprises /= self.temperature
+
         # we will want to use the history of surprises
-        weights = torch.softmax(-surprises[-1], dim=-1).to(self.device)
+        weights = torch.softmax(surprises[-1], dim=-1).to(self.device)
 
         return weights
 
