@@ -2,4 +2,4 @@
 _target_: src.model.strategies.meta_context.ProbabilisticMetaContextStrategy
 imputer:
   _target_: src.model.components.imputor.PriorImputer
-  imputation_mode: sample
+  imputation_mode: joint_surrogate_sample
