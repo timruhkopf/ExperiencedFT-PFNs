@@ -26,6 +26,16 @@ def hartmann3d(x, task=0):
     [0.1, 10.0, 0.1, 10.0],       # Alternating small and large
     [5.0, 1.0, 0.2, 2.5],         # Arbitrary varying weights
     [0.3, 0.7, 1.1, 0.9],         # Smooth varying low weights
+    [0.0, 0.0, 0.0, 0.0],         # Dummy task for testing
+    [0.0, 1.0, 0.0, 0.0],         # Dummy task for testing
+    [0.0, 0.0, 1.0, 0.0],         # Dummy task for testing
+    [0.0, 1.0, 1.0, 0.0],         # Dummy task for testing
+    [0.0, 1.0, 1.0, 0.0],         # Dummy task for testing
+    [0.0, 1.0, 0.0, 1.0],         # Dummy task for testing
+    [0.0, 1.0, 1.0, 1.0],         # Dummy task for testing
+    [1.0, 1.0, 1.0, 0.0],         # Dummy task for testing
+    [0.5, 0.5, 0.5, 0.5],         # Dummy task for testing
+    [1.0, 1.0, 1.0, 1.0],         # Dummy task for testing
     ]
 
     alpha = alphas[task]  # Choose the first set of weights for the function
@@ -55,22 +65,34 @@ def hartmann3d(x, task=0):
     prod = A[np.newaxis, :, :] * diff**2                     # (n, 4, 3)
     exp_term = np.exp(-np.sum(prod, axis=2))                 # (n, 4)
     result = -np.dot(exp_term, alpha)                        # (n,)
+    result = result + np.random.normal(0, 0.01, size=result.shape)  # Add noise
 
     return result if x.shape[0] > 1 else result[0]
 
 
-def get_batch_test(spt_size=4, task=0, step=0.1):
+def get_batch_test(spt_size=4, task=0, step=0.01, number_points=100, n_redundant=0, n_noninformative=3):
 
     # Generate 3D query points in the unit cube [0, 1]^3
-    grid = np.arange(0, 1, step)
-    mesh = np.meshgrid(grid, grid, grid)
-    X_qry = torch.Tensor(np.stack([m.flatten() for m in mesh], axis=1))
-    ix = [random.sample(grid.tolist(), spt_size) for _ in range(3)]
-    ix = np.stack(ix, axis=1)
-    X_spt = torch.Tensor(ix)
+    # grid = np.random.uniform(0, 1, int(1/step))
+    # mesh = np.meshgrid(grid, grid, grid)
+    # X_qry = torch.Tensor(np.stack([m.flatten() for m in mesh], axis=1))
+    # X_qry = X_qry[torch.randperm(len(X_qry))[:number_points]]
+    # ix = [random.sample(grid.tolist(), spt_size) for _ in range(3)]
+    # ix = np.stack(ix, axis=1)
+    # X_spt = torch.Tensor(ix)
 
-    y_spt = hartmann3d(X_spt, task=task)
-    y_qry = hartmann3d(X_qry, task=task)
+    X_spt = torch.rand(spt_size, 3 + n_redundant + n_noninformative)  # Support points
+    X_qry = torch.rand(number_points, 3 + n_redundant + n_noninformative)  # Query points
+    if n_redundant > 0:
+        for i in range(n_redundant):
+            # Make the redundant features as linear combinations of the original 3 features
+            weights = torch.rand(3)
+            X_spt[:, 3 + i] = (X_spt[:, :3] * weights).sum(dim=1) / weights.sum()
+            X_qry[:, 3 + i] = (X_qry[:, :3] * weights).sum(dim=1) / weights.sum()
+
+    y_spt = hartmann3d(X_spt[:, :3], task=task)
+
+    y_qry = hartmann3d(X_qry[:, :3], task=task)
 
     return X_spt, y_spt, X_qry, y_qry
 
@@ -81,15 +103,20 @@ class Hartmann3D:
         seed: Optional[int] = None,
         start_task: int = 0,
         initializations: int = 3,
+        num_noninformative=1, 
+        num_redundant=1
     ):
         
         self.seed = seed
+        self.num_noninformative = num_noninformative
+        self.num_redundant = num_redundant
+
         if seed is not None:
             seed_num = int(''.join(filter(str.isdigit, seed)))
             np.random.seed(seed_num)
             torch.manual_seed(seed_num)
             random.seed(seed_num)
-        self.X_spt, self.y_spt, self.X_qry, self.y_qry = get_batch_test(spt_size=initializations, task=start_task)
+        self.X_spt, self.y_spt, self.X_qry, self.y_qry = get_batch_test(spt_size=initializations, task=start_task, n_noninformative=self.num_noninformative, n_redundant=self.num_redundant)
         self.init_ids = list(range(len(self.X_spt)))
         self.data = {
             "X": np.concatenate([self.X_spt, self.X_qry]),
@@ -124,12 +151,12 @@ class Hartmann3D:
     def benchmark_data(self):
         return self.data
 
-    def get_meta_data(self, task_ids= range(1, 5)):
+    def get_meta_data(self, task_ids= range(1, 20)):
         meta_data: Dict[Union[str, int, List[Evaluation]]] = dict()
 
         for task_id in task_ids:
             meta_data[task_id] = []
-            self.X_spt, self.y_spt, self.X_qry, self.y_qry = get_batch_test(spt_size=self.initializations, task=task_id)
+            self.X_spt, self.y_spt, self.X_qry, self.y_qry = get_batch_test(spt_size=self.initializations, task=task_id, n_noninformative=self.num_noninformative, n_redundant=self.num_redundant)
             xs = np.concatenate([self.X_spt, self.X_qry])
             ys = np.concatenate([self.y_spt, self.y_qry])
             for x, y in zip(xs, -ys):

@@ -36,7 +36,7 @@ class ErrorModelStrategies(AbstractStrategy):
 
         return self.err_model(
             (
-                torch.cat([x_train[:,:, 1:], x_test[:,:, 1:]], dim=0),
+                torch.cat([x_train[:,:,:], x_test[:,:, :]], dim=0),
                 y_error
             ),
             single_eval_pos=x_train.shape[0],
@@ -119,11 +119,12 @@ class ErrorModelStrategies(AbstractStrategy):
         })
 
         weights = self.parent_model.weights(x_train, x_test, y_train, inc, recompute=False)
-        self.logger.log(
-            {'metrics': 'weights', 'step': step,
-             **{f'weight_{i}': w.item()
-                for i, w in enumerate(weights)}},
-        )
+        if self.logger is not None:
+            self.logger.log(
+                {'metrics': 'weights', 'step': step,
+                **{f'weight_{i}': w.item()
+                    for i, w in enumerate(weights)}},
+            )
 
         for callback in self.callbacks:
             callback.on_final_weights(predictions, weights)

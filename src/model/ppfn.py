@@ -184,6 +184,37 @@ class PPFN(AbstractModel):
                 acq_function_name=acq_function_name
             )
 
+        elif "meta" in self.model_avg:
+            if "-" in self.model_avg:
+                acq_function_name = self.model_avg.split("-")[1]
+            else:
+                acq_function_name = "pi"
+            return self.my_meta_idea(
+                related_context_x,
+                related_context_y,
+                padding_mask,
+                x_train,
+                x_test,
+                y_train,
+                inc,
+                acq_function_name=acq_function_name
+            )
+
+        elif "chain" in self.model_avg:
+            if "-" in self.model_avg:
+                acq_function_name = self.model_avg.split("-")[1]
+            else:
+                acq_function_name = "pi"
+            return self.my_chain_idea(
+                related_context_x,
+                related_context_y,
+                padding_mask,
+                x_train,
+                x_test,
+                y_train,
+                inc,
+                acq_function_name=acq_function_name
+            )
         # (Impute related tasks) -----------------------------------------------
         imputed_y = self.impute(
             related_context_x,
@@ -439,8 +470,9 @@ class PPFN(AbstractModel):
         )
 
 
-        target_preds_train = self.criterion.mean(target_logits[:x_train.shape[0], :, :])
-        target_preds_test = self.criterion.mean(target_logits[-x_test.shape[0]:, :, :])
+        target_preds_train = self.criterion.sample(target_logits[:x_train.shape[0], :, :])
+        target_preds_test = self.criterion.sample(target_logits[-x_test.shape[0]:, :, :])
+
 
         x_train_combined = torch.cat([ target_preds_train.unsqueeze(1), imputed_train.unsqueeze(1) ], dim=-1)
         x_test_combined = torch.cat([ target_preds_test.unsqueeze(1), imputed_test.unsqueeze(1) ], dim=-1)
@@ -469,6 +501,183 @@ class PPFN(AbstractModel):
                 maximize=True,
                 best_f=y_train.max(),
             )
+
+
+    def my_meta_idea(
+            self,
+            related_context_x,
+            related_context_y,
+            padding_mask,
+            x_train,
+            x_test,
+            y_train,
+            inc,
+            acq_function_name='pi'
+    ):
+        num_related = related_context_x.shape[1]
+        if(self.apply_power_transform):
+            transformed_cols = [general_power_transform(y_train, related_context_y[:, i].unsqueeze(1)) for i in range(related_context_y.shape[1])]
+            related_context_y = torch.cat(transformed_cols, dim=1)
+            y_train = general_power_transform(y_train, y_train)
+            inc = y_train.max()
+
+        # imputed_logits = self.model(
+        #     (
+        #         torch.cat([
+        #             related_context_x,
+        #             x_train.repeat(1, num_related, 1),
+        #             x_test.repeat(1, num_related, 1)
+        #         ], dim=0),
+        #         related_context_y
+        #     ),
+        #     single_eval_pos=related_context_x.shape[0],
+        #     src_key_padding_mask=padding_mask
+        #     )
+
+        # imputed_train = self.criterion.mean(imputed_logits[:x_train.shape[0], :, :])
+        # imputed_test = self.criterion.mean(imputed_logits[-x_test.shape[0]:, :, :])
+
+        
+
+        # get the pi under the target task
+        # target_logits = self.model(
+        #     (
+        #         torch.cat([x_train, x_test], dim=0),
+        #         y_train
+        #     ),
+        #     single_eval_pos=x_train.shape[0],
+
+        # )
+        x_train_combined = torch.cat([torch.zeros(x_train.size(0),1, 1), x_train], dim=-1)
+        y_train_combined = y_train
+
+        for i in range(num_related):
+            x_r = torch.cat([ (i+ 1)/num_related * torch.ones(related_context_x.size(0), 1), related_context_x[:, i, :]], dim=-1).unsqueeze(1)
+            x_train_combined = torch.cat([x_train_combined, x_r], dim=0)
+            y_train_combined = torch.cat([y_train_combined, related_context_y[:, i].unsqueeze(1)], dim=0)
+
+        x_test_combined = torch.cat([torch.zeros(x_test.size(0),1, 1), x_test], dim=-1)
+
+        # get the pi under the target task
+        target_logits = self.model(
+            (
+                torch.cat([x_train_combined, x_test_combined], dim=0),
+                y_train_combined
+            ),
+            single_eval_pos=x_train_combined.shape[0],
+            target_single_eval_pos = x_train.shape[0],
+
+        )
+
+        self.target_logits = target_logits
+
+        if acq_function_name == 'ei':
+            return self.model.criterion.ei(
+                target_logits.squeeze(1),
+                maximize=True,
+                best_f=y_train.max(),
+            )
+        else:
+            return self.model.criterion.pi(
+                target_logits.squeeze(1),
+                maximize=True,
+                best_f=y_train.max(),
+            )
+
+    def my_chain_idea(
+            self,
+            related_context_x,
+            related_context_y,
+            padding_mask,
+            x_train,
+            x_test,
+            y_train,
+            inc,
+            acq_function_name='pi'
+    ):
+        num_related = related_context_x.shape[1]
+        if(self.apply_power_transform):
+            transformed_cols = [general_power_transform(y_train, related_context_y[:, i].unsqueeze(1)) for i in range(related_context_y.shape[1])]
+            related_context_y = torch.cat(transformed_cols, dim=1)
+            y_train = general_power_transform(y_train, y_train)
+            inc = y_train.max()
+
+        imputed_y_s = []
+        for n_r in range(num_related - 1):
+            related_context_x_n_r = torch.cat([
+                related_context_x[:, n_r:n_r+ 1, :].repeat(1, num_related - 1 - n_r , 1),
+                related_context_x[:, n_r+ 1:, :],
+                x_train.repeat(1, num_related - 1 - n_r , 1),
+                x_test.repeat(1, num_related - 1 - n_r , 1)
+            ], dim=0)
+
+            if n_r == 0:
+                pass
+            else:
+                labels = torch.cat([ imputed_y_s[-1][related_context_x[:, n_r, :].shape[0]:, 0:1].repeat(1, num_related  - n_r - 1) , imputed_y_s[-1][:, 1:]], dim=0).unsqueeze(2)
+                related_context_x_n_r = torch.cat([related_context_x_n_r, labels], dim=-1)
+            
+            imputed_logits = self.model(
+                (
+                    related_context_x_n_r,
+                    related_context_y[:, n_r:n_r+1]
+                ),
+                single_eval_pos=related_context_x[:, n_r, :].shape[0],
+                )
+            imputed_y  = self.criterion.mean(imputed_logits)
+            imputed_y_s.append(imputed_y)
+
+
+        imputed_logits = self.model(
+            (
+                torch.cat([
+                    related_context_x,
+                    x_train.repeat(1, num_related, 1),
+                    x_test.repeat(1, num_related, 1)
+                ], dim=0),
+                related_context_y
+            ),
+            single_eval_pos=related_context_x.shape[0],
+            src_key_padding_mask=padding_mask
+            )
+
+
+        imputed_train = self.criterion.mean(imputed_logits[:x_train.shape[0], :, :])
+        imputed_test = self.criterion.mean(imputed_logits[-x_test.shape[0]:, :, :])
+
+
+        max_meta_feature_size = 18 - x_train.shape[-1]
+        if num_related > max_meta_feature_size:
+            idx = torch.randperm(num_related)[:max_meta_feature_size]
+            imputed_train = imputed_train[:, idx]
+            imputed_test = imputed_test[:, idx]
+
+        x_train_combined = torch.cat([ x_train, imputed_train.unsqueeze(1) ], dim=-1)
+        x_test_combined = torch.cat([ x_test, imputed_test.unsqueeze(1) ], dim=-1)
+
+        # get the pi under the target task
+        target_logits = self.model(
+            (
+                torch.cat([x_train_combined, x_test_combined], dim=0),
+                y_train
+            ),
+            single_eval_pos=x_train_combined.shape[0],
+
+        )
+        self.target_logits = target_logits
+        if acq_function_name == 'ei':
+            return self.model.criterion.ei(
+                target_logits.squeeze(1),
+                maximize=True,
+                best_f=y_train.max(),
+            )
+        else:
+            return self.model.criterion.pi(
+                target_logits.squeeze(1),
+                maximize=True,
+                best_f=y_train.max(),
+            )
+
 
 
     def my_warmstart_pi(

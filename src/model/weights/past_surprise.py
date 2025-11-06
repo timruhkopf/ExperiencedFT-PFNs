@@ -115,6 +115,7 @@ class PastSurpriseWeights(AbstractWeights):
         :param B:
         :return:
         """
+        #print(A, B)
         a = set(tuple(v) for v in A.tolist())
         b = set(tuple(v) for v in B.tolist())
         new_idx = torch.tensor(list(b.difference(a))).to(A.device)
@@ -178,15 +179,14 @@ class PastSurpriseWeights(AbstractWeights):
                 interim_results['surprise_logits'].append(last_logits.cpu())
                 interim_results['surprise_x'].append(x_train[new_x].cpu().squeeze())
 
-                logits = torch.stack(interim_results['surprise_logits'], dim=0).to(
-                    self.device).squeeze()
+                # logits = torch.cat(interim_results['surprise_logits'], dim=0).to( self.device).squeeze()
+                #probs = torch.softmax(logits, dim=-1)
+                #samples = self.model.criterion.median(logits)
 
-                probs = torch.softmax(logits, dim=-1)
 
-                samples = self.model.criterion.median(logits)
-
+                y =  y_train[new_x, :,].repeat(len(last_logits), 1)
                 surprise = torch.stack([
-                    self.model.criterion(last_logits[:, b, :].squeeze(1), y_train[new_x, :,])
+                    self.model.criterion(last_logits[:, b, :].unsqueeze(1), y).squeeze(1)
                     for b in range(self.num_related + 1)
                 ], dim=0).to(self.device).mean(dim=1)
 
@@ -240,6 +240,65 @@ class PastSurpriseWeights(AbstractWeights):
 
         # we will want to use the history of surprises
         weights = torch.softmax(-surprises[-1], dim=-1).to(self.device)
+        
+        # import pandas as pd
+        # import plotly.graph_objs as go
+        # from plotly.subplots import make_subplots
+
+        # x = torch.stack(interim_results['surprise_x'], dim=0).reshape(-1,1).to(self.device)
+        # df = pd.DataFrame({
+        #     'step': list(range(surprises.shape[0])),
+        #     **{f'surprise_nll_{i}': surprises[:, i].cpu().numpy()
+        #         for i in range(surprises.shape[1])},
+        #     'hyperparam_1': x[:, 0].cpu().numpy(),
+        # })
+
+        # # df = df[df['step']< 200]
+
+        # # Get all surprise_nll columns
+        # surprise_nll_cols = [col for col in df.columns if col.startswith('surprise_nll_')]
+        # n_plots = len(surprise_nll_cols)
+
+        # # Define rows and cols for subplot grid (adjust as needed)
+        # rows = 1
+        # cols = n_plots
+
+        # # Create subplot figure with 3D scenes
+        # fig = make_subplots(
+        #     rows=rows, cols=cols,
+        #     specs=[[{'type': 'xy'} for _ in range(cols)]],
+        #     subplot_titles=[col.replace('_', ' ').title() for col in surprise_nll_cols]
+        # )
+
+        # for i, nll_col in enumerate(surprise_nll_cols):
+        #     scatter = go.Scatter(
+        #         x=df["hyperparam_1"],
+        #         y=df[nll_col],
+        #         mode='markers',
+        #         marker=dict(
+        #                     size=4,
+        #                     color=df["step"],
+        #                     colorscale='Viridis',
+        #                     opacity=0.85,
+        #                     colorbar=dict(title="Step") if i == cols - 1 else None,  # show colorbar only on last plot
+        #                 )
+        #     )
+
+        #     fig.add_trace(scatter, row=1, col=i + 1)
+
+        #     # Update scene axis titles for each subplot
+        #     fig.update_scenes({
+        #         'xaxis_title': 'Hyperparameter 1' if x.shape[1] > 2 else 'HP Index',
+        #         'yaxis_title': nll_col.replace('_', ' ').title(),
+        #     }, row=1, col=i + 1)
+
+        # fig.update_layout(
+        #     height=700, width=700 * cols,
+        #     title_text="Faceted Surprise NLL 3D Scatter Plots by Step"
+        # )
+        # fig.write_html(f"./results/web/{self.parent_model.strategy.__name__}_{hash(self.parent_model.strategy)}.html")
+        # #fig.show()
+
 
         return weights
 

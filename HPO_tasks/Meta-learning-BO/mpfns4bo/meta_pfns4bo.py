@@ -53,7 +53,7 @@ class MetaPFNs4BO(nn.Module):
             raise ValueError(f"Unknown initial design type: {initial_design['type']}")
 
         strategy = configuration.get("strategy", {"type": "joint-context", "imputer": {"type": "prior-imputer", "params": {"imputation_mode": "median"}}})
-        strategy_imputer = strategy.get("imputer", {})
+        strategy_imputer = strategy.get("imputer", {"type": ""})
         if strategy_imputer["type"] == "prior-imputer":
             params = strategy_imputer.get("params", {})
             self.strategy_imputer = PriorImputer(**params)

@@ -19,7 +19,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run Synth benchmarks.")
     parser.add_argument("--method", type=str, default="MALIBO")
     parser.add_argument("--test_seed", type=str, default="all")
-    parser.add_argument("--evaluations", type=int, default=50)
+    parser.add_argument("--evaluations", type=int, default=20)
     parser.add_argument("--output", type=str, default="./results/synth/")
     parser.add_argument("--function", type=str, default="synth_1d")
     parser.add_argument("--device", type=str, default='cpu:0')
@@ -49,6 +49,28 @@ if __name__ == "__main__":
             from benchmarks.SimpleSynth.hartmann3d_synth import Hartmann3D, run_optimization_loop
             benchmark = Hartmann3D(seed=test_seed, start_task=task_id, initializations=4)
             meta_data = benchmark.get_meta_data()
+        elif args.function == "hartmann3d_redundant_noninformative":
+            from benchmarks.SimpleSynth.hartmann3d_synth import Hartmann3D, run_optimization_loop
+            benchmark = Hartmann3D(seed=test_seed, start_task=task_id, initializations=4,  num_noninformative=3, num_redundant=3)
+            meta_data = benchmark.get_meta_data()
+
+        elif args.function == "synth_hpo_redundant":
+            from benchmarks.SimpleSynth.synthHPO import SynthHPO, run_optimization_loop
+            benchmark = SynthHPO(seed=test_seed, start_task=task_id, initializations=3, n_tasks=50, dim=16, p_noninformative=0.0, p_redundant=0.2)
+            meta_data = benchmark.get_meta_data()
+        elif args.function == "synth_hpo_noninformative":
+            from benchmarks.SimpleSynth.synthHPO import SynthHPO, run_optimization_loop
+            benchmark = SynthHPO(seed=test_seed, start_task=task_id, initializations=3, n_tasks=50, dim=16, p_noninformative=0.2, p_redundant=0.0)
+            meta_data = benchmark.get_meta_data()
+        elif args.function == "synth_hpo_noninformative_redundant":
+            from benchmarks.SimpleSynth.synthHPO import SynthHPO, run_optimization_loop
+            benchmark = SynthHPO(seed=test_seed, start_task=task_id, initializations=3, n_tasks=50, dim=16, p_noninformative=0.2, p_redundant=0.2)
+            meta_data = benchmark.get_meta_data()
+        elif args.function == "synth_hpo":
+            from benchmarks.SimpleSynth.synthHPO import SynthHPO, run_optimization_loop
+            benchmark = SynthHPO(seed=test_seed, start_task=task_id, initializations=3, n_tasks=50, dim=16, p_noninformative=0.0, p_redundant=0.0)
+            meta_data = benchmark.get_meta_data()
+
 
         if args.method == "MALIBO":
             from malibo.malibo import MALIBO
@@ -79,6 +101,7 @@ if __name__ == "__main__":
                 # Testing on validation data without training on it is not possible
                 optimizer.meta_fit(meta_data, meta_dir=meta_dir, **train_config)
 
+
         elif args.method == "metaPFNs4BO":
             import pfns4bo
             from mpfns4bo.tune_input_warping import fit_input_warping
@@ -91,7 +114,7 @@ if __name__ == "__main__":
             }
             optimizer = MetaPFNs4BO(torch.load( pfns4bo.hebo_plus_model), benchmark.search_space, meta_data, device=args.device, fit_encoder=fit_input_warping, configuration=configuration)
         
-        elif args.method == "metaPFNs4BO-joint-batched-context":
+        elif args.method == "metaPFNs4BO-jbc-past-surprise":
             import pfns4bo
             from mpfns4bo.tune_input_warping import fit_input_warping
             from mpfns4bo.meta_pfns4bo import MetaPFNs4BO
@@ -104,7 +127,7 @@ if __name__ == "__main__":
             }
             optimizer = MetaPFNs4BO(torch.load( pfns4bo.hebo_plus_model), benchmark.search_space, meta_data, device=args.device, fit_encoder=fit_input_warping, configuration=configuration)
         
-        elif args.method == "metaPFNs4BO-joint-batched-context-mean-weights":
+        elif args.method == "metaPFNs4BO-jbc-mean-weights":
             import pfns4bo
             from mpfns4bo.tune_input_warping import fit_input_warping
             from mpfns4bo.meta_pfns4bo import MetaPFNs4BO
@@ -117,7 +140,7 @@ if __name__ == "__main__":
             }
             optimizer = MetaPFNs4BO(torch.load( pfns4bo.hebo_plus_model), benchmark.search_space, meta_data, device=args.device, fit_encoder=fit_input_warping, configuration=configuration)
         
-        elif args.method == "metaPFNs4BO-mean-weights":
+        elif args.method == "metaPFNs4BO-joint-context-mean-weights":
             import pfns4bo
             from mpfns4bo.tune_input_warping import fit_input_warping
             from mpfns4bo.meta_pfns4bo import MetaPFNs4BO
@@ -128,6 +151,56 @@ if __name__ == "__main__":
             "flippable": False
             }
             optimizer = MetaPFNs4BO(torch.load( pfns4bo.hebo_plus_model), benchmark.search_space, meta_data, device=args.device, fit_encoder=fit_input_warping, configuration=configuration)
+
+        elif args.method == "metaPFNs4BO-error-model-past-surprise":
+            import pfns4bo
+            from mpfns4bo.tune_input_warping import fit_input_warping
+            from mpfns4bo.meta_pfns4bo import MetaPFNs4BO
+            configuration={"strategy": {"type": "error-model"},
+            "initial_design": {"type": "maxacq", "params": {"size":0}},
+            "weights": {"type": "past-surprise", "params": {}},
+            "acquisition_function_type": "ei",
+            "flippable": False
+            }
+            optimizer = MetaPFNs4BO(torch.load( pfns4bo.hebo_plus_model), benchmark.search_space, meta_data, device=args.device, fit_encoder=fit_input_warping, configuration=configuration)
+        
+        elif args.method == "metaPFNs4BO-error-model-mean-weights":
+            import pfns4bo
+            from mpfns4bo.tune_input_warping import fit_input_warping
+            from mpfns4bo.meta_pfns4bo import MetaPFNs4BO
+            configuration={"strategy": {"type": "error-model"},
+            "initial_design": {"type": "maxacq", "params": {"size":0}},
+           "weights": {"type": "mean-weights", "params": {}},
+            "acquisition_function_type": "ei",
+            "flippable": False
+            }
+            optimizer = MetaPFNs4BO(torch.load( pfns4bo.hebo_plus_model), benchmark.search_space, meta_data, device=args.device, fit_encoder=fit_input_warping, configuration=configuration)
+
+        elif args.method == "AggregatedPPFNs4BO":
+            import pfns4bo
+            print(pfns4bo.__path__)
+            from mpfns4bo.aggregatedPFNs4bo import AggregatedPPFNs4BO
+            from mpfns4bo.tune_input_warping import fit_input_warping
+            optimizer = AggregatedPPFNs4BO(torch.load( pfns4bo.hebo_plus_model), benchmark.search_space, meta_data, device=args.device, fit_encoder=fit_input_warping, apply_power_transform=True, apply_power_transform_ds=True)
+
+
+        elif args.method == "pPFNs4BO-meta-ei":
+            import pfns4bo
+            from mpfns4bo.ppfns4bo import PPFNs4BO
+            from mpfns4bo.tune_input_warping import fit_input_warping
+            optimizer = PPFNs4BO(torch.load( pfns4bo.hebo_plus_model), benchmark.search_space, meta_data, device=args.device, fit_encoder=fit_input_warping, model_avg='meta-ei', apply_power_transform=True, apply_power_transform_ds=True)
+        
+        elif args.method == "pPFNs4BO-chain-ei":
+            import pfns4bo
+            from mpfns4bo.ppfns4bo import PPFNs4BO
+            from mpfns4bo.tune_input_warping import fit_input_warping
+            optimizer = PPFNs4BO(torch.load( pfns4bo.hebo_plus_model), benchmark.search_space, meta_data, device=args.device, fit_encoder=fit_input_warping, model_avg='chain-ei', apply_power_transform=True, apply_power_transform_ds=True)
+        
+        elif args.method == "pPFNs4BO-simple-ei":
+            import pfns4bo
+            from mpfns4bo.ppfns4bo import PPFNs4BO
+            from mpfns4bo.tune_input_warping import fit_input_warping
+            optimizer = PPFNs4BO(torch.load( pfns4bo.hebo_plus_model), benchmark.search_space, meta_data, device=args.device, fit_encoder=fit_input_warping, model_avg='simple-ei', apply_power_transform=True, apply_power_transform_ds=True)
 
         elif args.method == "pPFNs4BO-pca-ei":
             import pfns4bo

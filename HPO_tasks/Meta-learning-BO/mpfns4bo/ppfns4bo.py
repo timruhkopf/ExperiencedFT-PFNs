@@ -146,7 +146,8 @@ class PPFNs4BO(nn.Module):
         single_eval_pos: int | None = None,
         src_key_padding_mask=None,
         style = None,
-        max_num_samples=500,):
+        max_num_samples=1000,
+        target_single_eval_pos = 0,):
         assert isinstance(
             src, tuple
         ), "inputs (src) have to be given as (x,y) or (style,x,y) tuple"
@@ -160,12 +161,27 @@ class PPFNs4BO(nn.Module):
                 style = torch.tensor(style, device=x_full.device).view(1, 1).repeat(x_full.shape[1], 1)
 
         if src_key_padding_mask is None:
-            return self.model(
-            (style,
-            x_full,
-            y_full),
-            single_eval_pos=single_eval_pos,
-        )
+            if single_eval_pos > max_num_samples:
+                print(single_eval_pos, "reduced to ", max_num_samples)
+                arr = torch.arange(target_single_eval_pos, single_eval_pos)[torch.randperm(single_eval_pos- target_single_eval_pos)]
+                idx =  arr[:max_num_samples- target_single_eval_pos]
+                idx = torch.cat([ torch.arange(target_single_eval_pos), idx])
+                y_full_masked = y_full[idx]
+                idx = torch.cat([idx, torch.arange(single_eval_pos, x_full.shape[0])])
+                x_full_masked = x_full[idx] 
+                return self.model(
+                (style,
+                x_full_masked,
+                y_full_masked),
+                single_eval_pos=max_num_samples,)
+
+            else:
+                return self.model(
+                (style,
+                x_full,
+                y_full),
+                single_eval_pos=single_eval_pos,
+            )
         else:
             # PFNs4BO does not support src_key_padding_mask! 
             # We need to do it manually
@@ -177,6 +193,7 @@ class PPFNs4BO(nn.Module):
                 y_full_masked = y_full[:, batch_index:batch_index+1][~src_y_padding_mask]
                 single_eval_pos_masked = single_eval_pos - int(src_y_padding_mask.sum())
                 if single_eval_pos_masked > max_num_samples:
+                    print(single_eval_pos_masked, "reduced to ", max_num_samples)
                     idx = torch.randperm(single_eval_pos_masked)[:max_num_samples]
                     y_full_masked = y_full_masked[idx]
 

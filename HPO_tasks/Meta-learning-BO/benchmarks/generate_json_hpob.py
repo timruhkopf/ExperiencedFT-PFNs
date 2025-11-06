@@ -14,7 +14,7 @@ import os
 
 experiment_ids = ["MALIBO", "PFNs4BO", "PFNs4BO-PI", "PFNs4BO-EI", "mPFNs4BO"]
 experiment_ids = ["PFNs4BO-EI-IW", "PFNs4BO-PI", "PFNs4BO-PI-IW", "mPFNs4BO", "mPFNs4BO-IW"]
-experiment_ids =  ["metaPFNs4BO-joint-batched-context-mean-weights"]
+experiment_ids =  ["metaPFNs4BO-joint-batched-context", "metaPFNs4BO-joint-batched-context-mean-weights", "pPFNs4BO-pca4-ei", "pPFNs4BO-pca-ei"]
 
 
 seeds = ["test0", "test1", "test2", "test3", "test4"]
