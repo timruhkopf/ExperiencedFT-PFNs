@@ -129,8 +129,6 @@ class PriorImputer:
 
             full_sample = mvn.sample((n_samples,))
 
-
-
             mu_post_list.append(mu_post)
             cov_post_list.append(cov_post)
             std_post_list.append(std_post)
@@ -170,62 +168,66 @@ class PriorImputer:
         # plt.title('GP Posterior with joint sample and marginal quantiles')
         # plt.show()
 
-     
-        # import plotly.graph_objs as go
-        # from plotly.offline import plot
-        #
-        # # assume x_train, y_train, and imputed_y are torch tensors from your snippet
-        # # also assuming you trimmed the ID dim (so shapes are: x_train: (T, D=2), y_train: (T,), imputed_y: (T,))
-        # # if still batched: slice [ :, 0, :] for simplicity
-        #
-        # # Example for plotting single batch (B=1)
-        # x_tr = x_train[:, 0, 1:].cpu().numpy() if x_train.ndim == 3 else x_train[
-        #     :, 1:].cpu().numpy()
-        # y_tr = y_train[:, 0].cpu().numpy() if y_train.ndim == 2 else y_train.cpu().numpy()
-        #
-        # # Use the first imputed sample (n_samples=1)
-        # SAMPLE_IDX = 1
-        # y_imp = imputed_y[:, 0, 1].cpu().numpy() if imputed_y.ndim == 3 else imputed_y.cpu().numpy()
-        #
-        # # Build Plotly figure
-        # fig = go.Figure()
-        #
-        # # Training data points
-        # fig.add_trace(go.Scatter3d(
-        #     x=x_tr[:, 0],  # D=3 -> two features + y, using first two input dims
-        #     y=x_tr[:, 1],
-        #     z=y_tr,
-        #     mode='markers',
-        #     marker=dict(size=5, color='blue', opacity=0.7),
-        #     name='Training Data'
-        # ))
-        #
-        # # Imputed sample curve / points
-        # fig.add_trace(go.Scatter3d(
-        #     x=support_x[:, 0, 1].cpu().numpy(),
-        #     y=support_x[:, 0, 2].cpu().numpy(),
-        #     z=y_imp,
-        #     mode='markers',
-        #     marker=dict(size=4, color='orange'),
-        #     line=dict(color='orange', width=2),
-        #     name='Sampled Imputation'
-        # ))
-        #
-        # # Layout
-        # fig.update_layout(
-        #     title='Training Data and Sampled Imputation',
-        #     scene=dict(
-        #         xaxis_title='Feature 1',
-        #         yaxis_title='Feature 2',
-        #         zaxis_title='Output'
-        #     ),
-        #     margin=dict(l=0, r=0, b=0, t=40)
-        # )
-        #
-        # # Display offline
-        # plot(fig)
+        # self.plot_sample(x_train, y_train, imputed_y, support_x)
 
         return support_x, imputed_y
+
+    def plot_sample(self, x_train, y_train, imputed_y, support_x):
+        import plotly.graph_objs as go
+        from plotly.offline import plot
+
+        # assume x_train, y_train, and imputed_y are torch tensors from your snippet
+        # also assuming you trimmed the ID dim (so shapes are: x_train: (T, D=2), y_train: (T,), imputed_y: (T,))
+        # if still batched: slice [ :, 0, :] for simplicity
+
+        # Example for plotting single batch (B=1)
+        x_tr = x_train[:, 0, 1:].cpu().numpy() if x_train.ndim == 3 else x_train[
+            :, 1:].cpu().numpy()
+        y_tr = y_train[:, 0].cpu().numpy() if y_train.ndim == 2 else y_train.cpu().numpy()
+
+        # Use the first imputed sample (n_samples=1)
+        SAMPLE_IDX = 3
+        y_imp = imputed_y[:, 0, SAMPLE_IDX].cpu().numpy() if imputed_y.ndim == 3 else imputed_y.cpu(
+
+        ).numpy()
+
+        # Build Plotly figure
+        fig = go.Figure()
+
+        # Training data points
+        fig.add_trace(go.Scatter3d(
+            x=x_tr[:, 0],  # D=3 -> two features + y, using first two input dims
+            y=x_tr[:, 1],
+            z=y_tr,
+            mode='markers',
+            marker=dict(size=5, color='blue', opacity=0.7),
+            name='Training Data'
+        ))
+
+        # Imputed sample curve / points
+        fig.add_trace(go.Scatter3d(
+            x=support_x[:, 0, 1].cpu().numpy(),
+            y=support_x[:, 0, 2].cpu().numpy(),
+            z=y_imp,
+            mode='markers',
+            marker=dict(size=4, color='orange'),
+            line=dict(color='orange', width=2),
+            name='Sampled Imputation'
+        ))
+
+        # Layout
+        fig.update_layout(
+            title='Training Data and Sampled Imputation',
+            scene=dict(
+                xaxis_title='Feature 1',
+                yaxis_title='Feature 2',
+                zaxis_title='Output'
+            ),
+            margin=dict(l=0, r=0, b=0, t=40)
+        )
+
+        # Display offline
+        plot(fig)
 
 
 def sample_logits(logits: torch.Tensor, n_samples: int, borders) -> torch.Tensor:
