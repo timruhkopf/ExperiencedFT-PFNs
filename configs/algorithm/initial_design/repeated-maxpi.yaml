@@ -2,4 +2,4 @@
 
 _target_: src.model.initial_design.maxpi_initial_design.RepeatedMaxPIInitialDesign
 size: 10
-repetitions: 5
+repetitions: 15

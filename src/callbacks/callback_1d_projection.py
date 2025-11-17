@@ -114,38 +114,37 @@ class Callback1dProjectionPFNContext(AbstractCallback):
 
             # META-AWARE (Marginals) -----------------------------------------------------
             # target_surface_logits = self.parent_model.strategy(x_train, X_grid, y_train, inc)
-            prior_augmented_target_model =self.parent_model.interim_results[
+            prior_augmented_target_model = self.parent_model.interim_results[
                 'prior_augmented_target_model']
-            target_model =self.parent_model.interim_results['target_model']
+            target_model = self.parent_model.interim_results['target_model']
             prior_logits = prior_augmented_target_model(x_test=X_grid)
             target_logits = target_model(x_test=X_grid)
             target_surface_logits = torch.cat((prior_logits, target_logits), dim=1)
 
-
             get_lower_upper_surfaces(
-                self.model.criterion, target_surface_logits[:,0,:], X1, X2, fig,
+                self.model.criterion, target_surface_logits[:, 0, :], X1, X2, fig,
                 row=1, col=1,
                 name='meta-aware', grid_size=grid_size
             )
-            for b in range(1, self.num_related +1):
+            for b in range(1, self.num_related + 1):
                 prior_col = b + 1
                 get_lower_upper_surfaces(
-                    self.model.criterion, target_surface_logits[:,b,:], X1, X2, fig,
+                    self.model.criterion, target_surface_logits[:, b, :], X1, X2, fig,
                     row=2, col=prior_col,
                     name='meta-aware', grid_size=grid_size
                 )
 
-
             # META-AWARE (Joint) -----------------------------------------------------
             weights = torch.from_numpy(df.iloc[-1][df.columns[df.columns.to_series().str.match(
                 pattern)]].values.astype(np.float32)).to(self.device)
-            mixed_logits = (target_surface_logits * weights.reshape(1, self.num_related + 1, 1)).sum(dim=1)
+            mixed_logits = (
+                        target_surface_logits * weights.reshape(1, self.num_related + 1, 1)).sum(
+                dim=1)
             get_lower_upper_surfaces(
                 self.model.criterion, mixed_logits, X1, X2, fig,
                 row=2, col=1,
                 name='meta-aware-mixed', grid_size=grid_size
             )
-
 
             # logits = self.parent_model.interim_results['logits']
             # predictions = torch.cat((prior_logits, target_logits), dim=1)
@@ -250,8 +249,8 @@ class Callback1dProjectionPFNContext(AbstractCallback):
             # TARGET DATA ------
             target_locations = [(1, 1), (2, 1), *additional_target_locations]
             for (row, col) in target_locations:
-            # TARGET DATA ------
-            # add the scatter plot for x_train, y_train
+                # TARGET DATA ------
+                # add the scatter plot for x_train, y_train
                 fig.add_trace(go.Scatter3d(
                     x=x_train[:, 0, 1].cpu().numpy(),
                     y=x_train[:, 0, 2].cpu().numpy(),
@@ -321,7 +320,7 @@ class Callback1dProjectionPFNContext(AbstractCallback):
 
 class Callback1dProjectionPI(AbstractCallback):
     __name__ = 'Callback1DProjectionPI'
-    STOP_AT = 11
+    STOP_AT = 100
 
     def on_trained_ppds(
             self,
@@ -365,7 +364,7 @@ class Callback1dProjectionPI(AbstractCallback):
             # Create subplot figure with 2 rows and 2 columns
             fig = make_subplots(
                 rows=rows, cols=cols,
-                subplot_titles=titles.flatten().tolist(),
+                # subplot_titles=titles.flatten().tolist(),
                 specs=specs,
                 vertical_spacing=0.03,  # default is ~0.3, smaller makes rows tighter
                 horizontal_spacing=0.03  # default is ~0.2, smaller makes
@@ -382,7 +381,7 @@ class Callback1dProjectionPI(AbstractCallback):
 
             # TARGET MODEL -----------------------------------------------------
             if 'target_model' in interim_results.keys():
-                target_logits = interim_results['target_model'](x_test = X_grid)
+                target_logits = interim_results['target_model'](x_test=X_grid)
 
                 get_lower_upper_surfaces(
                     self.model.criterion, target_logits, X1, X2, fig,
@@ -457,7 +456,6 @@ class Callback1dProjectionPI(AbstractCallback):
                 error_criterion = interim_results['raw_error_criterion']
                 y_error = interim_results['y_error']
 
-
                 for b in range(self.num_related):
                     error_col = b + 2
                     get_lower_upper_surfaces(
@@ -511,7 +509,6 @@ class Callback1dProjectionPI(AbstractCallback):
                 x_test=self.related_context.x,
             )
 
-
             projected_prior_logits, projected_prior_criterion = DistributionConvolver().to(
                 self.device).convolve(
                 A_logits=prior_logits_related,
@@ -537,7 +534,6 @@ class Callback1dProjectionPI(AbstractCallback):
                     mode='markers', marker=dict(size=2, color='yellow'),
                 ), row=3, col=projected_col)
 
-
             # TRUE PRIOR DATA ------
             for b in range(self.num_related):
                 projected_col = b + 2
@@ -550,8 +546,6 @@ class Callback1dProjectionPI(AbstractCallback):
                     name='Prior Points',
                     mode='markers', marker=dict(size=2, color='red'),
                 ), row=3, col=projected_col)
-
-
 
                 # # DIRAC PROJECTED PRIOR DATA ------
                 # dirac_prior_logits, _,  bardist = self.error_model.dirac_forward(
@@ -586,8 +580,6 @@ class Callback1dProjectionPI(AbstractCallback):
             if self.parent_model.contender_bonus is not None:
                 acq = self.parent_model.contender_bonus(x_train, y_train, x_test, acq, inc)
 
-
-
             for row, col in [(1, 1), (3, 1)]:
                 # FINAL PREDICTIONS DATA - target task plot ----
                 fig.add_trace(go.Scatter3d(
@@ -614,10 +606,6 @@ class Callback1dProjectionPI(AbstractCallback):
                 row=3, col=1,
                 name='final_predictions', grid_size=grid_size
             )
-
-
-
-
 
             # Counterfactuals -----------------------------------------------------
             # step = x_train.shape[0]
@@ -674,11 +662,13 @@ class Callback1dProjectionPI(AbstractCallback):
 
             # SURPRISE MODEL -----------------------------------------------------
             if 'surprise_logits' in self.parent_model.interim_results.keys():
-                predictions = self.parent_model.interim_results['surprise_logits'].to(self.device)
-                future_x = self.parent_model.interim_results['surprise_x'].to(self.device)
-                predictions = torch.cat(predictions, dim=0)
+                predictions = (torch.cat(self.parent_model.interim_results['surprise_logits'],
+                                         dim=0).to(self.device))
+                future_x = (torch.stack(self.parent_model.interim_results['surprise_x'], dim=0).to(
+                    self.device))
+                # predictions = torch.cat(predictions, dim=0)
                 future_x = [fx if not torch.equal(fx, torch.empty((0, 3))) else
-                torch.ones(3).to(self.device)*np.nan for fx in future_x ]
+                            torch.ones(3).to(self.device) * np.nan for fx in future_x]
                 future_x = torch.stack(future_x, dim=0)
 
                 # first on target task
