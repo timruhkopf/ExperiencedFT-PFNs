@@ -175,6 +175,7 @@ class PriorImputer:
     def plot_sample(self, x_train, y_train, imputed_y, support_x):
         import plotly.graph_objs as go
         from plotly.offline import plot
+        import numpy as np
 
         # assume x_train, y_train, and imputed_y are torch tensors from your snippet
         # also assuming you trimmed the ID dim (so shapes are: x_train: (T, D=2), y_train: (T,), imputed_y: (T,))
@@ -191,8 +192,48 @@ class PriorImputer:
 
         ).numpy()
 
+        grid_size = 50
+        x1 = np.linspace(0, 1, grid_size)
+        x2 = np.linspace(0, 1, grid_size)
+        X1, X2 = np.meshgrid(x1, x2)
+        config_id = torch.tensor((X1 * 999).ravel()).floor()
+        X_grid = torch.vstack([config_id, torch.tensor(X1.ravel()), torch.tensor(X2.ravel())]).T
+        X_grid = X_grid.to(self.device).float().unsqueeze(1)
+
         # Build Plotly figure
         fig = go.Figure()
+
+        # surfaces -------------------
+        surf_logits=self.model(
+            (
+                torch.cat([x_train[:,:1], X_grid], dim=0),
+                y_train[:,:1],
+            ),
+            single_eval_pos=x_train.shape[0],
+        )
+
+        lower = self.model.criterion.icdf(surf_logits, 0.05).numpy().reshape(-1)
+
+        upper = self.model.criterion.icdf(surf_logits, 0.95).numpy().reshape(-1)
+        fig.add_trace(
+            go.Surface(
+                x=x1, y=x2, z=lower.reshape(grid_size, grid_size), colorscale='Oranges',
+                opacity=0.5,
+                showscale=False, coloraxis=None
+                # name=f'25th Q {name}'
+            )
+        )
+        fig.add_trace(
+            go.Surface(
+                x=x1, y=x2, z=upper.reshape(grid_size, grid_size), colorscale='Oranges',
+                opacity=0.5,
+                showscale=False, coloraxis=None
+                # name=f'25th Q {name}'
+            )
+        )
+
+        # ------------------
+
 
         # Training data points
         fig.add_trace(go.Scatter3d(
