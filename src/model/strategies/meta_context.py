@@ -71,35 +71,85 @@ class ProbabilisticMetaContextStrategy(AbstractStrategy):
         )
 
     def __call__(self, x_train, x_test, y_train, inc, **kwargs):
+        """
+        Probabilistic Joint Context Model with Prior Transfer
 
+        We want the following parings
 
-        # 1. get sampled functions under target task at related_tasks' locations
-        # p( y | Q=x_related, \tau^* )
+        Context --------------------------
+        [target | context], * indicates target task, r indicates related task
+        hat implies an imputation
+
+        1. [y^*(x_train)| \hat{y}_r(x_train), x_train]  -> target train features
+        This provides the grounds for the target task in terms of training data
+        as well as comparing its observed performance against the related tasks' imputed performance
+        as a landmark hyperparameter feature.
+
+        2. [\hat{y}^*(x_r) | y_r(x_r),  x_r] -> related train features
+        This provides the grounds for the generalization from related task to the target task; i.e.
+        this way we can leap from what the related tasks observations to what we believe will
+        happen under the target
+
+        Query: ------------------------
+        3. [ ? | \hat{y}_r(x_test), x_test ] -> target test features
+
+        Notes:
+            y^*(x_train) = y_train
+            \hat{y}_r(x_train) = imputed y values for related tasks at target train locations
+            \hat{y}^*(x_r) = imputed y values for target task at related tasks' locations
+            y_r(x_r) = related tasks' observed y values at their own locations
+            \hat{y}_r(x_test) = imputed y values for related tasks at target test locations
+
+        Obviously, any imputation done here creates a "reality" / scenario that has no
+        probabilistic perspective or knowledge of the implied uncertainty that generated it.
+        I.e. the imputed observations under the target are assumed to be true values from the
+        perspective of the model.
+        By Monte-Carlo sampling, (especially for the target task imputations at related tasks' locations)
+        we try to mitigate this effect by providing multiple scenarios and averaging over the
+        resulting PPD logits. This way we reflect the uncertainty contained in the PPD of the
+        target model.
+
+        # IMPORTANT IMPLEMENTATION NOTE:
+         The FT-PFN model expects [idx, fidelity, hp1, hp2, ...] as input features.
+         So we need to make sure that any landmarking feature is appended as a
+         regular hp dimension at the end of the feature vector. Otherwise the
+         encoder will mess with us.
+        """
+
+        # 2. get sampled functions under target task at related_tasks' locations
+        # p( y | Q=x_related, \tau^* ) -->  \hat{y}^*(x_r)
         _, y_target_x_related = self.imputer(
             x_train=x_train.repeat(1, self.num_related, 1),
             x_test=self.related_context.x,
             y_train=y_train.repeat(1, self.num_related),
             n_samples=self.n_samples,
-        )# (T_related, num_related, n_samples)
+        )  # (T_related, num_related, n_samples)
 
-        # 2 & 3. get sampled functions under the prior at target task's locations
-        # p( y | Q=x_test, \tau_i )
-        # p( y | Q=x_train, \tau_i )
-        _, y_related = self.imputer(
+        # 1 & 3. get sampled functions under the prior at target task's locations
+        # p( y | Q=x_test, \tau_i ) -->  \hat{y}_r(x_test)
+        # p( y | Q=x_train, \tau_i ) -->  \hat{y}_r(x_train)
+        _, y_r = self.imputer(
             x_train=self.related_context.x,
             x_test=torch.cat([
-                x_train.repeat(1, self.num_related, 1), # 2
-                x_test.repeat(1, self.num_related, 1) # 3
+                x_train.repeat(1, self.num_related, 1),  # 2
+                x_test.repeat(1, self.num_related, 1)  # 3
             ], dim=0),
             y_train=self.related_context.y,
             n_samples=self.n_samples,
-        ) # (T_train + T_test, num_related, n_samples)
+        )  # (T_train + T_test, num_related, n_samples)
+
+
+
 
         # split according to x_test:
         n_support_samples = x_train.shape[0]
-        y_related_x_train = y_related[:n_support_samples, :]  # 2 # (T_train, num_related, n_samples)
-        y_related_x_test = y_related[n_support_samples:, :] # 3 # (T_test, num_related, n_samples)
+        y_r_x_train = y_r[:n_support_samples, :]  # 2 # (T_train, num_related, n_samples)
+        y_r_x_test = y_r[n_support_samples:, :]  # 3 # (T_test, num_related, n_samples)
 
+        # (4) likelihood of target data under related task
+        yasdf =  self.get_prior_model(x_train.repeat(1, self.num_related, 1))
+        related_nll= [self.model.criterion(yasdf[:, b], y_train).mean() for b in range(
+                self.num_related)]
 
 
         # if self.add_hp:
@@ -111,31 +161,41 @@ class ProbabilisticMetaContextStrategy(AbstractStrategy):
         # context dim (hp) is appended with landmark features from related tasks
         # Here we only ever add one task at a time in D, but process all of them in batch parallel
         # (Training features)  -----------------------------
-        # 1. target: y*, based on (\hat{y}_r(x*), x*)
+        # target: y* based on (\hat{y}_r(x*), x*)
+        # FIXME: REMOVE TASK FLAG
+        TASK = 1
+
         train_features = torch.cat([
-            y_related_x_train.permute(0, 2, 1).reshape(-1, self.n_samples * self.num_related, 1),
-            x_train[..., :].repeat(1, self.n_samples * self.num_related, 1),  # id + fidelity dim
-        ], dim=-1)
+
+            x_train[..., :].repeat(1, self.n_samples, 1),  # (T, n_samples, hp)
+            # .repeat(1, self.n_samples * self.num_related, 1), id + fidelity dim
+            y_r_x_train[:, :TASK].permute(0, 2, 1),  # (T, num_samples, 1)
+            # .permute(0, 2, 1).reshape(-1, self.n_samples * self.num_related, 1),
+        ], dim=-1)  # (T, n_samples, hp + 1)
 
         # 2. target: \hat{y}*, based on (y_r(x_r) , x_r) ,
         related_features = torch.cat([
-            self.related_context.y.unsqueeze(-1),
-            self.related_context.x,  # id + fidelity dim
-        ], dim=-1).repeat(1, self.n_samples, 1) # (T, n_samples * num_related, hp + 1)
+            self.related_context.x[:, :TASK],  # (T_related, 1, hp)
+            self.related_context.y[:, :TASK].unsqueeze(-1),  # (T_related, 1, 1)
+        ], dim=-1).repeat(1, self.n_samples, 1)  # (T, n_samples , hp + 1)
 
         # (Targets) -----------------------------
-        # ( y*, \hat{y}_r )
+        # ( y*, \hat{y}^*(x_r) )
         targets = torch.cat([
-            y_train.unsqueeze(-1).repeat(1, self.n_samples * self.num_related,1),
-            y_target_x_related.permute(0, 2, 1).reshape(-1, self.n_samples * self.num_related, 1)
-        ], dim=0)
+            y_train.unsqueeze(-1).repeat(1, self.n_samples, 1),  # (T, n_samples, 1)
+            # .repeat(1, self.n_samples * self.num_related,1),
+            y_target_x_related[:, :TASK].permute(0, 2, 1),  # (T_related, n_samples, 1)
+            # .permute(0, 2, 1).reshape(-1, self.n_samples * self.num_related, 1)
+        ], dim=0).squeeze(-1)  # (T + T_related, n_samples)
 
         # (Query features) -----------------------------
         # (\hat{y}_r(x_test), x_test)
         query_features = torch.cat([
-            y_related_x_test.permute(0, 2, 1).reshape(-1, self.n_samples * self.num_related, 1),
-            x_test.repeat(1, self.n_samples * self.num_related, 1),  # id + fidelity dim
-        ], dim=-1)
+            x_test.repeat(1, self.n_samples, 1) , # (T_test, n_samples, hp)
+            # .repeat(1, self.n_samples * self.num_related, 1),  # id + fidelity dim
+            y_r_x_test[:, :TASK].permute(0, 2, 1),  # (T_test, n_samples, 1)
+            # .permute(0, 2, 1).reshape(-1, self.n_samples * self.num_related, 1),
+        ], dim=-1)  # (T_test, n_samples, hp + 1)
 
         # p( y | Q=x_test, \tau^*, \tau_i ) after reshaping correctly and then averaging over
         # samples per related task!
@@ -146,11 +206,16 @@ class ProbabilisticMetaContextStrategy(AbstractStrategy):
             ),
             single_eval_pos=train_features.shape[0] + related_features.shape[0],
         )
-        # undo the batch parallel trick and average per task over samples:
-        logits = logits.reshape(
-            x_test.shape[0], self.n_samples, self.num_related, logits.shape[-1]
-        ).permute(0,2,1, 3).mean(dim=2)  # (T_test, num_related, D_logits)
 
+        logits = logits.mean(dim=1) #[:,0] #
+
+        #
+        # # undo the batch parallel trick and average per task over samples:
+        # logits = logits.reshape(
+        #     x_test.shape[0], self.n_samples, self.num_related, logits.shape[-1]
+        # ).permute(0,2,1, 3).mean(dim=2)  # (T_test, num_related, D_logits)
+
+        # Only Manual call to plot here for debugging, otherwise recursion!
         #     self.plot(x_train, x_test, y_train, inc)
 
         return logits
@@ -186,8 +251,9 @@ class ProbabilisticMetaContextStrategy(AbstractStrategy):
 
         # FIXME: remove both flags
         TASK =0
-        SAMPLE =0
-        surf_joint_logits = surf_joint_logits[:, SAMPLE, ...]
+        SAMPLE = 1
+        # surf_joint_logits = surf_joint_logits[:, SAMPLE, TASK, ...]
+        # surf_joint_logits = surf_joint_logits[:, SAMPLE, ...]
         crit = self.model.criterion
         get_lower_upper_surfaces(
             criterion=crit, logits=surf_target_logits,
@@ -195,7 +261,7 @@ class ProbabilisticMetaContextStrategy(AbstractStrategy):
             x1=X1, x2=X2, grid_size=grid_size
         )
         get_lower_upper_surfaces(
-            criterion=crit, logits=surf_joint_logits[:, TASK, :],
+            criterion=crit, logits=surf_joint_logits,
             row=1, col=2, fig=fig, name='Merged Model',
             x1=X1, x2=X2, grid_size=grid_size
         )
@@ -253,13 +319,15 @@ class ProbabilisticMetaContextStrategy(AbstractStrategy):
         ), row=1, col=1)
 
         # (x_test points to point in merged model) ----------------------------------
-        merged_test_logits = self.__call__(x_train=x_train, x_test=x_test, y_train=y_train,
-                                           inc=None)
+        merged_test_logits = self.__call__(
+            x_train=x_train, x_test=x_test, y_train=y_train,
+            inc=None
+        )
         # FIXME: REMOVE ME
-        merged_test_logits = merged_test_logits[:, SAMPLE, ...]
-
+        # merged_test_logits = merged_test_logits[:, SAMPLE, TASK, ...]
+        # merged_test_logits = merged_test_logits[:, SAMPLE, ...]
         merged_test_pi = self.model.criterion.pi(
-            merged_test_logits[:, TASK, :],
+            merged_test_logits,
             best_f=inc,
             maximize=True
         ).cpu().numpy()
@@ -267,12 +335,59 @@ class ProbabilisticMetaContextStrategy(AbstractStrategy):
         fig.add_trace(go.Scatter3d(
             x=x_test[:, 0, 1].cpu().numpy(),
             y=x_test[:, 0, 2].cpu().numpy(),
-            z=self.model.criterion.median(merged_test_logits[:, TASK, :]),
+            z=self.model.criterion.median(merged_test_logits),
             mode='markers',
             marker=dict(size=2, color=merged_test_pi, colorscale='Viridis', colorbar=dict(
                 title='PI')),
             name='Test Points PI'
         ), row=1, col=2)
+
+        # (interactive plotting with sample data) ------------------
+        # y_r_x_train samples
+        fig.add_trace(go.Scatter3d(
+            x=x_train[:, 0, 1].cpu().numpy(),
+            y=x_train[:, 0, 2].cpu().numpy(),
+            z=y_r_x_train[:, 0, SAMPLE].cpu().numpy(),
+            mode='markers',
+            marker=dict(size=2, color='cyan'),
+
+        ), row=1, col=2)
+
+        # y_target_x_related samples
+        fig.add_trace(go.Scatter3d(
+            x=self.related_context.x[:, 0, 1].cpu().numpy(),
+            y=self.related_context.x[:, 0, 2].cpu().numpy(),
+            z=y_target_x_related[:, 0, SAMPLE].cpu().numpy(),
+            mode='markers',
+            marker=dict(size=2, color='orange'),
+
+        ), row=1, col=2)
+
+        # y_r_x_test samples
+        fig.add_trace(go.Scatter3d(
+            x=x_test[:, 0, 1].cpu().numpy(),
+            y=x_test[:, 0, 2].cpu().numpy(),
+            z=y_r_x_test[:, 0, SAMPLE].cpu().numpy(),
+            mode='markers',
+            marker=dict(size=2, color='pink'),
+
+        ), row=1, col=2)
+
+        # train = torch.cat([train_features, related_features], dim=0)
+        #
+        #
+        # # these two should be aligned in T dim. plot the data points
+        # # notice, that train is (T + T_related, n_samples, hp + 1)
+        # # let us first plot
+        # fig.add_trace(go.Scatter3d(
+        #     x=train[:, 0, 1].cpu().numpy(),
+        #     y=train[:, 0, 2].cpu().numpy(),
+        #     z=targets[:, 0].cpu().numpy(),
+        #     mode='markers',
+        #     marker=dict(size=3, color='black'),
+        #     name='Meta-Context Training Points'
+        # ), row=1, col=2
+        # )
 
         # (layout) ----------------------------------
         fig.update_layout(
@@ -291,6 +406,155 @@ class ProbabilisticMetaContextStrategy(AbstractStrategy):
         # fig.show()
         plot(fig)
         plt.clf()
+
+
+class ProbabilisticMetaContextStrategyV2(ProbabilisticMetaContextStrategy):
+    def __init__(self, *args, **kwargs):
+        """
+        Here we basically run the ProbabilisticMetaContextStrategy with add_hp=False initially,
+        which will give us the regression y_target ~ f({y_related_i}_i). Taking the the resulting PPD
+        as a condensate of all the related tasks, we can then use it again as a single landmarking feature
+        in a second pass y_target ~ f(hp, y_condensate), where we can now also add the hp dimensions again.
+
+        :param args:
+        :param kwargs:
+        """
+        super().__init__(*args, **kwargs)
+        self.condensed = True
+        if self.condensed:
+            self.add_hp = False
+
+    def __call__(self, x_train, x_test, y_train, inc, **kwargs):
+        T, B, hpD = x_train.shape
+
+        # 1. get samples from the marginals of related tasks at target task's locations
+        y_train_prior = self.imputer(
+            x_train=self.related_context.x,
+            x_test=x_train.repeat(1, self.num_related, 1),
+            y_train=self.related_context.y,
+            n_samples=self.n_samples,
+        )
+
+        # 2. collect a random support set
+        if self.n_support_samples is None:
+            self.n_support_samples = 10 * hpD  # heuristic
+
+        if self.support == 'sobol':
+            sobol_engine = qmc.Sobol(d=hpD, scramble=True)
+            sobol_sample = sobol_engine.random(n=self.n_support_samples)
+
+        elif self.support == 'lhd':
+            lhs_engine = qmc.LatinHypercube(d=hpD)
+            sobol_sample = lhs_engine.random(n=self.n_support_samples)
+
+        support_x = torch.tensor(sobol_sample, device=self.device).float().unsqueeze(1)
+        support_x[..., 0] = 999.  # hp id dimension in IFBO!
+
+        # 3. get imputed y values for related tasks at support set locations
+        y_prior = self.imputer(
+            x_train=self.related_context.x,
+            x_test=torch.cat([
+                support_x.repeat(1, self.num_related, 1),
+                x_test.repeat(1, self.num_related, 1)
+            ], dim=0),
+
+            y_train=self.related_context.y,
+            n_samples=self.n_samples,
+        )
+
+        y_support_prior = y_prior[:self.n_support_samples, :]  # (n, num_related)
+        y_test_prior = y_prior[self.n_support_samples:, :]  # (T', num_related)
+
+        # 4. imputed y values for target task at support set locations
+        y_support_target = self.imputer(
+            x_train=x_train,
+            x_test=support_x,
+            y_train=y_train,
+            n_samples=self.n_samples
+        )
+
+        if self.n_samples == 1:
+            y_train_prior = y_train_prior.unsqueeze(-1)  # (T, 1, num_related)
+            y_support_target = y_support_target.unsqueeze(-1)  #
+            y_support_prior = y_support_prior.unsqueeze(-1)  # (n, 1, num_related)
+            y_test_prior = y_test_prior.unsqueeze(-1)  # (T', 1
+
+        y_train = y_train.unsqueeze(1)  # (T, 1)
+
+        # samples are batch dim from now one
+        y_support_target = y_support_target.permute(0, 2, 1)
+        y_support_prior = y_support_prior.permute(0, 2, 1)
+        y_train_prior = y_train_prior.permute(0, 2, 1)
+        y_test_prior = y_test_prior.permute(0, 2, 1)
+
+        if self.add_hp:
+            hp_dim = None
+
+        else:
+            hp_dim = 2  # id + fidelity dim in ifbo
+
+        # 5. collect all the imputed y values and use them as landmarking feature vectors.
+        support_features = torch.cat([
+            support_x[..., :hp_dim].repeat(1, self.n_samples, 1),  # id + fidelity dim
+            y_support_prior,
+        ], dim=-1)  # (n, 1 + 1 + num_related)
+
+        features_train = torch.cat([
+            x_train[..., :hp_dim].repeat(1, self.n_samples, 1),  # id + fidelity dim
+            y_train_prior,
+        ], dim=-1)
+
+        final_train_features = torch.cat([features_train, support_features], dim=0)
+        final_train_targets = torch.cat([y_train.repeat(1, self.n_samples, 1), y_support_target],
+                                        dim=0)
+
+        test_features = torch.cat([
+            x_test[..., :hp_dim].repeat(1, self.n_samples, 1),  # id + fidelity dim
+            y_test_prior,  # (T', 1 + num_related)
+
+        ], dim=-1)
+        test, train, support = test_features.shape[0], features_train.shape[0], \
+            support_features.shape[0]
+        test_features = torch.cat([test_features, features_train, support_features], dim=0)
+
+        # use batch parallel sampled data from the related and target tasks
+        # and average the resulting sample based logits
+        logits = self.model(
+            (
+                torch.cat([final_train_features, test_features], dim=0),
+                final_train_targets.squeeze(-1)
+            ),
+            single_eval_pos=final_train_features.shape[0],
+        )
+
+        samples = torch.stack([
+            sample_logits(logits[:, b, :], n_samples=10, borders=self.model.criterion.borders)
+            for b in range(logits.shape[1])
+        ], dim=1)
+
+        b = self.n_samples * 10
+
+        test_samples = samples[:test, :].reshape(-1, b, 1)
+        train_samples = samples[test:test + train, :].reshape(-1, b, 1)
+        support_samples = samples[test + train:, :].reshape(-1, b, 1)
+
+        train_context = torch.cat([x_train.repeat(1, b, 1), train_samples], dim=-1)
+        support_context = torch.cat([support_x.repeat(1, b, 1), support_samples], dim=-1)
+        test_context = torch.cat([x_test.repeat(1, b, 1), test_samples], dim=-1)
+
+        final_train_features = torch.cat([train_context, support_context], dim=0)
+        final_test_features = test_context
+        final_train_targets = torch.cat([y_train.repeat(1, b, 1), support_samples], dim=0)
+
+        logits = self.model(
+            (
+                torch.cat([final_train_features, final_test_features], dim=0),
+                final_train_targets.squeeze(-1)
+            ),
+            single_eval_pos=final_train_features.shape[0],
+        ).mean(dim=1)
+
+        return logits
 
 
 class SplitMetaContextStrategy(AbstractStrategy):
